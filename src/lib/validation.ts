@@ -161,6 +161,20 @@ export const updateSchuleSchema = createSchuleSchema.extend({
 });
 
 // ============================================================
+// EINSTELLUNGEN: SCHUL-STUFEN
+// ============================================================
+
+export const createSchulStufeSchema = z.object({
+  schuleId: z.number().int().positive("Ungueltige Schule."),
+  stufe: z.string().min(1, "Stufenname erforderlich.").max(50),
+  schulformTyp: z.string().min(1, "Schulform-Typ erforderlich.").max(50),
+});
+
+export const updateSchulStufeSchema = createSchulStufeSchema.extend({
+  id: z.number().int().positive("Ungueltige Stufen-ID."),
+});
+
+// ============================================================
 // EINSTELLUNGEN: SCHULJAHR
 // ============================================================
 

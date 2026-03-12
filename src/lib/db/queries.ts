@@ -131,6 +131,71 @@ export async function getAllSchulStufen() {
     .orderBy(asc(schulen.kurzname), asc(schulStufen.stufe));
 }
 
+export async function getAlleSchulStufenAdmin() {
+  return db
+    .select({
+      id: schulStufen.id,
+      schuleId: schulStufen.schuleId,
+      stufe: schulStufen.stufe,
+      schulformTyp: schulStufen.schulformTyp,
+      aktiv: schulStufen.aktiv,
+      schulKurzname: schulen.kurzname,
+      schulFarbe: schulen.farbe,
+    })
+    .from(schulStufen)
+    .innerJoin(schulen, eq(schulStufen.schuleId, schulen.id))
+    .orderBy(asc(schulen.kurzname), asc(schulStufen.stufe));
+}
+
+export async function getSchulStufeBySchuleUndStufe(schuleId: number, stufe: string) {
+  const [result] = await db
+    .select()
+    .from(schulStufen)
+    .where(and(eq(schulStufen.schuleId, schuleId), eq(schulStufen.stufe, stufe)));
+  return result ?? null;
+}
+
+export async function createSchulStufe(data: {
+  schuleId: number;
+  stufe: string;
+  schulformTyp: string;
+}) {
+  const [result] = await db
+    .insert(schulStufen)
+    .values(data)
+    .returning();
+  return result;
+}
+
+export async function updateSchulStufe(
+  id: number,
+  data: { stufe?: string; schulformTyp?: string }
+) {
+  const [result] = await db
+    .update(schulStufen)
+    .set(data)
+    .where(eq(schulStufen.id, id))
+    .returning();
+  return result;
+}
+
+export async function toggleSchulStufeAktiv(id: number, aktiv: boolean) {
+  const [result] = await db
+    .update(schulStufen)
+    .set({ aktiv })
+    .where(eq(schulStufen.id, id))
+    .returning();
+  return result;
+}
+
+export async function getSchulStufeById(id: number) {
+  const [result] = await db
+    .select()
+    .from(schulStufen)
+    .where(eq(schulStufen.id, id));
+  return result ?? null;
+}
+
 // ============================================================
 // SCHULJAHRE
 // ============================================================

@@ -13,12 +13,18 @@ import {
   toggleSchuleAktiv,
   getSchuleBySchulnummer,
   getSchuleByKurzname,
+  createSchulStufe,
+  updateSchulStufe,
+  toggleSchulStufeAktiv,
+  getSchulStufeBySchuleUndStufe,
 } from "@/lib/db/queries";
 import {
   schuljahrSchema,
   haushaltsjahrSchema,
   createSchuleSchema,
   updateSchuleSchema,
+  createSchulStufeSchema,
+  updateSchulStufeSchema,
   safeFormNumber,
   safeFormString,
 } from "@/lib/validation";
@@ -291,6 +297,126 @@ export async function toggleSchuleAktivAction(formData: FormData) {
     revalidatePath("/einstellungen");
     revalidatePath("/dashboard");
     return { success: true, message: aktiv ? "Schule aktiviert." : "Schule deaktiviert." };
+  } catch (err: unknown) {
+    console.error("Fehler:", err instanceof Error ? err.message : "Unbekannt");
+    return { error: "Fehler beim Aendern des Status." };
+  }
+}
+
+// ============================================================
+// SCHUL-STUFEN
+// ============================================================
+
+export async function createSchulStufeAction(formData: FormData) {
+  const session = await requireAdmin();
+
+  const parsed = createSchulStufeSchema.safeParse({
+    schuleId: safeFormNumber(formData, "schuleId"),
+    stufe: safeFormString(formData, "stufe", 50).trim(),
+    schulformTyp: safeFormString(formData, "schulformTyp", 50).trim(),
+  });
+
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0]?.message ?? "Ungueltige Eingabe.";
+    return { error: firstError };
+  }
+
+  const data = parsed.data;
+
+  // Duplikat-Pruefung: (schuleId, stufe) unique
+  const existing = await getSchulStufeBySchuleUndStufe(data.schuleId, data.stufe);
+  if (existing) {
+    return { error: `Stufe "${data.stufe}" existiert bereits fuer diese Schule.` };
+  }
+
+  try {
+    const result = await createSchulStufe(data);
+
+    await writeAuditLog("schulStufen", result.id, "INSERT", null, {
+      schuleId: data.schuleId,
+      stufe: data.stufe,
+      schulformTyp: data.schulformTyp,
+    }, session.name);
+
+    revalidatePath("/einstellungen");
+    revalidatePath("/schuelerzahlen");
+    revalidatePath("/stellensoll");
+    return { success: true, message: `Stufe "${data.stufe}" wurde angelegt.` };
+  } catch (err: unknown) {
+    console.error("Fehler beim Anlegen der Schulstufe:", err instanceof Error ? err.message : "Unbekannt");
+    if (err instanceof Error && err.message.includes("unique")) {
+      return { error: `Stufe "${data.stufe}" existiert bereits fuer diese Schule.` };
+    }
+    return { error: "Fehler beim Anlegen der Schulstufe." };
+  }
+}
+
+export async function updateSchulStufeAction(formData: FormData) {
+  const session = await requireAdmin();
+
+  const id = safeFormNumber(formData, "id");
+
+  const parsed = updateSchulStufeSchema.safeParse({
+    id,
+    schuleId: safeFormNumber(formData, "schuleId"),
+    stufe: safeFormString(formData, "stufe", 50).trim(),
+    schulformTyp: safeFormString(formData, "schulformTyp", 50).trim(),
+  });
+
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0]?.message ?? "Ungueltige Eingabe.";
+    return { error: firstError };
+  }
+
+  const data = parsed.data;
+
+  // Duplikat-Pruefung: (schuleId, stufe) bei anderem Datensatz
+  const existing = await getSchulStufeBySchuleUndStufe(data.schuleId, data.stufe);
+  if (existing && existing.id !== data.id) {
+    return { error: `Stufe "${data.stufe}" existiert bereits fuer diese Schule.` };
+  }
+
+  try {
+    await updateSchulStufe(data.id, {
+      stufe: data.stufe,
+      schulformTyp: data.schulformTyp,
+    });
+
+    await writeAuditLog("schulStufen", data.id, "UPDATE", null, {
+      stufe: data.stufe,
+      schulformTyp: data.schulformTyp,
+    }, session.name);
+
+    revalidatePath("/einstellungen");
+    revalidatePath("/schuelerzahlen");
+    revalidatePath("/stellensoll");
+    return { success: true, message: `Stufe "${data.stufe}" wurde aktualisiert.` };
+  } catch (err: unknown) {
+    console.error("Fehler beim Aktualisieren der Schulstufe:", err instanceof Error ? err.message : "Unbekannt");
+    return { error: "Fehler beim Aktualisieren der Schulstufe." };
+  }
+}
+
+export async function toggleSchulStufeAktivAction(formData: FormData) {
+  const session = await requireAdmin();
+
+  const id = safeFormNumber(formData, "id");
+  const aktiv = formData.get("aktiv") === "true";
+
+  if (!Number.isFinite(id) || id <= 0) return { error: "Ungueltige ID." };
+
+  try {
+    await toggleSchulStufeAktiv(id, aktiv);
+
+    await writeAuditLog("schulStufen", id, "UPDATE", null, {
+      aktiv,
+      aktion: aktiv ? "aktiviert" : "deaktiviert",
+    }, session.name);
+
+    revalidatePath("/einstellungen");
+    revalidatePath("/schuelerzahlen");
+    revalidatePath("/stellensoll");
+    return { success: true, message: aktiv ? "Stufe aktiviert." : "Stufe deaktiviert." };
   } catch (err: unknown) {
     console.error("Fehler:", err instanceof Error ? err.message : "Unbekannt");
     return { error: "Fehler beim Aendern des Status." };

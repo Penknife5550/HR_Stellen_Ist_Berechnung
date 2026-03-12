@@ -1,15 +1,16 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
-import { getAlleSchulen, getLatestSync, getSchuljahre, getHaushaltsjahre } from "@/lib/db/queries";
+import { getAlleSchulen, getAlleSchulStufenAdmin, getLatestSync, getSchuljahre, getHaushaltsjahre } from "@/lib/db/queries";
 import { getOptionalSession } from "@/lib/auth/permissions";
 import { EinstellungenClient } from "./EinstellungenClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function EinstellungenPage() {
-  const [schulen, latestSync, schuljahreList, haushaltsjahreListe, session] = await Promise.all([
+  const [schulen, schulStufen, latestSync, schuljahreList, haushaltsjahreListe, session] = await Promise.all([
     getAlleSchulen(),
+    getAlleSchulStufenAdmin(),
     getLatestSync(),
     getSchuljahre(),
     getHaushaltsjahre(),
@@ -32,6 +33,7 @@ export default async function EinstellungenPage() {
       {/* Schulen, Schuljahre & Haushaltsjahre (interaktiv) */}
       <EinstellungenClient
         schulen={schulen}
+        schulStufen={schulStufen}
         schuljahre={schuljahreList}
         haushaltsjahre={haushaltsjahreListe}
         isAdmin={isAdmin}
