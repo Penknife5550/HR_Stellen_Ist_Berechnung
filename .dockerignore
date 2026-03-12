@@ -1,0 +1,43 @@
+# Dependencies (werden im Container frisch installiert)
+node_modules
+
+# Next.js Build-Output
+.next
+
+# Lokale Umgebungsvariablen
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+coverage
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+vitest.config.ts
+src/**/__tests__
+
+# Dokumentation
+*.md
+LICENSE
+
+# Docker (Rekursion vermeiden)
+Dockerfile
+docker-compose*.yml
+Caddyfile
+.dockerignore

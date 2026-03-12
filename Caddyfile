@@ -1,0 +1,22 @@
+# ============================================================
+# Stellenistberechnung – Caddy Reverse Proxy
+# ============================================================
+# Domain anpassen: stellenist.fes-credo.de (oder intern)
+# Pattern: wie Kassenbuch (kb-fv.fes-credo.de)
+# ============================================================
+
+stellenist.fes-credo.de {
+	# Security Headers (ergaenzend zu Next.js eigenen Headers)
+	header {
+		-Server
+		X-Robots-Tag "noindex, nofollow"
+		X-Download-Options "noopen"
+		X-Permitted-Cross-Domain-Policies "none"
+	}
+
+	# Kompression
+	encode gzip
+
+	# Reverse Proxy auf Next.js App (Port 3000)
+	reverse_proxy app:3000
+}
