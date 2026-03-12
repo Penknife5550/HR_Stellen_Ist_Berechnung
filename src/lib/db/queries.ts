@@ -42,6 +42,66 @@ export async function getSchuleByKurzname(kurzname: string) {
   return result ?? null;
 }
 
+export async function getAlleSchulen() {
+  return db.select().from(schulen).orderBy(asc(schulen.kurzname));
+}
+
+export async function getSchuleBySchulnummer(schulnummer: string) {
+  const [result] = await db.select().from(schulen).where(eq(schulen.schulnummer, schulnummer));
+  return result ?? null;
+}
+
+export async function createSchule(data: {
+  schulnummer: string;
+  name: string;
+  kurzname: string;
+  schulform: string;
+  farbe?: string;
+  untisCode?: string;
+  adresse?: string;
+  plz?: string;
+  ort?: string;
+  istImAufbau?: boolean;
+}) {
+  const [result] = await db
+    .insert(schulen)
+    .values(data)
+    .returning();
+  return result;
+}
+
+export async function updateSchule(
+  id: number,
+  data: {
+    schulnummer?: string;
+    name?: string;
+    kurzname?: string;
+    schulform?: string;
+    farbe?: string;
+    untisCode?: string | null;
+    adresse?: string | null;
+    plz?: string | null;
+    ort?: string | null;
+    istImAufbau?: boolean;
+  }
+) {
+  const [result] = await db
+    .update(schulen)
+    .set({ ...data, updatedAt: sql`now()` })
+    .where(eq(schulen.id, id))
+    .returning();
+  return result;
+}
+
+export async function toggleSchuleAktiv(id: number, aktiv: boolean) {
+  const [result] = await db
+    .update(schulen)
+    .set({ aktiv, updatedAt: sql`now()` })
+    .where(eq(schulen.id, id))
+    .returning();
+  return result;
+}
+
 // ============================================================
 // SCHUL-STUFEN
 // ============================================================

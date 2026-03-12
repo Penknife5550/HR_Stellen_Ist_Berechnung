@@ -2,17 +2,35 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Plus, Check, Lock, Unlock, X } from "lucide-react";
+import { CalendarDays, Plus, Check, Lock, Unlock, X, School, Pencil, Eye, EyeOff } from "lucide-react";
 import {
   createSchuljahrAction,
   toggleSchuljahrAktivAction,
   createHaushaltsjahrAction,
   toggleHaushaltsjahrGesperrtAction,
+  createSchuleAction,
+  updateSchuleAction,
+  toggleSchuleAktivAction,
 } from "./actions";
 
 // ============================================================
 // TYPES
 // ============================================================
+
+interface Schule {
+  id: number;
+  schulnummer: string;
+  name: string;
+  kurzname: string;
+  untisCode: string | null;
+  schulform: string;
+  adresse: string | null;
+  plz: string | null;
+  ort: string | null;
+  farbe: string;
+  istImAufbau: boolean;
+  aktiv: boolean;
+}
 
 interface Schuljahr {
   id: number;
@@ -31,6 +49,7 @@ interface Haushaltsjahr {
 }
 
 interface Props {
+  schulen: Schule[];
   schuljahre: Schuljahr[];
   haushaltsjahre: Haushaltsjahr[];
   isAdmin: boolean;
@@ -75,7 +94,7 @@ function jahrToStichtage(jahr: number): { vorjahr: string; laufend: string } {
 // COMPONENT
 // ============================================================
 
-export function EinstellungenClient({ schuljahre, haushaltsjahre, isAdmin }: Props) {
+export function EinstellungenClient({ schulen, schuljahre, haushaltsjahre, isAdmin }: Props) {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   return (
@@ -96,6 +115,13 @@ export function EinstellungenClient({ schuljahre, haushaltsjahre, isAdmin }: Pro
         </div>
       )}
 
+      {/* Schulen */}
+      <SchulenSection
+        schulen={schulen}
+        isAdmin={isAdmin}
+        onMessage={setMessage}
+      />
+
       {/* Schuljahre */}
       <SchuljahrSection
         schuljahre={schuljahre}
@@ -109,6 +135,382 @@ export function EinstellungenClient({ schuljahre, haushaltsjahre, isAdmin }: Pro
         isAdmin={isAdmin}
         onMessage={setMessage}
       />
+    </div>
+  );
+}
+
+// ============================================================
+// SCHULEN SECTION
+// ============================================================
+
+const emptySchulForm = {
+  schulnummer: "",
+  name: "",
+  kurzname: "",
+  schulform: "",
+  farbe: "#575756",
+  untisCode: "",
+  adresse: "",
+  plz: "",
+  ort: "",
+  istImAufbau: false,
+};
+
+function SchulenSection({
+  schulen,
+  isAdmin,
+  onMessage,
+}: {
+  schulen: Schule[];
+  isAdmin: boolean;
+  onMessage: (msg: { type: "success" | "error"; text: string } | null) => void;
+}) {
+  const router = useRouter();
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [form, setForm] = useState(emptySchulForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const resetForm = () => {
+    setForm(emptySchulForm);
+    setShowForm(false);
+    setEditId(null);
+  };
+
+  const startEdit = (schule: Schule) => {
+    setForm({
+      schulnummer: schule.schulnummer,
+      name: schule.name,
+      kurzname: schule.kurzname,
+      schulform: schule.schulform,
+      farbe: schule.farbe,
+      untisCode: schule.untisCode ?? "",
+      adresse: schule.adresse ?? "",
+      plz: schule.plz ?? "",
+      ort: schule.ort ?? "",
+      istImAufbau: schule.istImAufbau,
+    });
+    setEditId(schule.id);
+    setShowForm(true);
+  };
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    onMessage(null);
+
+    const formData = new FormData();
+    if (editId) formData.set("id", String(editId));
+    formData.set("schulnummer", form.schulnummer);
+    formData.set("name", form.name);
+    formData.set("kurzname", form.kurzname);
+    formData.set("schulform", form.schulform);
+    formData.set("farbe", form.farbe);
+    formData.set("untisCode", form.untisCode);
+    formData.set("adresse", form.adresse);
+    formData.set("plz", form.plz);
+    formData.set("ort", form.ort);
+    formData.set("istImAufbau", String(form.istImAufbau));
+
+    const result = editId
+      ? await updateSchuleAction(formData)
+      : await createSchuleAction(formData);
+
+    setIsSubmitting(false);
+
+    if (result.success) {
+      onMessage({ type: "success", text: result.message ?? "Gespeichert." });
+      resetForm();
+      router.refresh();
+    } else {
+      onMessage({ type: "error", text: result.error ?? "Fehler." });
+    }
+  };
+
+  const handleToggleAktiv = async (id: number, aktiv: boolean) => {
+    onMessage(null);
+    const formData = new FormData();
+    formData.set("id", String(id));
+    formData.set("aktiv", String(aktiv));
+    const result = await toggleSchuleAktivAction(formData);
+    if (result.success) {
+      onMessage({ type: "success", text: result.message ?? "Status geaendert." });
+      router.refresh();
+    } else {
+      onMessage({ type: "error", text: result.error ?? "Fehler." });
+    }
+  };
+
+  const isFormValid = form.schulnummer && form.name && form.kurzname && form.schulform;
+
+  return (
+    <div className="bg-white rounded-lg border border-[#E5E7EB] p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <School size={20} className="text-[#575756]" />
+          <h3 className="text-lg font-bold text-[#1A1A1A]">Schulen</h3>
+        </div>
+        {isAdmin && !showForm && (
+          <button
+            onClick={() => { setEditId(null); setForm(emptySchulForm); setShowForm(true); }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#575756]
+              hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Plus size={16} />
+            Neue Schule
+          </button>
+        )}
+      </div>
+
+      {/* Inline-Formular (Anlegen / Bearbeiten) */}
+      {showForm && (
+        <div className="mb-4 p-4 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB]">
+          <div className="text-sm font-medium text-[#575756] mb-3">
+            {editId ? "Schule bearbeiten" : "Neue Schule anlegen"}
+          </div>
+          <div className="grid grid-cols-4 gap-4 mb-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Schulnummer *</label>
+              <input
+                type="text"
+                value={form.schulnummer}
+                onChange={(e) => setForm({ ...form, schulnummer: e.target.value })}
+                placeholder="123456"
+                maxLength={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                  focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Freie Ev. Gesamtschule"
+                maxLength={200}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                  focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Kurzname *</label>
+              <input
+                type="text"
+                value={form.kurzname}
+                onChange={(e) => setForm({ ...form, kurzname: e.target.value })}
+                placeholder="GES"
+                maxLength={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                  focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Schulform *</label>
+              <input
+                type="text"
+                value={form.schulform}
+                onChange={(e) => setForm({ ...form, schulform: e.target.value })}
+                placeholder="Gesamtschule"
+                maxLength={50}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                  focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-4 mb-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Farbe</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={form.farbe}
+                  onChange={(e) => setForm({ ...form, farbe: e.target.value })}
+                  className="h-9 w-12 border border-gray-300 rounded cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={form.farbe}
+                  onChange={(e) => setForm({ ...form, farbe: e.target.value })}
+                  maxLength={7}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono
+                    focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Untis-Code</label>
+              <input
+                type="text"
+                value={form.untisCode}
+                onChange={(e) => setForm({ ...form, untisCode: e.target.value })}
+                placeholder="GES"
+                maxLength={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                  focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">PLZ / Ort</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={form.plz}
+                  onChange={(e) => setForm({ ...form, plz: e.target.value })}
+                  placeholder="51069"
+                  maxLength={5}
+                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-sm
+                    focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+                />
+                <input
+                  type="text"
+                  value={form.ort}
+                  onChange={(e) => setForm({ ...form, ort: e.target.value })}
+                  placeholder="Koeln"
+                  maxLength={100}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
+                    focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 pb-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.istImAufbau}
+                  onChange={(e) => setForm({ ...form, istImAufbau: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-[#575756] focus:ring-[#575756]"
+                />
+                <span className="text-sm text-gray-600">Im Aufbau</span>
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={resetForm}
+              className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !isFormValid}
+              className="px-4 py-1.5 bg-[#575756] text-white rounded-lg text-sm font-medium
+                hover:bg-[#474746] disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? "Wird gespeichert..." : editId ? "Speichern" : "Anlegen"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tabelle */}
+      <table className="w-full">
+        <thead>
+          <tr className="border-b-2 border-[#575756]">
+            <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+              Schulnummer
+            </th>
+            <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+              Name
+            </th>
+            <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+              Kurzname
+            </th>
+            <th className="text-left py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+              Schulform
+            </th>
+            <th className="text-center py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+              Farbe
+            </th>
+            <th className="text-center py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+              Status
+            </th>
+            {isAdmin && (
+              <th className="text-right py-3 px-4 text-xs uppercase tracking-wider text-[#575756] font-bold">
+                Aktionen
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {schulen.map((s, i) => (
+            <tr
+              key={s.id}
+              className={`${i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"} ${
+                !s.aktiv ? "opacity-60" : ""
+              }`}
+            >
+              <td className="py-3 px-4 text-[15px] font-mono">{s.schulnummer}</td>
+              <td className="py-3 px-4 text-[15px]">
+                {s.name}
+                {s.istImAufbau && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#FEF7CC] text-[#8B6C00]">
+                    IM AUFBAU
+                  </span>
+                )}
+              </td>
+              <td className="py-3 px-4">
+                <span
+                  className="inline-block px-2 py-0.5 rounded text-xs font-bold text-white"
+                  style={{ backgroundColor: s.farbe }}
+                >
+                  {s.kurzname}
+                </span>
+              </td>
+              <td className="py-3 px-4 text-[15px]">{s.schulform}</td>
+              <td className="py-3 px-4 text-center">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="inline-block w-5 h-5 rounded" style={{ backgroundColor: s.farbe }} />
+                  <span className="text-xs text-[#6B7280] font-mono">{s.farbe}</span>
+                </div>
+              </td>
+              <td className="py-3 px-4 text-center">
+                {s.aktiv ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <Check size={12} />
+                    Aktiv
+                  </span>
+                ) : (
+                  <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                    Inaktiv
+                  </span>
+                )}
+              </td>
+              {isAdmin && (
+                <td className="py-3 px-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => startEdit(s)}
+                      className="p-1.5 text-[#575756] hover:bg-gray-100 rounded-lg transition-colors"
+                      title="Bearbeiten"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleToggleAktiv(s.id, !s.aktiv)}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        s.aktiv
+                          ? "text-red-600 hover:bg-red-50"
+                          : "text-green-600 hover:bg-green-50"
+                      }`}
+                      title={s.aktiv ? "Deaktivieren" : "Aktivieren"}
+                    >
+                      {s.aktiv ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {schulen.length === 0 && (
+        <p className="text-[#6B7280] py-6 text-center text-sm">
+          Keine Schulen vorhanden.
+        </p>
+      )}
     </div>
   );
 }

@@ -140,6 +140,27 @@ export const resetPasswordSchema = z.object({
 });
 
 // ============================================================
+// EINSTELLUNGEN: SCHULEN
+// ============================================================
+
+export const createSchuleSchema = z.object({
+  schulnummer: z.string().min(1, "Schulnummer erforderlich.").max(10),
+  name: z.string().min(1, "Name erforderlich.").max(200),
+  kurzname: z.string().min(1, "Kurzname erforderlich.").max(10),
+  schulform: z.string().min(1, "Schulform erforderlich.").max(50),
+  farbe: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Format: #RRGGBB").default("#575756"),
+  untisCode: z.string().max(10).optional(),
+  adresse: z.string().max(300).optional(),
+  plz: z.string().max(5).optional(),
+  ort: z.string().max(100).optional(),
+  istImAufbau: z.boolean().default(false),
+});
+
+export const updateSchuleSchema = createSchuleSchema.extend({
+  id: z.number().int().positive("Ungueltige Schul-ID."),
+});
+
+// ============================================================
 // EINSTELLUNGEN: SCHULJAHR
 // ============================================================
 
