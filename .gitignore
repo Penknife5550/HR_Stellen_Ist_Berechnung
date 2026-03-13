@@ -1,0 +1,13 @@
+# Claude Code (Konversationsdaten, Memory, Plans)
+.claude/
+
+# OS-spezifisch
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporaere Dateien
+*.tmp
+*.bak
+*.env
+!.env.example

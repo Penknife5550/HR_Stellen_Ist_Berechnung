@@ -1,0 +1,14 @@
+Ok Claude wir kommen nun zu dem kritischstem Punkt Prozess unseres Werkes und ich möchte dir zeigen welche Lösung wir benötigen.
+Gehe in den Ordner dort findest du die Vorlagen und die Berechnungen die wir aktuelle machen. 
+
+
+Ziel ist es, dass wir ein Anwendung haben bekommen für die Kollegen der Personalabteilung die eine Übersicht pro Lehrer und Schule erstellen wie die Deputate sind und wie diese sich entwicklen. 
+Das ist wichtig, da wir diese Übersichten benötigen für die Bezirksregierung und es ist der Schlüssel für die Stellenberechnung wie viele Stellen uns zustehen für Lehrer. 
+
+Wichtig: Die Deputate und Lehrer findest du in der Datenbank von Untis. Nimm dazu die json Datei dort ist der Flow hinterlegt der die Änderungen der Deputate Trackt. 
+Dorst sind auch die Schuljahre zu sehen und die Perioden (Zeiträume) der Gültigkeit. 
+
+Die Anwendung muss klar, einfach für die Perosnaler zu bedienen sein, es muss eine WEbanwendung sein die Daten können über N8N in die Datenbank gepuscht werden. 
+Es muss eine Tabelle sein in der wir die Schülerzahlen für das jeweilige Schuljahr und der jeweilgen Schule  eintragen können. 
+
+

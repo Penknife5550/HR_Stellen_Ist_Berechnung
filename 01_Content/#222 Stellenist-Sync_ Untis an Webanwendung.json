@@ -1,0 +1,285 @@
+{
+  "name": "#222 Stellenist-Sync: Untis → Webanwendung",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8,
+              "triggerAtMinute": 15
+            }
+          ]
+        }
+      },
+      "id": "a1000001-sync-schedule-trigger",
+      "name": "Täglich 8:15 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -640,
+        0
+      ],
+      "notes": "Läuft 15 Minuten nach Workflow #221, damit Untis-Daten bereits im Snapshot sind."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ========================================================================\n-- DEPUTATSDATEN AUS UNTIS FÜR STELLENISTBERECHNUNG\n-- ========================================================================\n-- Workflow: #222 Stellenist-Sync\n-- Datum: 12.03.2026\n-- Liest aktuelle Periode: Teacher + Terms, berechnet Deputats-Aufteilung\n-- ========================================================================\n\nWITH AktuellesPeriode AS (\n    SELECT \n        SCHOOLYEAR_ID,\n        TERM_ID,\n        DateFrom,\n        DateTo,\n        Name AS Term_Name\n    FROM Terms\n    WHERE \n        Deleted = 0\n        AND SCHOOLYEAR_ID = (SELECT MAX(SCHOOLYEAR_ID) FROM Teacher WHERE Deleted = 0)\n        AND TERM_ID = (SELECT MAX(TERM_ID) FROM Teacher WHERE Deleted = 0 AND SCHOOLYEAR_ID = (\n            SELECT MAX(SCHOOLYEAR_ID) FROM Teacher WHERE Deleted = 0\n        ))\n),\nNaechstePeriode AS (\n    SELECT \n        ap.SCHOOLYEAR_ID,\n        ap.TERM_ID,\n        MIN(t2.DateFrom) AS NextDateFrom\n    FROM AktuellesPeriode ap\n    LEFT JOIN Terms t2 ON t2.SCHOOLYEAR_ID = ap.SCHOOLYEAR_ID \n        AND t2.DateFrom > ap.DateFrom\n        AND t2.Deleted = 0\n    GROUP BY ap.SCHOOLYEAR_ID, ap.TERM_ID\n)\nSELECT \n    t.TEACHER_ID,\n    t.SCHOOLYEAR_ID,\n    t.TERM_ID,\n    t.Name,\n    t.PNumber AS Personalnummer,\n    t.OwnSchool AS Stammschule,\n    CONCAT(t.Longname, ' ', t.FirstName) AS Vollname,\n    ISNULL(TRY_CAST(t.PlannedWeek AS DECIMAL(10,2)), 0) / 1000.0 AS Deputat,\n    CONCAT(\n        RIGHT('0000' + CAST(t.SCHOOLYEAR_ID / 10000 AS VARCHAR), 4), \n        '/', \n        RIGHT('0000' + CAST(t.SCHOOLYEAR_ID % 10000 AS VARCHAR), 4)\n    ) AS Schuljahr_Text,\n    ap.Term_Name,\n    CONVERT(VARCHAR(10), DATEFROMPARTS(\n        ap.DateFrom / 10000, \n        (ap.DateFrom / 100) % 100, \n        ap.DateFrom % 100\n    ), 104) AS DateFrom_Formatted,\n    CONVERT(VARCHAR(10), DATEADD(DAY, -1, \n        CASE \n            WHEN np.NextDateFrom IS NOT NULL THEN \n                DATEFROMPARTS(np.NextDateFrom / 10000, (np.NextDateFrom / 100) % 100, np.NextDateFrom % 100)\n            ELSE \n                DATEFROMPARTS(ap.DateTo / 10000, (ap.DateTo / 100) % 100, ap.DateTo % 100)\n        END\n    ), 104) AS DateTo_Formatted,\n    -- Deputats-Aufteilung nach Schulform (PATINDEX-Fix 27.02.2026)\n    CASE \n        WHEN CHARINDEX('1~', t.PlannedPerDept) > 0 THEN\n            ISNULL(TRY_CAST(LEFT(\n                SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20),\n                CASE \n                    WHEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20)) > 0 \n                    THEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20)) - 1\n                    ELSE LEN(SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20))\n                END\n            ) AS DECIMAL(10,2)), 0) / 1000.0\n        ELSE 0\n    END AS Deputat_GES,\n    CASE \n        WHEN CHARINDEX('2~', t.PlannedPerDept) > 0 THEN\n            ISNULL(TRY_CAST(LEFT(\n                SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20),\n                CASE \n                    WHEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20)) > 0 \n                    THEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20)) - 1\n                    ELSE LEN(SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20))\n                END\n            ) AS DECIMAL(10,2)), 0) / 1000.0\n        ELSE 0\n    END AS Deputat_GYM,\n    CASE \n        WHEN CHARINDEX('3~', t.PlannedPerDept) > 0 THEN\n            ISNULL(TRY_CAST(LEFT(\n                SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20),\n                CASE \n                    WHEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20)) > 0 \n                    THEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20)) - 1\n                    ELSE LEN(SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20))\n                END\n            ) AS DECIMAL(10,2)), 0) / 1000.0\n        ELSE 0\n    END AS Deputat_BK\nFROM Teacher t\nCROSS JOIN AktuellesPeriode ap\nLEFT JOIN NaechstePeriode np ON ap.SCHOOLYEAR_ID = np.SCHOOLYEAR_ID AND ap.TERM_ID = np.TERM_ID\nWHERE \n    t.Deleted = 0 \n    AND t.Longname IS NOT NULL \n    AND t.Longname != ''\n    AND t.SCHOOLYEAR_ID = ap.SCHOOLYEAR_ID\n    AND t.TERM_ID = ap.TERM_ID\nORDER BY \n    t.Longname, t.FirstName;"
+      },
+      "id": "a1000002-untis-mssql-query",
+      "name": "Untis Deputate laden",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        -368,
+        0
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "HzjHGkJk19cln1C7",
+          "name": "Untis"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================================================\n// SYNC-PAYLOAD FÜR STELLENISTBERECHNUNG APP\n// ========================================================================\n// Workflow: #222 Stellenist-Sync\n// Datum: 12.03.2026\n//\n// Wandelt die Untis-MSSQL-Ergebnisse in das JSON-Format um,\n// das der POST /api/deputate/sync Endpoint erwartet.\n//\n// Erwartetes Format (syncPayloadSchema):\n//   api_key, sync_datum, schuljahr_text?, term_id?, date_from?, date_to?,\n//   lehrer: [{ teacher_id, name, vollname, personalnummer?, stammschule,\n//             deputat, deputat_ges, deputat_gym, deputat_bk }]\n// ========================================================================\n\nconst items = $input.all();\n\nif (items.length === 0) {\n  console.log('Stellenist-Sync: Keine Lehrer aus Untis geladen. Sync übersprungen.');\n  return { json: { skip: true, reason: 'Keine Daten' } };\n}\n\n// Term-Infos aus erstem Item extrahieren (alle haben gleiche Periode)\nconst first = items[0].json;\nconst termId = first.TERM_ID;\nconst dateFrom = first.DateFrom_Formatted || null;\nconst dateTo = first.DateTo_Formatted || null;\nconst schuljahrText = first.Schuljahr_Text || null;\n\n// API-Key aus n8n Environment Variable\n// → n8n Settings > Variables > API_SYNC_KEY\nconst apiKey = $env.API_SYNC_KEY;\nif (!apiKey) {\n  throw new Error('Environment Variable API_SYNC_KEY ist nicht gesetzt! Bitte unter n8n Settings > Variables hinterlegen.');\n}\n\n// Payload zusammenbauen\nconst payload = {\n  api_key: apiKey,\n  sync_datum: new Date().toISOString().split('T')[0],\n  schuljahr_text: schuljahrText,\n  term_id: termId,\n  date_from: dateFrom,\n  date_to: dateTo,\n  lehrer: items.map(item => {\n    const d = item.json;\n    return {\n      teacher_id: d.TEACHER_ID,\n      name: d.Name,\n      vollname: d.Vollname,\n      personalnummer: d.Personalnummer || null,\n      stammschule: d.Stammschule || 'N/A',\n      deputat: parseFloat(d.Deputat) || 0,\n      deputat_ges: parseFloat(d.Deputat_GES) || 0,\n      deputat_gym: parseFloat(d.Deputat_GYM) || 0,\n      deputat_bk: parseFloat(d.Deputat_BK) || 0\n    };\n  })\n};\n\nconsole.log(`Stellenist-Sync: ${payload.lehrer.length} Lehrer, Periode ${termId}, Zeitraum ${dateFrom} – ${dateTo}`);\n\nreturn { json: payload };\n"
+      },
+      "id": "a1000003-build-sync-payload",
+      "name": "Sync-Payload erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        0
+      ],
+      "notes": "Wandelt Untis-Rohdaten in API-Payload für /api/deputate/sync um"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition_skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000004-if-has-data",
+      "name": "Daten vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        160,
+        0
+      ],
+      "notes": "Überspringt HTTP-Request wenn keine Lehrer aus Untis kamen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STELLENIST_APP_URL || 'http://localhost:3000' }}/api/deputate/sync",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "a1000005-http-post-sync",
+      "name": "An Stellenist-App senden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        416,
+        -64
+      ],
+      "notes": "POST /api/deputate/sync — sendet alle Lehrerdaten an die Webanwendung"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition_success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000006-if-success",
+      "name": "Sync erfolgreich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -64
+      ],
+      "notes": "Prüft ob die API mit success: true geantwortet hat"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================================================\n// ERFOLGS-LOG\n// ========================================================================\nconst response = $input.first().json;\n\nconsole.log('✅ Stellenist-Sync erfolgreich!');\nconsole.log(`   Verarbeitet: ${response.verarbeitet} Lehrer`);\nconsole.log(`   Fehler: ${response.fehler}`);\nconsole.log(`   Monate: ${response.monate}`);\nconsole.log(`   Nachricht: ${response.message}`);\n\nreturn {\n  json: {\n    status: 'success',\n    message: response.message,\n    verarbeitet: response.verarbeitet,\n    fehler: response.fehler,\n    monate: response.monate,\n    timestamp: new Date().toISOString()\n  }\n};\n"
+      },
+      "id": "a1000007-log-success",
+      "name": "Erfolg protokollieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        -128
+      ],
+      "notes": "Loggt das erfolgreiche Sync-Ergebnis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================================================\n// FEHLER-LOG + WARNUNG\n// ========================================================================\nconst response = $input.first().json;\n\nconst errorMsg = response.error || response.message || JSON.stringify(response);\n\nconsole.error('❌ Stellenist-Sync FEHLGESCHLAGEN!');\nconsole.error(`   Fehler: ${errorMsg}`);\nconsole.error(`   Zeitpunkt: ${new Date().toISOString()}`);\n\n// Fehler-Details für optionale E-Mail-Benachrichtigung\nreturn {\n  json: {\n    status: 'error',\n    error: errorMsg,\n    timestamp: new Date().toISOString(),\n    hinweis: 'Bitte prüfen: Läuft die Stellenist-App? Stimmt der API-Key? Ist die URL korrekt?'\n  }\n};\n"
+      },
+      "id": "a1000008-log-error",
+      "name": "Fehler protokollieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        0
+      ],
+      "notes": "Loggt Fehler und gibt Hinweise zur Problemlösung"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Täglich 8:15 Uhr": {
+      "main": [
+        [
+          {
+            "node": "Untis Deputate laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Untis Deputate laden": {
+      "main": [
+        [
+          {
+            "node": "Sync-Payload erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync-Payload erstellen": {
+      "main": [
+        [
+          {
+            "node": "Daten vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "An Stellenist-App senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+        ]
+      ]
+    },
+    "An Stellenist-App senden": {
+      "main": [
+        [
+          {
+            "node": "Sync erfolgreich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync erfolgreich?": {
+      "main": [
+        [
+          {
+            "node": "Erfolg protokollieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler protokollieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "any",
+    "errorWorkflow": "UBadcLmQWUlnrAoE"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-01-14T15:33:43.171Z",
+      "createdAt": "2026-01-14T15:33:43.171Z",
+      "id": "4qprOIUXRIw77bj9",
+      "name": "Deputat"
+    },
+    {
+      "updatedAt": "2026-01-14T15:33:43.186Z",
+      "createdAt": "2026-01-14T15:33:43.186Z",
+      "id": "h0OatzuCg8XFVYuG",
+      "name": "Controlling"
+    }
+  ]
+}

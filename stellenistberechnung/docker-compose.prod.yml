@@ -1,0 +1,52 @@
+# ============================================================
+# Stellenistberechnung – Production Deployment
+# ============================================================
+# Pattern: wie Kassenbuch (db + app + Caddy via reverse_proxy)
+# Unterschied: Next.js Full-Stack statt separatem Frontend/Backend
+#
+# Starten: docker compose -f docker-compose.prod.yml up -d --build
+# Logs:    docker compose -f docker-compose.prod.yml logs -f app
+# Seed:    docker compose -f docker-compose.prod.yml exec app node seed.js
+# ============================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stellenistberechnung
+      POSTGRES_USER: stellenist
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stellenist"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://stellenist:${DB_PASSWORD}@db:5432/stellenistberechnung
+      SESSION_SECRET: ${SESSION_SECRET}
+      API_SYNC_KEY: ${API_SYNC_KEY}
+      NODE_ENV: production
+    networks:
+      - reverse_proxy
+      - internal
+
+volumes:
+  pgdata:
+
+networks:
+  reverse_proxy:
+    external: true
+  internal:
+    internal: true

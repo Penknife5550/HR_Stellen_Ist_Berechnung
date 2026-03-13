@@ -1,0 +1,185 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { db } from "@/db";
+import { berechnungStellenist } from "@/db/schema";
+import {
+  getSchulen,
+  getAktuellesHaushaltsjahr,
+  getDeputatSummenByMonat,
+  getMehrarbeitByHaushaltsjahr,
+} from "@/lib/db/queries";
+import { berechneStellenist } from "@/lib/berechnungen/stellenist";
+import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
+import { roundToDecimals } from "@/lib/berechnungen/rounding";
+import { writeAuditLog } from "@/lib/audit";
+import { requireWriteAccess } from "@/lib/auth/permissions";
+import { REGELDEPUTAT } from "@/lib/constants";
+import { eq, and } from "drizzle-orm";
+
+export async function berechneStellenisteAction() {
+  const session = await requireWriteAccess();
+  try {
+    const aktuellesHj = await getAktuellesHaushaltsjahr();
+    if (!aktuellesHj) return { error: "Kein aktuelles Haushaltsjahr gefunden." };
+
+    // Sperre pruefen: Gesperrte Haushaltsjahre duerfen nicht veraendert werden
+    if (aktuellesHj.gesperrt) {
+      return { error: `Haushaltsjahr ${aktuellesHj.jahr} ist gesperrt. Keine Aenderungen moeglich.` };
+    }
+
+    const schulen = await getSchulen();
+
+    const ergebnisse: Array<{
+      schule: string;
+      zeitraum: string;
+      stellenist: number;
+      mehrarbeit: number;
+      gesamt: number;
+    }> = [];
+
+    for (const schule of schulen) {
+      const regeldeputat = REGELDEPUTAT[schule.kurzname];
+      if (!regeldeputat) {
+        return {
+          error: `Kein Regeldeputat fuer "${schule.kurzname}" konfiguriert. Bitte REGELDEPUTAT in constants.ts ergaenzen.`,
+        };
+      }
+
+      // Deputat-Summen pro Monat laden (gefiltert nach Schule)
+      const monatsSummen = await getDeputatSummenByMonat(aktuellesHj.id, schule.id);
+
+      if (monatsSummen.length === 0) continue;
+
+      // Mehrarbeit laden
+      const mehrarbeitRows = await getMehrarbeitByHaushaltsjahr(aktuellesHj.id, schule.id);
+
+      // F3-Fix: Lib-Funktion verwenden statt Inline-Berechnung
+      const libResult = berechneStellenist({
+        monatlicheStunden: monatsSummen.map((m) => ({
+          monat: m.monat,
+          stunden: Number(m.summeGesamt ?? 0),
+        })),
+        regeldeputat,
+        mehrarbeitStunden: mehrarbeitRows.map((m) => ({
+          monat: m.monat,
+          stunden: Number(m.stunden),
+        })),
+      });
+
+      // Per-Zeitraum Details fuer DB-Speicherung aufbereiten
+      const zeitraumDaten = [
+        {
+          key: "jan-jul" as const,
+          zr: libResult.janJul,
+          mehrarbeit: libResult.mehrarbeitStellen.janJul,
+          gesamt: libResult.gesamtStellen.janJul,
+          monate: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          key: "aug-dez" as const,
+          zr: libResult.augDez,
+          mehrarbeit: libResult.mehrarbeitStellen.augDez,
+          gesamt: libResult.gesamtStellen.augDez,
+          monate: [8, 9, 10, 11, 12],
+        },
+      ];
+
+      for (const zd of zeitraumDaten) {
+        // Nur speichern wenn Daten fuer diesen Zeitraum vorhanden
+        const monateImZeitraum = monatsSummen.filter((m) =>
+          zd.monate.includes(m.monat)
+        );
+        if (monateImZeitraum.length === 0) continue;
+
+        const mehrarbeitImZr = mehrarbeitRows.filter((m) =>
+          zd.monate.includes(m.monat)
+        );
+        const mehrarbeitStunden = mehrarbeitImZr.reduce(
+          (acc, m) => acc + Number(m.stunden),
+          0
+        );
+
+        // Gerundete Werte fuer DB-Speicherung (roundToDecimals statt inline Math.round)
+        const stellenistGerundet = roundToDecimals(zd.zr.stellen, 1);
+        const mehrarbeitStellenGerundet = roundToDecimals(zd.mehrarbeit, 4);
+        // Gesamtstellen: Summe aus ungerundeten Werten, dann runden (keine Doppelrundung!)
+        const gesamtStellen = roundToDecimals(zd.zr.stellen + zd.mehrarbeit, 1);
+
+        // Transaktion: Deaktivieren + Einfuegen atomar
+        await db.transaction(async (tx) => {
+          // Alte Berechnungen deaktivieren
+          await tx
+            .update(berechnungStellenist)
+            .set({ istAktuell: false })
+            .where(
+              and(
+                eq(berechnungStellenist.schuleId, schule.id),
+                eq(berechnungStellenist.haushaltsjahrId, aktuellesHj.id),
+                eq(berechnungStellenist.zeitraum, zd.key)
+              )
+            );
+
+          // Neue Berechnung speichern
+          await tx.insert(berechnungStellenist).values({
+            schuleId: schule.id,
+            haushaltsjahrId: aktuellesHj.id,
+            zeitraum: zd.key,
+            monatsDurchschnittStunden: String(roundToDecimals(zd.zr.monatsDurchschnitt, 2)),
+            regelstundendeputat: String(regeldeputat),
+            stellenist: String(roundToDecimals(zd.zr.stellen, 4)),
+            stellenistGerundet: String(stellenistGerundet),
+            mehrarbeitStellen: String(mehrarbeitStellenGerundet),
+            stellenistGesamt: String(gesamtStellen),
+            details: {
+              monateImZeitraum: monateImZeitraum.map((m) => ({
+                monat: m.monat,
+                summeWochenstunden: Number(m.summeGesamt),
+                anzahlLehrer: m.anzahlLehrer,
+              })),
+              mehrarbeitStunden,
+            },
+            berechnetVon: session.name,
+            istAktuell: true,
+          });
+        });
+
+        ergebnisse.push({
+          schule: schule.kurzname,
+          zeitraum: zd.key,
+          stellenist: stellenistGerundet,
+          mehrarbeit: mehrarbeitStellenGerundet,
+          gesamt: gesamtStellen,
+        });
+      }
+
+      // Vergleich aktualisieren (gemeinsame Funktion mit gewichtetem Durchschnitt)
+      await aktualisiereVergleich(schule.id, aktuellesHj.id);
+    }
+
+    // Audit-Log schreiben
+    await writeAuditLog("berechnung_stellenist", 0, "INSERT", null, {
+      haushaltsjahrId: aktuellesHj.id,
+      anzahlErgebnisse: ergebnisse.length,
+      ergebnisse: ergebnisse.map((e) => ({
+        schule: e.schule,
+        zeitraum: e.zeitraum,
+        gesamt: e.gesamt,
+      })),
+    }, session.name);
+
+    revalidatePath("/stellenist");
+    revalidatePath("/dashboard");
+    revalidatePath("/vergleich");
+    revalidatePath("/historie");
+
+    return {
+      success: true,
+      ergebnisse,
+      message: `Stellenist fuer ${ergebnisse.length} Zeitraeume berechnet.`,
+    };
+  } catch (err: unknown) {
+    console.error("Stellenist-Berechnung fehlgeschlagen:", err instanceof Error ? err.message : "Unbekannt");
+    return { error: "Berechnung fehlgeschlagen. Bitte erneut versuchen." };
+  }
+}
