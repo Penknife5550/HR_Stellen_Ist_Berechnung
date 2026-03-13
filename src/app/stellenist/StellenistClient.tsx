@@ -1,0 +1,254 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { Card, KPICard } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { berechneStellenisteAction } from "./actions";
+
+type Schule = { id: number; kurzname: string; farbe: string };
+
+type SchulStellenist = {
+  schuleId: number;
+  schulKurzname: string;
+  schulFarbe: string;
+  zeitraeume: Array<{
+    zeitraum: string;
+    stellenistGesamt: string;
+    stellenist: string;
+    mehrarbeitStellen: string;
+    monatsDurchschnittStunden: string | null;
+    regelstundendeputat: string | null;
+    berechnetAm: Date;
+  }>;
+};
+
+interface StellenistClientProps {
+  schulen: Schule[];
+  schulStelleniste: SchulStellenist[];
+  hatDeputate: boolean;
+  hatErgebnisse: boolean;
+  latestSyncDatum: string | null;
+}
+
+export function StellenistClient({
+  schulen,
+  schulStelleniste,
+  hatDeputate,
+  hatErgebnisse,
+  latestSyncDatum,
+}: StellenistClientProps) {
+  const [isPending, startTransition] = useTransition();
+  const [result, setResult] = useState<{
+    success?: boolean;
+    error?: string;
+    message?: string;
+  } | null>(null);
+  const [activeSchule, setActiveSchule] = useState<number | null>(
+    schulStelleniste.length > 0 ? schulStelleniste[0].schuleId : schulen[0]?.id ?? null
+  );
+
+  function handleBerechnen() {
+    setResult(null);
+    startTransition(async () => {
+      const res = await berechneStellenisteAction();
+      setResult(res);
+    });
+  }
+
+  const aktuelleSchulDaten = schulStelleniste.find((s) => s.schuleId === activeSchule);
+
+  return (
+    <>
+      {/* Berechnungs-Button */}
+      <div className="flex items-center gap-4 mb-6">
+        <Button onClick={handleBerechnen} disabled={isPending || !hatDeputate}>
+          {isPending ? "Berechne..." : "Stellenist berechnen"}
+        </Button>
+
+        {!hatDeputate && (
+          <span className="text-sm text-[#6B7280]">
+            Keine Deputatsdaten vorhanden. Bitte zuerst n8n-Synchronisation durchfuehren.
+          </span>
+        )}
+
+        {latestSyncDatum && (
+          <span className="text-sm text-[#6B7280] ml-auto">
+            Deputatsdaten vom {latestSyncDatum}
+          </span>
+        )}
+      </div>
+
+      {/* Ergebnis-Meldung */}
+      {result && (
+        <div
+          className={`mb-6 p-4 rounded-lg text-sm ${
+            result.error
+              ? "bg-red-50 border border-red-200 text-red-700"
+              : "bg-green-50 border border-green-200 text-green-700"
+          }`}
+        >
+          {result.error ?? result.message}
+        </div>
+      )}
+
+      {/* Schul-Tabs */}
+      {(schulStelleniste.length > 0 || schulen.length > 0) && (
+        <div className="flex gap-2 mb-6">
+          {schulen.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setActiveSchule(s.id)}
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+              style={{
+                backgroundColor: activeSchule === s.id ? s.farbe : "#F3F4F6",
+                color: activeSchule === s.id ? "white" : "#575756",
+              }}
+            >
+              {s.kurzname}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* KPI-Karten (wenn Ergebnisse vorhanden) */}
+      {aktuelleSchulDaten && aktuelleSchulDaten.zeitraeume.length > 0 ? (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            {aktuelleSchulDaten.zeitraeume.map((zr) => (
+              <KPICard
+                key={zr.zeitraum}
+                label={`Stellenist ${zr.zeitraum === "jan-jul" ? "Jan-Jul" : "Aug-Dez"}`}
+                value={Number(zr.stellenistGesamt).toLocaleString("de-DE", {
+                  minimumFractionDigits: 1,
+                  maximumFractionDigits: 1,
+                })}
+                subtitle={`${zr.zeitraum === "jan-jul" ? "7" : "5"} Monate`}
+                accentColor={aktuelleSchulDaten.schulFarbe}
+              />
+            ))}
+            {aktuelleSchulDaten.zeitraeume.length === 2 && (() => {
+              const janJul = aktuelleSchulDaten.zeitraeume.find(
+                (z) => z.zeitraum === "jan-jul"
+              );
+              const augDez = aktuelleSchulDaten.zeitraeume.find(
+                (z) => z.zeitraum === "aug-dez"
+              );
+              if (!janJul || !augDez) return null;
+              const gewichtet =
+                (Number(janJul.stellenistGesamt) * 7 +
+                  Number(augDez.stellenistGesamt) * 5) /
+                12;
+              return (
+                <KPICard
+                  label="Jahresdurchschnitt"
+                  value={gewichtet.toLocaleString("de-DE", {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1,
+                  })}
+                  subtitle="Gewichtet: (Jan-Jul x 7 + Aug-Dez x 5) / 12"
+                  status="neutral"
+                />
+              );
+            })()}
+          </div>
+
+          {/* Details pro Zeitraum */}
+          {aktuelleSchulDaten.zeitraeume.map((zr) => (
+            <Card key={zr.zeitraum} className="mb-4">
+              <h3 className="text-lg font-bold text-[#1A1A1A] mb-3">
+                {zr.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember"}
+              </h3>
+              <div className="space-y-2 text-[15px]">
+                <div className="flex justify-between p-3 bg-[#F9FAFB] rounded">
+                  <span>Monats-Durchschnitt Wochenstunden</span>
+                  <span className="font-bold tabular-nums">
+                    {zr.monatsDurchschnittStunden
+                      ? Number(zr.monatsDurchschnittStunden).toLocaleString("de-DE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      : "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between p-3 bg-[#F9FAFB] rounded">
+                  <span>Regelstundendeputat</span>
+                  <span className="font-bold tabular-nums">
+                    {zr.regelstundendeputat
+                      ? Number(zr.regelstundendeputat).toLocaleString("de-DE", {
+                          minimumFractionDigits: 1,
+                        })
+                      : "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between p-3 bg-[#F9FAFB] rounded">
+                  <span>Stellenist (ohne Mehrarbeit)</span>
+                  <span className="font-bold tabular-nums">
+                    {Number(zr.stellenist).toLocaleString("de-DE", {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 4,
+                    })}
+                  </span>
+                </div>
+                <div className="flex justify-between p-3 bg-[#F9FAFB] rounded">
+                  <span>Mehrarbeit-Stellen</span>
+                  <span className="font-bold tabular-nums">
+                    {Number(zr.mehrarbeitStellen).toLocaleString("de-DE", {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 4,
+                    })}
+                  </span>
+                </div>
+                <div className="flex justify-between p-3 bg-[#E8F5D6] rounded border border-[#6BAA24]">
+                  <span className="font-bold">Stellenist Gesamt</span>
+                  <span className="text-xl font-bold tabular-nums">
+                    {Number(zr.stellenistGesamt).toLocaleString("de-DE", {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 1,
+                    })}
+                  </span>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </>
+      ) : (
+        <>
+          {/* Berechnungsformel anzeigen wenn noch keine Ergebnisse */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-bold text-[#1A1A1A] mb-4">Berechnungsformel</h3>
+            <div className="space-y-4 text-[15px]">
+              <div className="p-4 bg-[#F9FAFB] rounded-lg">
+                <div className="font-mono text-sm text-[#575756] mb-2">Jan-Jul:</div>
+                <div className="text-lg">
+                  Stellenist = Summe(Wochenstunden Jan-Jul) / (7 x Regeldeputat)
+                </div>
+              </div>
+              <div className="p-4 bg-[#F9FAFB] rounded-lg">
+                <div className="font-mono text-sm text-[#575756] mb-2">Aug-Dez:</div>
+                <div className="text-lg">
+                  Stellenist = Summe(Wochenstunden Aug-Dez) / (5 x Regeldeputat)
+                </div>
+              </div>
+              <div className="p-4 bg-[#F9FAFB] rounded-lg">
+                <div className="font-mono text-sm text-[#575756] mb-2">
+                  Jahresdurchschnitt:
+                </div>
+                <div className="text-lg">
+                  Gewichtet = (Jan-Jul x 7 + Aug-Dez x 5) / 12
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <div className="p-4 bg-[#FEF7CC] border border-[#FBC900] rounded-lg text-sm text-[#575756]">
+            <strong>Hinweis:</strong> Die Stellenist-Berechnung basiert auf den
+            Deputatsdaten aus Untis.
+            {!hatDeputate
+              ? " Sobald die n8n-Synchronisation aktiv ist, koennen die Stelleniste berechnet werden."
+              : " Klicken Sie oben auf 'Stellenist berechnen' um die Berechnung durchzufuehren."}
+          </div>
+        </>
+      )}
+    </>
+  );
+}

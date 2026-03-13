@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* CREDO Corporate Design */
+  --color-credo-grau: #575756;
+  --color-credo-ges: #6BAA24;
+  --color-credo-gym: #FBC900;
+  --color-credo-bk: #5C82A5;
+  --color-credo-rot: #E2001A;
+  --color-credo-blau: #009AC6;
+
+  /* Semantic */
+  --color-status-success: #22C55E;
+  --color-status-warning: #F59E0B;
+  --color-status-danger: #EF4444;
+
+  /* Layout */
+  --color-background: #F8F9FA;
+  --color-foreground: #1A1A1A;
+  --color-surface: #FFFFFF;
+  --color-border: #E5E7EB;
+  --color-muted: #6B7280;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Tabular numbers for data tables */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* German number formatting */
+.number-de {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+    font-size: 12px;
+  }
+}
