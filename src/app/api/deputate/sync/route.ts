@@ -204,6 +204,7 @@ export async function POST(request: NextRequest) {
     let fehler = 0;
     let aenderungenGesamt = 0;
     let gehaltsrelevant = 0;
+    const fehlgeschlageneLehrer: Array<{ teacherId: number; fehler: string }> = [];
 
     // Batch-Groesse: 50 Lehrer pro Transaktion
     const BATCH_SIZE = 50;
@@ -211,9 +212,12 @@ export async function POST(request: NextRequest) {
       const batch = payload.lehrer.slice(i, i + BATCH_SIZE);
 
       try {
+        // Batch-lokale Zaehler — werden nur uebernommen wenn Transaktion erfolgreich
+        let batchAenderungen = 0;
+        let batchGehaltsrelevant = 0;
+
         await db.transaction(async (tx) => {
           for (const lehrerData of batch) {
-            try {
               const stammschuleId = schulenMap.get(lehrerData.stammschule?.toUpperCase()) ?? null;
               const existing = lehrerMap.get(lehrerData.teacher_id);
 
@@ -296,8 +300,8 @@ export async function POST(request: NextRequest) {
                       termIdNeu: payload.term_id ?? null,
                     });
 
-                    aenderungenGesamt++;
-                    if (istGehaltsrelevant) gehaltsrelevant++;
+                    batchAenderungen++;
+                    if (istGehaltsrelevant) batchGehaltsrelevant++;
                   }
                 }
 
@@ -333,24 +337,33 @@ export async function POST(request: NextRequest) {
                     },
                   });
               }
-
-              verarbeitet++;
-            } catch (err) {
-              fehler++;
-              console.error(
-                `Fehler bei Lehrer teacher_id=${lehrerData.teacher_id}:`,
-                err instanceof Error ? err.message : "Unbekannt"
-              );
-            }
           }
         });
+
+        // Transaktion erfolgreich — Zaehler uebernehmen
+        verarbeitet += batch.length;
+        aenderungenGesamt += batchAenderungen;
+        gehaltsrelevant += batchGehaltsrelevant;
       } catch (batchErr) {
+        // Gesamte Batch-Transaktion wurde zurueckgerollt
         fehler += batch.length;
+        const errMsg = batchErr instanceof Error ? batchErr.message : "Unbekannt";
+        for (const l of batch) {
+          fehlgeschlageneLehrer.push({ teacherId: l.teacher_id, fehler: errMsg });
+        }
         console.error(
-          `Batch-Fehler (${batch.length} Lehrer):`,
-          batchErr instanceof Error ? batchErr.message : "Unbekannt"
+          `Batch-Fehler (${batch.length} Lehrer, IDs: ${batch.map((l) => l.teacher_id).join(", ")}):`,
+          errMsg
         );
       }
+    }
+
+    // Fehlgeschlagene Lehrer loggen (nach Transaktionen)
+    if (fehlgeschlageneLehrer.length > 0) {
+      console.warn(
+        `${fehlgeschlageneLehrer.length} Lehrer fehlgeschlagen:`,
+        fehlgeschlageneLehrer.map((f) => `teacher_id=${f.teacherId}`).join(", ")
+      );
     }
 
     // 9. Sync-Log schreiben

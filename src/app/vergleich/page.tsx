@@ -34,7 +34,7 @@ export default async function VergleichPage() {
       {vergleiche.length > 0 ? (
         <>
           {/* Gesamt-KPIs */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <KPICard
               label="Gesamt Stellensoll"
               value={gesamtSoll.toLocaleString("de-DE", { minimumFractionDigits: 1 })}
@@ -81,7 +81,7 @@ export default async function VergleichPage() {
                   <StatusIndicator status={statusVal} />
                 </div>
 
-                <div className="grid grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   <div className="text-center">
                     <div className="text-xs uppercase tracking-wider text-[#6B7280] font-bold mb-2">
                       Stellensoll

@@ -24,7 +24,7 @@ import {
   berechnungVergleich,
   benutzer,
 } from "@/db/schema";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray } from "drizzle-orm";
 
 // ============================================================
 // SCHULEN
@@ -198,6 +198,15 @@ export async function getSchulStufeById(id: number) {
   return result ?? null;
 }
 
+/** Alle aktiven Schulstufen auf einmal laden (Batch statt N+1) */
+export async function getAlleAktivenSchulStufen() {
+  return db
+    .select()
+    .from(schulStufen)
+    .where(eq(schulStufen.aktiv, true))
+    .orderBy(asc(schulStufen.schuleId), asc(schulStufen.stufe));
+}
+
 // ============================================================
 // SCHULJAHRE
 // ============================================================
@@ -320,6 +329,25 @@ export async function getSchuelerzahlenByStichtag(schuleId: number, stichtag: st
     .orderBy(asc(schulStufen.stufe));
 }
 
+/** Alle Schuelerzahlen fuer mehrere Stichtage auf einmal laden (Batch statt N+1) */
+export async function getAlleSchuelerzahlenByStichtage(stichtage: string[]) {
+  if (stichtage.length === 0) return [];
+  return db
+    .select({
+      id: schuelerzahlen.id,
+      schuleId: schuelerzahlen.schuleId,
+      schulStufeId: schuelerzahlen.schulStufeId,
+      stichtag: schuelerzahlen.stichtag,
+      anzahl: schuelerzahlen.anzahl,
+      stufe: schulStufen.stufe,
+      schulformTyp: schulStufen.schulformTyp,
+    })
+    .from(schuelerzahlen)
+    .innerJoin(schulStufen, eq(schuelerzahlen.schulStufeId, schulStufen.id))
+    .where(inArray(schuelerzahlen.stichtag, stichtage))
+    .orderBy(asc(schuelerzahlen.schuleId), asc(schulStufen.stufe));
+}
+
 export async function upsertSchuelerzahl(data: {
   schuleId: number;
   schulStufeId: number;
@@ -434,6 +462,27 @@ export async function getZuschlaegeBySchuleUndHaushaltsjahr(
       and(eq(zuschlaege.schuleId, schuleId), eq(zuschlaege.haushaltsjahrId, haushaltsjahrId))
     )
     .orderBy(asc(zuschlagArten.sortierung));
+}
+
+/** Alle Zuschlaege fuer ein Haushaltsjahr auf einmal laden (Batch statt N+1) */
+export async function getAlleZuschlaegeByHaushaltsjahr(haushaltsjahrId: number) {
+  return db
+    .select({
+      id: zuschlaege.id,
+      schuleId: zuschlaege.schuleId,
+      haushaltsjahrId: zuschlaege.haushaltsjahrId,
+      zuschlagArtId: zuschlaege.zuschlagArtId,
+      wert: zuschlaege.wert,
+      zeitraum: zuschlaege.zeitraum,
+      bemerkung: zuschlaege.bemerkung,
+      bezeichnung: zuschlagArten.bezeichnung,
+      istStandard: zuschlagArten.istStandard,
+      sortierung: zuschlagArten.sortierung,
+    })
+    .from(zuschlaege)
+    .innerJoin(zuschlagArten, eq(zuschlaege.zuschlagArtId, zuschlagArten.id))
+    .where(eq(zuschlaege.haushaltsjahrId, haushaltsjahrId))
+    .orderBy(asc(zuschlaege.schuleId), asc(zuschlagArten.sortierung));
 }
 
 export async function upsertZuschlag(data: {

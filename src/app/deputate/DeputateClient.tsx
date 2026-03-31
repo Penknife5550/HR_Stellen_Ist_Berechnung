@@ -36,6 +36,9 @@ interface DeputateClientProps {
   anzahlGehaltsaenderungen: number;
 }
 
+// Helle Hintergrundfarben brauchen dunklen Text fuer ausreichenden Kontrast
+const needsDarkText = (color: string) => ['#FBC900', '#FEF7CC'].includes(color.toUpperCase());
+
 type FilterTyp = "alle" | "gehaltsaenderung" | number;
 
 export function DeputateClient({
@@ -89,8 +92,11 @@ export function DeputateClient({
   return (
     <>
       {/* Filter-Tabs */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      <div className="flex gap-2 mb-4 flex-wrap" role="tablist">
         <button
+          role="tab"
+          aria-selected={filter === "alle"}
+          aria-controls="deputate-panel"
           onClick={() => setFilter("alle")}
           className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
             filter === "alle"
@@ -105,11 +111,14 @@ export function DeputateClient({
           return (
             <button
               key={s.id}
+              role="tab"
+              aria-selected={filter === s.id}
+              aria-controls="deputate-panel"
               onClick={() => setFilter(s.id)}
               className="px-4 py-2 rounded-lg text-sm font-bold transition-colors"
               style={{
                 backgroundColor: filter === s.id ? s.farbe : "#F3F4F6",
-                color: filter === s.id ? "white" : "#575756",
+                color: filter === s.id ? (needsDarkText(s.farbe) ? "#1A1A1A" : "white") : "#575756",
               }}
             >
               {s.kurzname} ({count})
@@ -120,6 +129,9 @@ export function DeputateClient({
         {/* Gehaltsaenderungen-Filter */}
         {anzahlGehaltsaenderungen > 0 && (
           <button
+            role="tab"
+            aria-selected={filter === "gehaltsaenderung"}
+            aria-controls="deputate-panel"
             onClick={() => setFilter("gehaltsaenderung")}
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5 ${
               filter === "gehaltsaenderung"
@@ -133,7 +145,7 @@ export function DeputateClient({
         )}
       </div>
 
-      <Card>
+      <Card id="deputate-panel" role="tabpanel">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -209,10 +221,11 @@ export function DeputateClient({
                     <td className="py-2.5 px-3 text-center">
                       {lehrer.stammschuleCode ? (
                         <span
-                          className="inline-block px-2 py-0.5 rounded text-xs font-bold text-white"
+                          className="inline-block px-2 py-0.5 rounded text-xs font-bold"
                           style={{
                             backgroundColor:
                               schulFarben[lehrer.stammschuleCode] ?? "#575756",
+                            color: needsDarkText(schulFarben[lehrer.stammschuleCode] ?? "#575756") ? "#1A1A1A" : "white",
                           }}
                         >
                           {lehrer.stammschuleCode}

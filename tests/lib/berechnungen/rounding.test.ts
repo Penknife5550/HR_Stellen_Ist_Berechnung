@@ -41,6 +41,18 @@ describe("truncateToDecimals", () => {
   it("schneidet auf 3 Dezimalstellen ab", () => {
     expect(truncateToDecimals(25.12345, 3)).toBe(25.123);
   });
+
+  it("behandelt wissenschaftliche Notation korrekt (z.B. 1e-8)", () => {
+    // 0.00000001.toString() === "1e-8" — ohne Guard wuerde indexOf(".") fehlschlagen
+    expect(truncateToDecimals(0.00000001, 2)).toBe(0);
+    expect(truncateToDecimals(1e-8, 10)).toBe(0.00000001);
+  });
+
+  it("behandelt sehr kleine Werte nahe Null", () => {
+    expect(truncateToDecimals(1e-20, 2)).toBe(0);
+    expect(truncateToDecimals(5e-4, 2)).toBe(0);
+    expect(truncateToDecimals(5e-4, 4)).toBe(0.0005);
+  });
 });
 
 describe("roundToDecimals", () => {

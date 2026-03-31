@@ -9,7 +9,7 @@ import {
 } from "@/lib/db/queries";
 import { db } from "@/db";
 import { lehrer } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -29,14 +29,19 @@ export default async function DashboardPage() {
     vergleiche = await getAktuelleVergleiche(hjId);
   }
 
-  // Lehrer-Anzahl pro Schule zaehlen
+  // Lehrer-Anzahl pro Schule zaehlen (einzelne GROUP BY Query statt N+1)
+  const lehrerCountRows = await db
+    .select({
+      stammschuleId: lehrer.stammschuleId,
+      count: sql<number>`count(*)`,
+    })
+    .from(lehrer)
+    .where(eq(lehrer.aktiv, true))
+    .groupBy(lehrer.stammschuleId);
+
   const lehrerCounts: Record<number, number> = {};
-  for (const schule of schulen) {
-    const [result] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(lehrer)
-      .where(and(eq(lehrer.stammschuleId, schule.id), eq(lehrer.aktiv, true)));
-    lehrerCounts[schule.id] = Number(result?.count ?? 0);
+  for (const row of lehrerCountRows) {
+    if (row.stammschuleId) lehrerCounts[row.stammschuleId] = Number(row.count);
   }
 
   // Vergleichsdaten als Map
@@ -88,7 +93,7 @@ export default async function DashboardPage() {
               </h2>
             </div>
 
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard
                 label="Stellensoll"
                 value={stellensoll}

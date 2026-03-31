@@ -232,7 +232,7 @@ export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, def
                       <td colSpan={4} className="p-4">
                         <form action={(fd) => handleAction(updateSlrWertAction, fd)}>
                           <input type="hidden" name="id" value={slr.id} />
-                          <div className="grid grid-cols-12 gap-3 items-end">
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                             <div className="col-span-3">
                               <label className="block text-xs font-bold text-[#6B7280] mb-1">Schulform</label>
                               <div className="text-[15px] font-medium py-2">{slr.schulformTyp}</div>

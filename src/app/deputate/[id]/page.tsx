@@ -35,6 +35,9 @@ export default async function LehrerDetailPage({
   const schulFarben: Record<string, string> = {};
   for (const s of schulen) schulFarben[s.kurzname] = s.farbe;
 
+  // Helle Hintergrundfarben brauchen dunklen Text fuer ausreichenden Kontrast
+  const needsDarkText = (color: string) => ['#FBC900', '#FEF7CC'].includes(color.toUpperCase());
+
   // Monatsdaten als Array (Index 0-11)
   const monateArr = Array.from({ length: 12 }, (_, i) => {
     const m = monatsDaten.find((d) => d.monat === i + 1);
@@ -140,7 +143,7 @@ export default async function LehrerDetailPage({
               {/* GES */}
               <tr className="border-b border-[#E5E7EB]">
                 <td className="py-2.5 px-3">
-                  <span className="inline-block px-2 py-0.5 rounded text-xs font-bold text-white" style={{ backgroundColor: schulFarben["GES"] ?? "#6BAA24" }}>
+                  <span className="inline-block px-2 py-0.5 rounded text-xs font-bold" style={{ backgroundColor: schulFarben["GES"] ?? "#6BAA24", color: needsDarkText(schulFarben["GES"] ?? "#6BAA24") ? "#1A1A1A" : "white" }}>
                     GES
                   </span>
                 </td>
@@ -155,7 +158,7 @@ export default async function LehrerDetailPage({
               {/* GYM */}
               <tr className="border-b border-[#E5E7EB]">
                 <td className="py-2.5 px-3">
-                  <span className="inline-block px-2 py-0.5 rounded text-xs font-bold text-white" style={{ backgroundColor: schulFarben["GYM"] ?? "#FBC900" }}>
+                  <span className="inline-block px-2 py-0.5 rounded text-xs font-bold" style={{ backgroundColor: schulFarben["GYM"] ?? "#FBC900", color: needsDarkText(schulFarben["GYM"] ?? "#FBC900") ? "#1A1A1A" : "white" }}>
                     GYM
                   </span>
                 </td>
@@ -170,7 +173,7 @@ export default async function LehrerDetailPage({
               {/* BK */}
               <tr className="border-b border-[#E5E7EB]">
                 <td className="py-2.5 px-3">
-                  <span className="inline-block px-2 py-0.5 rounded text-xs font-bold text-white" style={{ backgroundColor: schulFarben["BK"] ?? "#5C82A5" }}>
+                  <span className="inline-block px-2 py-0.5 rounded text-xs font-bold" style={{ backgroundColor: schulFarben["BK"] ?? "#5C82A5", color: needsDarkText(schulFarben["BK"] ?? "#5C82A5") ? "#1A1A1A" : "white" }}>
                     BK
                   </span>
                 </td>

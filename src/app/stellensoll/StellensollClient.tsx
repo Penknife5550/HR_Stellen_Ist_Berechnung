@@ -84,12 +84,15 @@ export function StellensollClient({
       </div>
 
       {/* School Tabs */}
-      <div className="flex gap-1 border-b border-[#E5E7EB] mb-6">
+      <div className="flex gap-1 border-b border-[#E5E7EB] mb-6" role="tablist">
         {schulen.map((schule) => {
           const isActive = schule.kurzname === activeSchool;
           return (
             <button
               key={schule.kurzname}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls="stellensoll-panel"
               onClick={() => setActiveSchool(schule.kurzname)}
               className={`px-5 py-3 text-[15px] font-medium transition-colors -mb-px ${
                 isActive ? "text-[#1A1A1A] font-bold" : "text-[#6B7280] hover:text-[#1A1A1A]"
@@ -106,11 +109,12 @@ export function StellensollClient({
       </div>
 
       {/* Ergebnisse */}
+      <div id="stellensoll-panel" role="tabpanel">
       {active && active.ergebnisse.length > 0 ? (
         active.ergebnisse.map((erg) => (
           <div key={erg.zeitraum} className="mb-8">
             {/* KPI-Uebersicht */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <KPICard
                 label="Grundstellen"
                 value={erg.grundstellenGerundet.toLocaleString("de-DE", {
@@ -290,6 +294,7 @@ export function StellensollClient({
           </div>
         </Card>
       )}
+      </div>
     </>
   );
 }

@@ -20,7 +20,8 @@
 export function truncateToDecimals(value: number, decimals: number): number {
   // String-basiert um Floating-Point-Probleme zu vermeiden
   // z.B. Math.trunc(1.005 * 100) / 100 kann falsch sein
-  const str = value.toString();
+  // Guard gegen wissenschaftliche Notation (z.B. 1e-8 statt 0.00000001)
+  const str = value.toFixed(decimals + 10);
   const dotIndex = str.indexOf(".");
 
   if (dotIndex === -1) {

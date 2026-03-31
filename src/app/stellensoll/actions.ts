@@ -9,10 +9,10 @@ import {
 } from "@/db/schema";
 import {
   getSchulen,
-  getSchulStufenBySchule,
-  getSchuelerzahlenByStichtag,
   getAktuellesHaushaltsjahr,
-  getZuschlaegeBySchuleUndHaushaltsjahr,
+  getAlleAktivenSchulStufen,
+  getAlleSchuelerzahlenByStichtage,
+  getAlleZuschlaegeByHaushaltsjahr,
 } from "@/lib/db/queries";
 import { getSlrWerteBySchuljahr, getAktuellesSchuljahr } from "@/lib/db/queries";
 import { berechneGrundstellen } from "@/lib/berechnungen/grundstellen";
@@ -39,6 +39,42 @@ export async function berechneStellensollAction() {
       slrLookup[slr.schulformTyp] = Number(slr.relation);
     }
 
+    // Batch-Loading: Alle Daten VOR der Schleife laden (vermeidet N+1 Queries)
+    const stichtage = [aktuellesHj.stichtagVorjahr, aktuellesHj.stichtagLaufend].filter(
+      (s): s is string => s !== null && s !== undefined
+    );
+
+    const [alleSchulStufen, alleSchuelerzahlen, alleZuschlaege] = await Promise.all([
+      getAlleAktivenSchulStufen(),
+      getAlleSchuelerzahlenByStichtage(stichtage),
+      getAlleZuschlaegeByHaushaltsjahr(aktuellesHj.id),
+    ]);
+
+    // Lookup-Maps fuer schnellen Zugriff
+    const stufenBySchule = new Map<number, typeof alleSchulStufen>();
+    for (const stufe of alleSchulStufen) {
+      const arr = stufenBySchule.get(stufe.schuleId) ?? [];
+      arr.push(stufe);
+      stufenBySchule.set(stufe.schuleId, arr);
+    }
+
+    // schuelerzahlen nach schuleId+stichtag gruppieren
+    const zahlenBySchuleStichtag = new Map<string, typeof alleSchuelerzahlen>();
+    for (const z of alleSchuelerzahlen) {
+      const key = `${z.schuleId}_${z.stichtag}`;
+      const arr = zahlenBySchuleStichtag.get(key) ?? [];
+      arr.push(z);
+      zahlenBySchuleStichtag.set(key, arr);
+    }
+
+    // zuschlaege nach schuleId gruppieren
+    const zuschlaegeBySchule = new Map<number, typeof alleZuschlaege>();
+    for (const z of alleZuschlaege) {
+      const arr = zuschlaegeBySchule.get(z.schuleId) ?? [];
+      arr.push(z);
+      zuschlaegeBySchule.set(z.schuleId, arr);
+    }
+
     const ergebnisse: Array<{
       schule: string;
       zeitraum: string;
@@ -46,15 +82,13 @@ export async function berechneStellensollAction() {
       zuschlaege: number;
       stellensoll: number;
     }> = [];
+    const fehlerListe: Array<{ schule: string; details: string }> = [];
 
     for (const schule of schulen) {
-      const stufen = await getSchulStufenBySchule(schule.id);
+      const stufen = stufenBySchule.get(schule.id) ?? [];
 
-      // Zuschlaege einmal pro Schule laden (unabhaengig vom Zeitraum)
-      const zuschlaegeRows = await getZuschlaegeBySchuleUndHaushaltsjahr(
-        schule.id,
-        aktuellesHj.id
-      );
+      // Zuschlaege aus vorgeladenem Lookup
+      const zuschlaegeRows = zuschlaegeBySchule.get(schule.id) ?? [];
 
       // Fuer beide Zeitraeume berechnen (jan-jul = Vorjahr-Stichtag, aug-dez = laufender Stichtag)
       const zeitraeume = [
@@ -62,11 +96,13 @@ export async function berechneStellensollAction() {
         { key: "aug-dez", stichtag: aktuellesHj.stichtagLaufend },
       ] as const;
 
+      let schuleHatFehler = false;
+
       for (const zr of zeitraeume) {
         if (!zr.stichtag) continue;
 
-        // Schuelerzahlen fuer diesen Stichtag laden
-        const zahlen = await getSchuelerzahlenByStichtag(schule.id, zr.stichtag);
+        // Schuelerzahlen aus vorgeladenem Lookup
+        const zahlen = zahlenBySchuleStichtag.get(`${schule.id}_${zr.stichtag}`) ?? [];
 
         if (zahlen.length === 0) continue;
 
@@ -80,9 +116,12 @@ export async function berechneStellensollAction() {
 
         const fehlendeSLR = stufenDaten.filter((s) => s.slr <= 0);
         if (fehlendeSLR.length > 0) {
-          return {
-            error: `Fehlende SLR-Werte fuer ${schule.kurzname}: ${fehlendeSLR.map((s) => s.schulformTyp).join(", ")}. Bitte SLR-Konfiguration pruefen.`,
-          };
+          fehlerListe.push({
+            schule: schule.kurzname,
+            details: `Fehlende SLR-Werte: ${fehlendeSLR.map((s) => s.schulformTyp).join(", ")}`,
+          });
+          schuleHatFehler = true;
+          continue; // Diesen Zeitraum ueberspringen, naechsten versuchen
         }
 
         // Grundstellen berechnen (mit korrekter Truncation!)
@@ -152,29 +191,44 @@ export async function berechneStellensollAction() {
         });
       }
 
-      // Vergleich aktualisieren (Stellensoll vs Stellenist)
-      await aktualisiereVergleich(schule.id, aktuellesHj.id);
+      // Vergleich nur aktualisieren wenn Schule keine Fehler hatte
+      if (!schuleHatFehler) {
+        await aktualisiereVergleich(schule.id, aktuellesHj.id);
+      }
     }
 
     // Audit-Log schreiben
     await writeAuditLog("berechnung_stellensoll", 0, "INSERT", null, {
       haushaltsjahrId: aktuellesHj.id,
       anzahlErgebnisse: ergebnisse.length,
+      anzahlFehler: fehlerListe.length,
       ergebnisse: ergebnisse.map((e) => ({
         schule: e.schule,
         zeitraum: e.zeitraum,
         stellensoll: e.stellensoll,
       })),
+      fehler: fehlerListe,
     }, session.name);
 
     revalidatePath("/stellensoll");
     revalidatePath("/dashboard");
     revalidatePath("/vergleich");
 
+    // Zusammenfassung mit Erfolgen und Fehlern zurueckgeben
+    if (fehlerListe.length > 0 && ergebnisse.length === 0) {
+      return {
+        error: `Berechnung fuer alle Schulen fehlgeschlagen. ${fehlerListe.map((f) => `${f.schule}: ${f.details}`).join("; ")}. Bitte SLR-Konfiguration pruefen.`,
+      };
+    }
+
     return {
       success: true,
       ergebnisse,
-      message: `Stellensoll fuer ${ergebnisse.length} Zeitraeume berechnet.`,
+      fehler: fehlerListe.length > 0 ? fehlerListe : undefined,
+      message: `Stellensoll fuer ${ergebnisse.length} Zeitraeume berechnet.`
+        + (fehlerListe.length > 0
+          ? ` ${fehlerListe.length} Fehler: ${fehlerListe.map((f) => f.schule).join(", ")}.`
+          : ""),
     };
   } catch (err: unknown) {
     console.error("Berechnung fehlgeschlagen:", err instanceof Error ? err.message : "Unbekannt");
