@@ -153,9 +153,13 @@ export default async function VergleichPage() {
       )}
 
       <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
-        <strong>Regelung:</strong> Das Land erstattet Personalkosten nur bis zur Hoehe des
-        Stellensolls. Ist das Stellenist hoeher, traegt der Schultraeger die
-        Differenzkosten selbst.
+        <strong>Rechtsgrundlage:</strong> <strong>§ 107 Abs. 2 SchulG NRW</strong> (Defizitdeckungsprinzip):
+        Das Land erstattet Personalkosten nur bis zur Hoehe des Stellensolls.
+        Ist das Stellenist hoeher, traegt der Schultraeger die Differenzkosten selbst
+        (Ausgabenbegrenzungsgebot). Der Refinanzierungsanspruch ergibt sich aus{" "}
+        <strong>Art. 8 Abs. 4 Satz 3 LV NRW</strong> i.V.m.{" "}
+        <strong>§§ 105-115 SchulG NRW</strong>.
+        Die Eigenleistung betraegt mindestens 8 % (<strong>§ 106 Abs. 2 SchulG</strong>).
       </div>
     </PageContainer>
   );

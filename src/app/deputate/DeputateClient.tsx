@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { MONATE_KURZ } from "@/lib/constants";
+
+type MonatDetail = {
+  gesamt: number;
+  ges: number;
+  gym: number;
+  bk: number;
+};
 
 type LehrerDeputat = {
   lehrerId: number;
@@ -10,6 +18,9 @@ type LehrerDeputat = {
   stammschuleCode: string | null;
   stammschuleId: number | null;
   stunden: (number | null)[];
+  monatsDetails: (MonatDetail | null)[];
+  hatGehaltsaenderung?: boolean;
+  hatVerteilungsaenderung?: boolean;
 };
 
 type Schule = {
@@ -22,23 +33,67 @@ interface DeputateClientProps {
   lehrerListe: LehrerDeputat[];
   schulen: Schule[];
   schulFarben: Record<string, string>;
+  anzahlGehaltsaenderungen: number;
 }
 
-export function DeputateClient({ lehrerListe, schulen, schulFarben }: DeputateClientProps) {
-  const [filterSchule, setFilterSchule] = useState<number | null>(null);
+type FilterTyp = "alle" | "gehaltsaenderung" | number;
 
-  const gefilterteListe = filterSchule
-    ? lehrerListe.filter((l) => l.stammschuleId === filterSchule)
-    : lehrerListe;
+export function DeputateClient({
+  lehrerListe,
+  schulen,
+  schulFarben,
+  anzahlGehaltsaenderungen,
+}: DeputateClientProps) {
+  const [filter, setFilter] = useState<FilterTyp>("alle");
+
+  const gefilterteListe = (() => {
+    if (filter === "gehaltsaenderung") {
+      return lehrerListe.filter((l) => l.hatGehaltsaenderung);
+    }
+    if (typeof filter === "number") {
+      return lehrerListe.filter((l) => l.stammschuleId === filter);
+    }
+    return lehrerListe;
+  })();
+
+  // Aktuellste schulspezifische Deputate pro Lehrer (letzter Monat mit Daten)
+  function getAktuelleVerteilung(lehrer: LehrerDeputat): MonatDetail | null {
+    for (let i = 11; i >= 0; i--) {
+      if (lehrer.monatsDetails[i]) return lehrer.monatsDetails[i];
+    }
+    return null;
+  }
+
+  // Schulkuerzel fuer Fremdschulen (nicht Stammschule)
+  function getFremdschulen(lehrer: LehrerDeputat): string[] {
+    const v = getAktuelleVerteilung(lehrer);
+    if (!v) return [];
+    const stamm = lehrer.stammschuleCode?.toUpperCase();
+    const result: string[] = [];
+    if (v.ges > 0 && stamm !== "GES") result.push(`GES ${v.ges}`);
+    if (v.gym > 0 && stamm !== "GYM") result.push(`GYM ${v.gym}`);
+    if (v.bk > 0 && stamm !== "BK") result.push(`BK ${v.bk}`);
+    return result;
+  }
+
+  function getStammDeputat(lehrer: LehrerDeputat): number {
+    const v = getAktuelleVerteilung(lehrer);
+    if (!v) return 0;
+    const stamm = lehrer.stammschuleCode?.toUpperCase();
+    if (stamm === "GES") return v.ges;
+    if (stamm === "GYM") return v.gym;
+    if (stamm === "BK") return v.bk;
+    return v.gesamt;
+  }
 
   return (
     <>
-      {/* Schulfilter-Tabs */}
-      <div className="flex gap-2 mb-4">
+      {/* Filter-Tabs */}
+      <div className="flex gap-2 mb-4 flex-wrap">
         <button
-          onClick={() => setFilterSchule(null)}
+          onClick={() => setFilter("alle")}
           className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
-            filterSchule === null
+            filter === "alle"
               ? "bg-[#575756] text-white"
               : "bg-[#F3F4F6] text-[#575756] hover:bg-[#E5E7EB]"
           }`}
@@ -50,17 +105,32 @@ export function DeputateClient({ lehrerListe, schulen, schulFarben }: DeputateCl
           return (
             <button
               key={s.id}
-              onClick={() => setFilterSchule(s.id)}
-              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors text-white"
+              onClick={() => setFilter(s.id)}
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors"
               style={{
-                backgroundColor: filterSchule === s.id ? s.farbe : "#F3F4F6",
-                color: filterSchule === s.id ? "white" : "#575756",
+                backgroundColor: filter === s.id ? s.farbe : "#F3F4F6",
+                color: filter === s.id ? "white" : "#575756",
               }}
             >
               {s.kurzname} ({count})
             </button>
           );
         })}
+
+        {/* Gehaltsaenderungen-Filter */}
+        {anzahlGehaltsaenderungen > 0 && (
+          <button
+            onClick={() => setFilter("gehaltsaenderung")}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5 ${
+              filter === "gehaltsaenderung"
+                ? "bg-[#E2001A] text-white"
+                : "bg-red-50 text-[#E2001A] border-2 border-[#E2001A] hover:bg-red-100"
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-current" />
+            Gehaltsaenderungen ({anzahlGehaltsaenderungen})
+          </button>
+        )}
       </div>
 
       <Card>
@@ -68,7 +138,7 @@ export function DeputateClient({ lehrerListe, schulen, schulFarben }: DeputateCl
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b-2 border-[#575756]">
-                <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold sticky left-0 bg-white min-w-[200px] z-10">
+                <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold sticky left-0 bg-white min-w-[280px] z-10">
                   Lehrkraft
                 </th>
                 <th className="text-center py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold w-[60px]">
@@ -91,19 +161,50 @@ export function DeputateClient({ lehrerListe, schulen, schulFarben }: DeputateCl
               {gefilterteListe.map((lehrer, i) => {
                 const filled = lehrer.stunden.filter((s): s is number => s !== null && s > 0);
                 const avg = filled.length > 0 ? filled.reduce((a, b) => a + b, 0) / filled.length : 0;
-                const bgColor = i % 2 === 0 ? "white" : "#F9FAFB";
+                const bgColor = lehrer.hatGehaltsaenderung
+                  ? "#FEF2F2"
+                  : i % 2 === 0
+                    ? "white"
+                    : "#F9FAFB";
+
+                const stammDep = getStammDeputat(lehrer);
+                const fremd = getFremdschulen(lehrer);
 
                 return (
                   <tr
                     key={lehrer.lehrerId}
-                    className={`border-b border-[#E5E7EB]`}
+                    className="border-b border-[#E5E7EB]"
                     style={{ backgroundColor: bgColor }}
                   >
                     <td
-                      className="py-2.5 px-3 font-medium sticky left-0 z-10"
+                      className="py-2.5 px-3 sticky left-0 z-10"
                       style={{ backgroundColor: bgColor }}
                     >
-                      {lehrer.name}
+                      <div className="flex items-center gap-1.5">
+                        {lehrer.hatGehaltsaenderung && (
+                          <span className="w-2 h-2 rounded-full bg-[#E2001A] flex-shrink-0" title="Gehaltsrelevante Aenderung" />
+                        )}
+                        {lehrer.hatVerteilungsaenderung && !lehrer.hatGehaltsaenderung && (
+                          <span className="w-2 h-2 rounded-full bg-[#FBC900] flex-shrink-0" title="Verteilungsaenderung" />
+                        )}
+                        <a
+                          href={`/deputate/${lehrer.lehrerId}`}
+                          className="font-medium hover:text-[#009AC6] hover:underline transition-colors"
+                        >
+                          {lehrer.name}
+                        </a>
+                        {/* Aktuelle Deputat-Info */}
+                        <span className="text-xs text-[#6B7280] ml-1">
+                          ({stammDep > 0 ? stammDep.toFixed(1) : "—"}
+                          {fremd.length > 0 && (
+                            <span className="text-[#9CA3AF]">
+                              {" + "}
+                              {fremd.join(", ")}
+                            </span>
+                          )}
+                          )
+                        </span>
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       {lehrer.stammschuleCode ? (

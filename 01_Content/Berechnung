@@ -1,0 +1,249 @@
+# IST-Stellenberechnung an Ersatzschulen in NRW â€“ VollstÃ¤ndige Praxisanleitung
+
+---
+
+## 1. Grundprinzip: Was ist die IST-Stellenberechnung?
+
+Die IST-Stellenberechnung ist das Verfahren, mit dem eine Ersatzschule in NRW feststellt, wie viele Lehrerstellen sie tatsÃ¤chlich benÃ¶tigt â€“ und damit gegenÃ¼ber dem Land NRW refinanzieren kann. Sie ist der mit Abstand grÃ¶ÃŸte Kostenblock einer Schule, weil Personalkosten regelmÃ¤ÃŸig Ã¼ber 70 % der Gesamtausgaben ausmachen.
+
+Das Grundprinzip ist einfach: **Je mehr SchÃ¼ler eine Schule hat, desto mehr Lehrerstellen stehen ihr zu.** Das Land NRW legt fÃ¼r jede Schulform eine feste Zahl fest, wie viele SchÃ¼ler sich eine Lehrerstelle â€žteilen" (SchÃ¼ler-Lehrer-Relation). Die tatsÃ¤chliche Stellenzahl einer Schule ergibt sich dann durch Division der SchÃ¼leranzahl durch diesen Relationswert.
+
+Der verfassungsrechtliche Anspruch der Ersatzschulen ergibt sich aus **Art. 8 Abs. 4 Satz 3 der Landesverfassung NRW** in Verbindung mit **Â§Â§ 105 bis 115 Schulgesetz NRW (SchulG)** vom 15. Februar 2005 (GV. NRW. S. 102; SGV. NRW. 223).
+
+**Wichtige Grundregel:** Das Land erstattet nur das, was eine vergleichbare Ã¶ffentliche Schule auch kosten wÃ¼rde (sog. Ausgabenbegrenzungsgebot bzw. Defizitdeckungsprinzip).
+
+---
+
+## 2. Rechtsgrundlagen
+
+Die folgende Tabelle zeigt alle maÃŸgeblichen Rechtsquellen in der Reihenfolge ihrer Bedeutung:
+
+| Ebene | Vorschrift | Inhalt | Fundstelle |
+|-------|-----------|--------|------------|
+| **Verfassung** | Art. 8 Abs. 4 Satz 3 LV NRW | Grundrecht auf ZuschÃ¼sse | BASS 0-2 |
+| **Bundesverfassung** | Art. 7 Abs. 4 GG | Privatschulfreiheit | BASS 0-1 |
+| **Gesetz** | Â§Â§ 105â€“115 SchulG NRW | Finanzierungsanspruch, Personalkosten, Verfahren | GV. NRW. 2005 S. 102 |
+| **Gesetz** | Â§ 107 Abs. 1 SchulG | Grundstellenbedarf nach SchÃ¼ler-Lehrer-Relation | GV. NRW. 2005 S. 102 |
+| **Gesetz** | Â§ 112 SchulG | Haushaltsplan, Antrag, Fristen | GV. NRW. 2005 S. 102 |
+| **Gesetz** | Â§ 113 SchulG | Jahresrechnung, Verwendungsnachweis | GV. NRW. 2005 S. 102 |
+| **Rechtsverordnung** | FESchVO (Ersatzschulfinanzierungsverordnung) | Detailregelungen zur Stellenberechnung | SGV. NRW. 223; zuletzt geÃ¤ndert 24. MÃ¤rz 2025, GV. NRW. S. 334 |
+| **Rechtsverordnung** | Â§ 3 FESchVO | Personalkosten Lehrpersonal, Stichtagsregelung | BASS 11-03 Nr. 7.1 |
+| **Rechtsverordnung** | Â§ 3a FESchVO | Stellenbedarf Gemeinsames Lernen | BASS 11-03 Nr. 7.1 |
+| **Rechtsverordnung** | VO zu Â§ 93 Abs. 2 SchulG | SchÃ¼ler-Lehrer-Relationen je Schulform | GV. NRW. S. 218 (18.03.2005); zuletzt geÃ¤ndert 28. Juni 2024, GV. NRW. S. 349 |
+| **Verwaltungsvorschrift** | VVzFESchVO | AusfÃ¼hrungsanweisungen zur FESchVO | RdErl. 7. Januar 2008 (ABl. NRW. S. 86); BASS 11-03 Nr. 7.2 |
+| **VV** | AVO-RL (BASS 11-11 Nr. 1.1) | Rundungsregeln, Stichtage | BASS 11-11 Nr. 1.1 |
+
+---
+
+## 3. Berechnungslogik: Welche Faktoren flieÃŸen ein?
+
+### 3.1 Die SchÃ¼ler-Lehrer-Relation (SLR) je Schulform
+
+Die zentrale Grundlage fÃ¼r die Stellenberechnung ist der Quotient: **SchÃ¼leranzahl geteilt durch die SchÃ¼ler-Lehrer-Relation ergibt die Grundstellenzahl**. Die Relationen sind in **Â§ 8 der VO zu Â§ 93 Abs. 2 SchulG** festgelegt und betragen fÃ¼r das Schuljahr 2024/2025 (Stand: GV. NRW. S. 349 vom 28. Juni 2024):
+
+| Schulform | SchÃ¼ler je Stelle (SLR) |
+|-----------|------------------------|
+| Grundschule | 21,95 |
+| Hauptschule | 17,86 |
+| Realschule | 20,19 |
+| Sekundarschule | 16,27 |
+| Gymnasium â€“ Sek. I (G8) | 19,17 |
+| Gymnasium â€“ Sek. I (G9) | 19,87 |
+| Gymnasium â€“ Sek. II | 12,70 |
+| Gesamtschule â€“ Sek. I | 18,63 |
+| Gesamtschule â€“ Sek. II | 12,70 |
+| Berufskolleg â€“ Teilzeit (duales System, einfachqualifizierend) | 41,64 |
+| Berufskolleg â€“ Vollzeit (einfachqualifizierend) | 16,18 |
+
+> **Hinweis:** Die Relationen gelten â€žnach MaÃŸgabe des Haushalts", d. h. sie kÃ¶nnen jÃ¤hrlich durch den Bewirtschaftungserlass des Schulministeriums angepasst werden.
+
+### 3.2 Zwei Stichtage â€“ das Splittingmodell
+
+Die Stellenberechnung basiert **nicht auf einem einzelnen SchÃ¼lerstand**, sondern auf zwei Stichtagen gemÃ¤ÃŸ **Â§ 3 Abs. 1 FESchVO**:
+
+| Zeitraum im Haushaltsjahr | MaÃŸgebliche SchÃ¼lerzahl | Stichtag |
+|--------------------------|------------------------|---------|
+| Erste **7 Monate** (Jan.â€“Jul.) | SchÃ¼lerstand des **Vorjahres** | **15. Oktober des Vorjahres** |
+| Letzte **5 Monate** (Aug.â€“Dez.) | SchÃ¼lerstand des **laufenden Jahres** | **15. Oktober des laufenden Jahres** |
+
+Der Ausgleich von Stellen-ÃœberhÃ¤ngen oder -UnterhÃ¤ngen erfolgt zum Schuljahresende.
+
+### 3.3 ZusÃ¤tzliche StellenzuschlÃ¤ge
+
+Ãœber die Grundstellenzahl hinaus kann die Schule weitere Stellenanteile erhalten:
+
+- **Personalbedarfspauschale** (Â§ 107 Abs. 3 Nr. 1 SchulG): 2 % Zuschlag fÃ¼r Vertretungsunterricht, Mutterschutz, Mehrarbeit
+- **Personalnebenkostenpauschale** (Â§ 107 Abs. 3 Nr. 2 SchulG): 0,5 % Zuschlag fÃ¼r sonstige Personalnebenkosten
+- **Ganztagszuschlag**: Nur wenn Refinanzierung des Ganztagsbetriebs ausdrÃ¼cklich zugesagt wurde
+- **Gemeinsames Lernen / Inklusion** (Â§ 3a FESchVO): 1/6 Stelle pro SchÃ¼ler mit sonderpÃ¤dagogischem FÃ¶rderbedarf in der Sek. I; in der Grundschule 0,5 Stelle je Zug
+- **Waldorfzuschlag** (Â§ 3 Abs. 4 FESchVO): +10 % auf den Grundstellenbedarf in der Primarstufe / Sek. I bis MSA; +5 % fÃ¼r die Ã¼brigen JahrgÃ¤nge der Sek. II
+
+### 3.4 Rundungsregel
+
+GemÃ¤ÃŸ **Nr. 7.1.1 der AVO-RL (BASS 11-11 Nr. 1.1)** und **Â§ 7 Abs. 1 Satz 2 VO zu Â§ 93 Abs. 2 SchulG** gilt:
+- Einzelwerte fÃ¼r verschiedene Schulstufen werden nach **zwei Dezimalstellen abgebrochen** (kein Runden!)
+- Die Einzelwerte werden addiert
+- Die Gesamtzahl wird auf **eine Dezimalstelle** kaufmÃ¤nnisch auf- oder abgerundet
+- Das Rundungsverfahren nach Â§ 7 Abs. 3 der VO (ganzzahlige Aufrundung) findet bei Ersatzschulen **nicht** statt
+
+---
+
+## 4. Schritt-fÃ¼r-Schritt-Berechnung
+
+### Schritt 1: Schulform und Stufenzuordnung klÃ¤ren
+
+Stellen Sie fest, welche Schulform vorliegt (z. B. Gymnasium, Realschule) und welche Jahrgangsstufen in welchen Stichtagen relevante SchÃ¼lerzahlen aufweisen.
+
+### Schritt 2: SchÃ¼lerzahlen aus der amtlichen Schulstatistik ermitteln
+
+Die Grundlage ist die **amtliche Schulstatistik des Landes NRW** gemÃ¤ÃŸ **Â§ 7 Abs. 2 VO zu Â§ 93 Abs. 2 SchulG**. Stichtag ist jeweils der **15. Oktober**. Der SchultrÃ¤ger hat keinen Ermessensspielraum bei der Datenbasis â€“ es zÃ¤hlen ausschlieÃŸlich die amtlich gemeldeten SchÃ¼ler.
+
+### Schritt 3: Grundstellenzahl je Stufe berechnen
+
+FÃ¼r jede Schulstufe oder Bildungsgang separat:
+
+```
+Grundstellenzahl = SchÃ¼leranzahl (nach Stichtag) Ã· SLR (je Schulform/Stufe)
+```
+
+Das Ergebnis wird nach **zwei Dezimalstellen abgebrochen** (nicht gerundet).
+
+### Schritt 4: Einzelwerte addieren und Gesamtzahl runden
+
+Die Teilwerte der einzelnen Stufen werden addiert. Die Summe wird auf eine Dezimalstelle kaufmÃ¤nnisch gerundet.
+
+### Schritt 5: ZuschlÃ¤ge berechnen und addieren
+
+PrÃ¼fen Sie, ob ZuschlÃ¤ge anzuwenden sind:
+- Personalbedarfspauschale: **2 %** des Stellensolls
+- Personalnebenkostenpauschale: **0,5 %** des Stellensolls
+- Ggf. Ganztagszuschlag, Inklusionsstellen, Waldorfzuschlag
+
+### Schritt 6: Stellen haushaltsmÃ¤ÃŸig veranschlagen und beantragen
+
+Die berechneten Stellen werden in den **Haushaltsplan (Anlage 1 FESchVO Muster)** und den **Stellenplan (Anlage 2a)** eingetragen. Der Antrag ist bis zum **1. Juli des Haushaltsjahres** bei der zustÃ¤ndigen Bezirksregierung zu stellen.
+
+---
+
+## 5. Beispielrechnung (fiktives Gymnasium, realistisch)
+
+**Ausgangssituation:**
+- Schulform: Gymnasium (G9) mit Sek. I und Sek. II
+- SchÃ¼ler Sek. I (G9) zum **15.10. Vorjahr**: 450 SchÃ¼ler
+- SchÃ¼ler Sek. II zum **15.10. Vorjahr**: 180 SchÃ¼ler
+- Berechnung fÃ¼r die ersten 7 Monate des Haushaltsjahres
+
+**Berechnung Grundstellenzahl (erste 7 Monate):**
+
+| Stufe | SchÃ¼ler | SLR | Ergebnis (2 NK abbrechen) |
+|-------|---------|-----|--------------------------|
+| Sek. I (G9) | 450 | 19,87 | 22,64 |
+| Sek. II | 180 | 12,70 | 14,17 |
+| **Summe** | **630** | â€“ | **36,81** |
+| **Gerundet auf 1 NK** | â€“ | â€“ | **36,8 Stellen** |
+
+**ZuschlÃ¤ge:**
+
+| Zuschlag | Berechnung | Ergebnis |
+|----------|-----------|---------|
+| Personalbedarfspauschale (2 %) | 36,8 Ã— 0,02 | 0,74 Stellen |
+| Personalnebenkostenpauschale (0,5 %) | 36,8 Ã— 0,005 | 0,18 Stellen |
+
+**Gesamtstellenbedarf erste 7 Monate:** 36,8 + 0,74 + 0,18 = **37,72 Stellen**
+
+> Nach dem 15. Oktober des laufenden Jahres wird die Berechnung mit den dann aktuellen SchÃ¼lerzahlen fÃ¼r die restlichen 5 Monate wiederholt und ggf. ein Ausgleich vorgenommen.
+
+**Kostenindikation:**
+Bei einem refinanzierten Bruttogehalt von ca. 70.000 â‚¬ je Stelle (EG 13/A13, inkl. Sozialversicherung) ergibt sich ein Personalkostenvolumen von ca. **2,64 Mio. â‚¬/Jahr** â€“ vor Eigenleistungsabzug (Ã¼blicherweise mind. **8 %** gem. Â§ 106 Abs. 2 SchulG).
+
+---
+
+## 6. HÃ¤ufige Fehler und Fallstricke
+
+### Fehler 1: Falsche SchÃ¼lerzahlen verwenden
+Viele Schulen nutzen ihre eigenen Schulstatistiken statt der **amtlichen Schulstatistik** des Landes (Stand 15. Oktober). Das fÃ¼hrt zu Abweichungen, die im Festsetzungsbescheid korrigiert werden.
+
+### Fehler 2: Rundung falsch angewendet
+Ein hÃ¤ufiger Fehler ist die Anwendung der Auf-/Abrundungsregel nach Â§ 7 Abs. 3 VO (auf ganze Stellen). FÃ¼r Ersatzschulen gilt diese Regel **ausdrÃ¼cklich nicht** â€“ hier wird nur auf eine Dezimalstelle gerundet.
+
+### Fehler 3: Ganztagszuschlag ohne Refinanzierungszusage
+Der Ganztagszuschlag darf nur dann in den Stellenplan eingestellt werden, wenn die Bezirksregierung die Refinanzierung des Ganztagsbetriebs ausdrÃ¼cklich zugesagt hat. Ohne Zusage wird er bei der PrÃ¼fung herausgerechnet.
+
+### Fehler 4: Inklusionsstellen nicht beantragt
+Schulen mit Gemeinsamem Lernen mÃ¼ssen das Stellenbudget (Â§ 3a FESchVO) aktiv beantragen â€“ es wird **nicht automatisch** gewÃ¤hrt. Zudem ist qualifiziertes SonderpÃ¤dagogik-Personal nachzuweisen.
+
+### Fehler 5: Personalkosten Ã¼ber dem Deckel veranschlagt
+Die Personalkosten dÃ¼rfen nur bis zur HÃ¶he der VergÃ¼tung einer vergleichbaren Ã¶ffentlichen Schule (Deckelungsprinzip nach Â§ 107 Abs. 2 SchulG) veranschlagt werden. Tarifliche Abweichungen nach oben â€“ z. B. beim Haustarif einer Waldorfschule â€“ sind **nicht refinanzierungsfÃ¤hig**.
+
+### Fehler 6: BefÃ¶rderungsstellen falsch berechnet
+Bei BefÃ¶rderungsstellen gilt eine **Phasenverschiebung von 4 Jahren** (Â§ 3 Abs. 2 FESchVO). Schulen rechnen hÃ¤ufig mit dem aktuellen Stellenbestand statt dem Vergleichswert aus dem dritten Vorjahr.
+
+### Fehler 7: Eigenleistung zu niedrig angesetzt
+Die Eigenleistung betrÃ¤gt in der Regel **mindestens 8 %** der refinanzierungsfÃ¤higen Ausgaben (Â§ 106 Abs. 2 SchulG). Wer eigene SchulgebÃ¤ude einbringt, kann auf **2 %** reduzieren; wer mietet, auf max. **9 %**.
+
+---
+
+## 7. Fristen und Meldepflichten
+
+| Was | Bis wann | Wo / Wie | Rechtsgrundlage |
+|-----|---------|---------|----------------|
+| **Haushaltsplan + Antrag auf ZuschÃ¼sse** | **1. Juli** des laufenden Haushaltsjahres | Bezirksregierung (obere Schulaufsicht), elektronisch | Â§ 112 Abs. 1 SchulG |
+| **Jahresrechnung + Verwendungsnachweis** | Bis zum Ende des Folgejahres (zeitnah) | Bezirksregierung | Â§ 113 SchulG |
+| **Antrag auf Inklusions-/Stellenbudget** (Â§ 3a FESchVO) | **1. MÃ¤rz** vor Schuljahresbeginn | Bezirksregierung mit Personalnachweis | Â§ 3a Abs. 6 FESchVO |
+| **Entscheidung der BehÃ¶rde** Ã¼ber Inklusionsstellenbudget | Bis **1. Mai** | Obere SchulaufsichtsbehÃ¶rde | Â§ 3a Abs. 6 FESchVO |
+| **Versorgungsfall** (Beamte/Planstellen) | **3 Monate vor** Eintritt | Bezirksregierung + LBV NRW | Â§ 3 Abs. 7 FESchVO |
+| **Antrag ErmÃ¤ÃŸigung Eigenleistung** | Zusammen mit Jahresrechnung | Bezirksregierung | Â§ 2 Abs. 4 FESchVO |
+| **Festsetzungsbescheid durch BehÃ¶rde** | SpÃ¤testens **2 Jahre** nach Haushaltsjahresabschluss | Durch Bezirksregierung von Amts wegen | Â§ 112 Abs. 5 SchulG |
+| **Belege aufbewahren** | **10 Jahre** | SchultrÃ¤ger | VVzFESchVO |
+
+> **Achtung:** Das Haushaltsjahr der Ersatzschule deckt sich mit dem Haushaltsjahr des Landes NRW (1. Januar bis 31. Dezember).
+
+---
+
+## 8. BerechnungsÃ¼bersicht: VollstÃ¤ndige Stellenstruktur
+
+```
+Gesamtstellenbedarf einer Ersatzschule
+â”‚
+â”œâ”€â”€ A. Grundstellenzahl (Â§ 107 Abs. 1 SchulG / Â§ 3 FESchVO)
+â”‚   â””â”€â”€ SchÃ¼ler Ã· SLR je Stufe â†’ addieren â†’ auf 1 NK runden
+â”‚
+â”œâ”€â”€ B. ZuschlÃ¤ge auf Grundstellenzahl
+â”‚   â”œâ”€â”€ Ganztagszuschlag (nur bei Refinanzierungszusage)
+â”‚   â”œâ”€â”€ Inklusionsstellen Â§ 3a FESchVO (Primarstufe: 0,5 Stelle/Zug)
+â”‚   â”œâ”€â”€ Inklusionsstellen Â§ 3b FESchVO (Sek. I: 1/6 Stelle/SchÃ¼ler m. FÃ¶rderbedarf)
+â”‚   â””â”€â”€ Waldorfzuschlag (+10% / +5%)
+â”‚
+â”œâ”€â”€ C. Personalbedarfspauschale (2 % auf Stellensoll)
+â”‚   â””â”€â”€ fÃ¼r Vertretung, Mutterschutz, Mehrarbeit
+â”‚
+â”œâ”€â”€ D. Personalnebenkostenpauschale (0,5 % auf Stellensoll)
+â”‚   â””â”€â”€ fÃ¼r sonstige Personalnebenkosten
+â”‚
+â””â”€â”€ E. BefÃ¶rderungsstellen (Â§ 3 Abs. 2 FESchVO / Anlage 8.1â€“8.12)
+    â””â”€â”€ nach Phasenverschiebungsregel (4 Jahre)
+```
+
+---
+
+## 9. ZustÃ¤ndige BehÃ¶rden
+
+| Aufgabe | BehÃ¶rde |
+|---------|---------|
+| Antragsbearbeitung und Festsetzung der ZuschÃ¼sse | **Obere SchulaufsichtsbehÃ¶rde** = Bezirksregierung (Arnsberg, Detmold, DÃ¼sseldorf, KÃ¶ln, MÃ¼nster) |
+| PrÃ¼fung von VersorgungsfÃ¤llen (Planstelleninhaber) | **Landesamt fÃ¼r Besoldung und Versorgung NRW (LBV NRW)** |
+| Festlegung der jÃ¤hrlichen Relationen und des Bewirtschaftungserlasses | **Ministerium fÃ¼r Schule und Bildung NRW** |
+
+---
+
+## 10. WeiterfÃ¼hrende Rechtsquellen
+
+- **SchulG NRW Â§Â§ 105â€“115**: https://www.schulministerium.nrw/finanzierung-von-ersatzschulen
+- **FESchVO (aktuell, Stand 18.12.2025)**: https://recht.nrw.de/lmi/owa/br_bes_text?sg=1&menu=1&bes_id=7184&aufgehoben=N&anw_nr=2
+- **VVzFESchVO + FESchVO (BASS 2025/2026)**: https://bass.schule.nrw/Inhalt/6172.htm
+- **VO zu Â§ 93 Abs. 2 SchulG â€“ Relationen 2024/2025**: https://bass.schule.nrw/20041.htm
+- **Â§ 112 SchulG â€“ Haushaltsantrag, Fristen**: https://lexmea.de/de/gesetz/schulg-nrw/112
+
+---
+
+*Stand: MÃ¤rz 2026 | Erstellt auf Basis FESchVO (GV. NRW. S. 334 vom 24. MÃ¤rz 2025), VO zu Â§ 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28. Juni 2024), SchulG NRW (SGV. NRW. 223)*

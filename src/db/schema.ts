@@ -103,10 +103,29 @@ export const slrWerte = pgTable("slr_werte", {
   schulformTyp: varchar("schulform_typ", { length: 50 }).notNull(),
   relation: numeric("relation", { precision: 6, scale: 2 }).notNull(),
   quelle: varchar("quelle", { length: 200 }),
+  geaendertVon: varchar("geaendert_von", { length: 100 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   unique("slr_werte_unique").on(table.schuljahrId, table.schulformTyp),
+]);
+
+/** SLR-Aenderungshistorie — jede Aenderung wird versioniert */
+export const slrHistorie = pgTable("slr_historie", {
+  id: serial("id").primaryKey(),
+  slrWertId: integer("slr_wert_id").notNull().references(() => slrWerte.id),
+  schuljahrId: integer("schuljahr_id").notNull().references(() => schuljahre.id),
+  schulformTyp: varchar("schulform_typ", { length: 50 }).notNull(),
+  relationAlt: numeric("relation_alt", { precision: 6, scale: 2 }).notNull(),
+  relationNeu: numeric("relation_neu", { precision: 6, scale: 2 }).notNull(),
+  quelleAlt: varchar("quelle_alt", { length: 200 }),
+  quelleNeu: varchar("quelle_neu", { length: 200 }),
+  grund: text("grund"),
+  geaendertVon: varchar("geaendert_von", { length: 100 }).notNull(),
+  geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_slr_historie_slr_wert").on(table.slrWertId),
+  index("idx_slr_historie_schuljahr").on(table.schuljahrId),
 ]);
 
 // ============================================================
@@ -197,6 +216,53 @@ export const mehrarbeit = pgTable("mehrarbeit", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   unique("mehrarbeit_unique").on(table.lehrerId, table.haushaltsjahrId, table.monat, table.schuleId),
+]);
+
+// ============================================================
+// DEPUTAT-AENDERUNGSHISTORIE
+// ============================================================
+
+/**
+ * Protokolliert jede Aenderung an Deputatsdaten bei einem Sync.
+ * Rechtsgrundlage: § 3 Abs. 1 FESchVO — monatsgenaue Nachvollziehbarkeit
+ * der tatsaechlich erteilten Unterrichtsstunden.
+ */
+export const deputatAenderungen = pgTable("deputat_aenderungen", {
+  id: serial("id").primaryKey(),
+  lehrerId: integer("lehrer_id").notNull().references(() => lehrer.id),
+  haushaltsjahrId: integer("haushaltsjahr_id").notNull().references(() => haushaltsjahre.id),
+  monat: integer("monat").notNull(),
+  // Alte Werte (vor dem Sync)
+  deputatGesamtAlt: numeric("deputat_gesamt_alt", { precision: 8, scale: 3 }),
+  deputatGesAlt: numeric("deputat_ges_alt", { precision: 8, scale: 3 }),
+  deputatGymAlt: numeric("deputat_gym_alt", { precision: 8, scale: 3 }),
+  deputatBkAlt: numeric("deputat_bk_alt", { precision: 8, scale: 3 }),
+  // Neue Werte (nach dem Sync)
+  deputatGesamtNeu: numeric("deputat_gesamt_neu", { precision: 8, scale: 3 }),
+  deputatGesNeu: numeric("deputat_ges_neu", { precision: 8, scale: 3 }),
+  deputatGymNeu: numeric("deputat_gym_neu", { precision: 8, scale: 3 }),
+  deputatBkNeu: numeric("deputat_bk_neu", { precision: 8, scale: 3 }),
+  // Art der Aenderung
+  aenderungstyp: varchar("aenderungstyp", { length: 30 }).notNull(),
+  // "deputat_aenderung" = PlannedWeek hat sich geaendert (Gehaltsrelevant!)
+  // "verteilung_aenderung" = Nur Schulverteilung geaendert
+  // "neu" = Erster Eintrag fuer diesen Monat
+  istGehaltsrelevant: boolean("ist_gehaltsrelevant").notNull().default(false),
+  termIdAlt: integer("term_id_alt"),
+  termIdNeu: integer("term_id_neu"),
+  // Automatisch vom Sync gesetzt (Untis-Datum = immer Montag)
+  geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+  // Tatsaechliches Aenderungsdatum (manuell von HR korrigierbar)
+  // Untis erzwingt Montag — hier wird das reale Datum eingetragen
+  tatsaechlichesDatum: date("tatsaechliches_datum"),
+  // Wer hat das tatsaechliche Datum gesetzt?
+  datumKorrigiertVon: varchar("datum_korrigiert_von", { length: 100 }),
+  datumKorrigiertAm: timestamp("datum_korrigiert_am", { withTimezone: true }),
+}, (table) => [
+  index("idx_deputat_aenderungen_lehrer").on(table.lehrerId, table.haushaltsjahrId),
+  index("idx_deputat_aenderungen_gehaltsrelevant")
+    .on(table.haushaltsjahrId, table.istGehaltsrelevant)
+    .where(sql`ist_gehaltsrelevant = true`),
 ]);
 
 // ============================================================

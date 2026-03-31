@@ -1,7 +1,7 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
-import { getSchuljahre, getSlrWerteBySchuljahr } from "@/lib/db/queries";
+import { getSchuljahre, getSlrWerteBySchuljahr, getSlrHistorieBySchuljahr } from "@/lib/db/queries";
 import { SlrClient } from "./SlrClient";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export default async function SlrKonfigurationPage() {
     );
   }
 
-  // SLR-Werte fuer alle Schuljahre vorladen
+  // SLR-Werte + Historie fuer alle Schuljahre vorladen
   const slrBySchuljahr: Record<number, Array<{
     id: number;
     schuljahrId: number;
@@ -40,8 +40,39 @@ export default async function SlrKonfigurationPage() {
     quelle: string | null;
   }>> = {};
 
+  const historieBySchuljahr: Record<number, Array<{
+    id: number;
+    schulformTyp: string;
+    relationAlt: string;
+    relationNeu: string;
+    quelleAlt: string | null;
+    quelleNeu: string | null;
+    grund: string | null;
+    geaendertVon: string;
+    geaendertAm: string;
+  }>> = {};
+
   for (const sj of schuljahre) {
     slrBySchuljahr[sj.id] = await getSlrWerteBySchuljahr(sj.id);
+
+    const hist = await getSlrHistorieBySchuljahr(sj.id);
+    historieBySchuljahr[sj.id] = hist.map((h) => ({
+      id: h.id,
+      schulformTyp: h.schulformTyp,
+      relationAlt: h.relationAlt,
+      relationNeu: h.relationNeu,
+      quelleAlt: h.quelleAlt,
+      quelleNeu: h.quelleNeu,
+      grund: h.grund,
+      geaendertVon: h.geaendertVon,
+      geaendertAm: h.geaendertAm.toLocaleDateString("de-DE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    }));
   }
 
   return (
@@ -61,12 +92,19 @@ export default async function SlrKonfigurationPage() {
           bezeichnung: sj.bezeichnung,
         }))}
         slrBySchuljahr={slrBySchuljahr}
+        historieBySchuljahr={historieBySchuljahr}
         defaultSchuljahrId={aktuellesSj.id}
       />
 
-      <div className="mt-6 p-4 bg-[#FEF7CC] border border-[#FBC900] rounded-lg text-sm text-[#575756]">
-        <strong>Hinweis:</strong> Die SLR-Werte werden jaehrlich per Verordnung festgelegt.
-        Aenderungen erfordern die entsprechende Rechtsgrundlage.
+      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
+        <strong>Rechtsgrundlage:</strong> Die Schueler-Lehrer-Relationen (SLR) sind in{" "}
+        <strong>§ 8 der VO zu § 93 Abs. 2 SchulG</strong> festgelegt
+        (zuletzt geaendert am 28.06.2024, GV. NRW. S. 349).
+        Sie gelten &quot;nach Massgabe des Haushalts&quot; und koennen jaehrlich durch den
+        Bewirtschaftungserlass des Schulministeriums angepasst werden.
+        Die Werte bestimmen den Grundstellenbedarf gemaess{" "}
+        <strong>§ 107 Abs. 1 SchulG NRW</strong>.
+        Alle Aenderungen werden versioniert und im Audit-Log protokolliert.
       </div>
     </PageContainer>
   );

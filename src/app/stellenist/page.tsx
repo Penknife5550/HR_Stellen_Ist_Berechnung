@@ -87,7 +87,7 @@ export default async function StellenistPage() {
     <PageContainer>
       <Header
         title="Stellenist-Berechnung"
-        subtitle={`Tatsaechlich besetzte Stellen — Haushaltsjahr ${aktuellesHj.jahr}`}
+        subtitle={`Tatsaechlich besetzte Stellen nach § 3 FESchVO — Haushaltsjahr ${aktuellesHj.jahr}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Stellenist" },

@@ -70,7 +70,7 @@ async function seed() {
     { schuleId: ges.id, stufe: "Sek II", schulformTyp: "Gesamtschule Sek II" },
     { schuleId: gym.id, stufe: "Sek I", schulformTyp: "Gymnasium Sek I (G9)" },
     { schuleId: gym.id, stufe: "Sek II", schulformTyp: "Gymnasium Sek II" },
-    { schuleId: bk.id, stufe: "Vollzeit", schulformTyp: "Berufskolleg" },
+    { schuleId: bk.id, stufe: "Vollzeit", schulformTyp: "Berufskolleg Vollzeit" },
   ]);
 
   // ============================================================
@@ -113,14 +113,17 @@ async function seed() {
   // ============================================================
   console.log("5. SLR-Werte 2025/2026 anlegen...");
   await db.insert(schema.slrWerte).values([
-    { schuljahrId: sj2526.id, schulformTyp: "Grundschule", relation: "21.95", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Hauptschule", relation: "17.86", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Realschule", relation: "20.19", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Sekundarschule", relation: "16.27", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Gymnasium Sek I (G9)", relation: "19.87", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Gymnasium Sek II", relation: "12.70", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Gesamtschule Sek I", relation: "18.63", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
-    { schuljahrId: sj2526.id, schulformTyp: "Gesamtschule Sek II", relation: "12.70", quelle: "VO zu § 93 Abs. 2 SchulG 2025/2026" },
+    { schuljahrId: sj2526.id, schulformTyp: "Grundschule", relation: "21.95", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Hauptschule", relation: "17.86", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Realschule", relation: "20.19", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Sekundarschule", relation: "16.27", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Gymnasium Sek I (G8)", relation: "19.17", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Gymnasium Sek I (G9)", relation: "19.87", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Gymnasium Sek II", relation: "12.70", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Gesamtschule Sek I", relation: "18.63", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Gesamtschule Sek II", relation: "12.70", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Berufskolleg Teilzeit", relation: "41.64", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
+    { schuljahrId: sj2526.id, schulformTyp: "Berufskolleg Vollzeit", relation: "16.18", quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)" },
   ]);
 
   // ============================================================

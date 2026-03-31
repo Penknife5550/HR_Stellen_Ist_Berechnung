@@ -81,6 +81,17 @@ export default async function StellensollPage() {
       />
 
       <StellensollClient schulen={schulenMitErgebnissen} hatErgebnisse={hatErgebnisse} />
+
+      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
+        <strong>Rechtsgrundlage:</strong> Stellensollberechnung nach{" "}
+        <strong>§ 3 FESchVO</strong> i.V.m. <strong>§ 107 SchulG NRW</strong>.{" "}
+        Stichtage gemaess <strong>§ 3 Abs. 1 FESchVO</strong>:{" "}
+        Jan-Jul = Schuelerzahl vom 15.10. des Vorjahres,{" "}
+        Aug-Dez = Schuelerzahl vom 15.10. des laufenden Jahres.{" "}
+        SLR-Werte nach <strong>§ 8 VO zu § 93 Abs. 2 SchulG</strong>.{" "}
+        Frist: Haushaltsantrag bis 1. Juli bei der Bezirksregierung{" "}
+        (<strong>§ 112 Abs. 1 SchulG</strong>).
+      </div>
     </PageContainer>
   );
 }

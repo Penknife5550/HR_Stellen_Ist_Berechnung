@@ -1,7 +1,7 @@
 /**
  * POST /api/deputate/sync
  *
- * Empfaengt Lehrer-/Deputatsdaten von n8n Workflow #221.
+ * Empfaengt Lehrer-/Deputatsdaten von n8n Workflow #223.
  * Dieser Endpoint ist die Bruecke zwischen Untis und der Webanwendung.
  *
  * Ablauf:
@@ -11,13 +11,16 @@
  * 4. Term-Datumsbereich auf Monate mappen
  * 5. Deputat-Monatsdaten upserten
  * 6. Sync-Log schreiben
+ *
+ * Performance: Batch-Verarbeitung in Transaktionen fuer schnellen Sync
+ * bei grossen Datenmengen (100+ Lehrer).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { syncPayloadSchema } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 
@@ -149,108 +152,208 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Lehrer verarbeiten
+    // 6b. Lehrer ohne gueltige Stammschule filtern (z.B. Code "Z")
+    const gueltigeSchulen = new Set(alleSchulen.map((s) => s.untisCode?.toUpperCase()));
+    payload.lehrer = payload.lehrer.filter((l) => {
+      const code = l.stammschule?.toUpperCase();
+      return code && gueltigeSchulen.has(code);
+    });
+
+    if (payload.lehrer.length === 0) {
+      return NextResponse.json({
+        success: true, verarbeitet: 0, fehler: 0, monate: monate.length,
+        aenderungen: 0, gehaltsrelevant: 0,
+        message: "Keine Lehrer mit gueltiger Stammschule im Payload.",
+      });
+    }
+
+    // 7. Bestehende Lehrer vorladen (Batch statt Einzel-Queries)
+    const teacherIds = payload.lehrer.map((l) => l.teacher_id);
+    const existingLehrer = await db
+      .select()
+      .from(schema.lehrer)
+      .where(inArray(schema.lehrer.untisTeacherId, teacherIds));
+
+    const lehrerMap = new Map(
+      existingLehrer.map((l) => [l.untisTeacherId, l])
+    );
+
+    // 7b. Bestehende Deputate vorladen (fuer Aenderungserkennung)
+    const alleLehrerIds = existingLehrer.map((l) => l.id);
+    const monatsNummern = monate.map((m) => m.monat);
+    const existingDeputate = alleLehrerIds.length > 0
+      ? await db
+          .select()
+          .from(schema.deputatMonatlich)
+          .where(
+            and(
+              inArray(schema.deputatMonatlich.lehrerId, alleLehrerIds),
+              eq(schema.deputatMonatlich.haushaltsjahrId, hj.id),
+              inArray(schema.deputatMonatlich.monat, monatsNummern)
+            )
+          )
+      : [];
+
+    // Key: "lehrerId_monat" → bestehendes Deputat
+    const deputatMap = new Map(
+      existingDeputate.map((d) => [`${d.lehrerId}_${d.monat}`, d])
+    );
+
+    // 8. Lehrer verarbeiten (in Transaktion fuer Performance)
     let verarbeitet = 0;
     let fehler = 0;
+    let aenderungenGesamt = 0;
+    let gehaltsrelevant = 0;
 
-    for (const lehrerData of payload.lehrer) {
+    // Batch-Groesse: 50 Lehrer pro Transaktion
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < payload.lehrer.length; i += BATCH_SIZE) {
+      const batch = payload.lehrer.slice(i, i + BATCH_SIZE);
+
       try {
-        // 7a. Lehrer upserten
-        const stammschuleId = schulenMap.get(lehrerData.stammschule?.toUpperCase()) ?? null;
+        await db.transaction(async (tx) => {
+          for (const lehrerData of batch) {
+            try {
+              const stammschuleId = schulenMap.get(lehrerData.stammschule?.toUpperCase()) ?? null;
+              const existing = lehrerMap.get(lehrerData.teacher_id);
 
-        const existing = await db
-          .select()
-          .from(schema.lehrer)
-          .where(eq(schema.lehrer.untisTeacherId, lehrerData.teacher_id))
-          .limit(1);
+              let lehrerId: number;
 
-        let lehrerId: number;
+              if (existing) {
+                // Update
+                await tx
+                  .update(schema.lehrer)
+                  .set({
+                    name: lehrerData.name,
+                    vollname: lehrerData.vollname,
+                    personalnummer: lehrerData.personalnummer ?? null,
+                    stammschuleId: stammschuleId,
+                    stammschuleCode: lehrerData.stammschule,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(schema.lehrer.id, existing.id));
+                lehrerId = existing.id;
+              } else {
+                // Insert
+                const [inserted] = await tx
+                  .insert(schema.lehrer)
+                  .values({
+                    untisTeacherId: lehrerData.teacher_id,
+                    name: lehrerData.name,
+                    vollname: lehrerData.vollname,
+                    personalnummer: lehrerData.personalnummer ?? null,
+                    stammschuleId: stammschuleId,
+                    stammschuleCode: lehrerData.stammschule,
+                  })
+                  .returning();
+                lehrerId = inserted.id;
+                lehrerMap.set(lehrerData.teacher_id, { ...inserted });
+              }
 
-        if (existing.length > 0) {
-          // Update
-          await db
-            .update(schema.lehrer)
-            .set({
-              name: lehrerData.name,
-              vollname: lehrerData.vollname,
-              personalnummer: lehrerData.personalnummer ?? null,
-              stammschuleId: stammschuleId,
-              stammschuleCode: lehrerData.stammschule,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.lehrer.untisTeacherId, lehrerData.teacher_id));
-          lehrerId = existing[0].id;
-        } else {
-          // Insert
-          const [inserted] = await db
-            .insert(schema.lehrer)
-            .values({
-              untisTeacherId: lehrerData.teacher_id,
-              name: lehrerData.name,
-              vollname: lehrerData.vollname,
-              personalnummer: lehrerData.personalnummer ?? null,
-              stammschuleId: stammschuleId,
-              stammschuleCode: lehrerData.stammschule,
-            })
-            .returning();
-          lehrerId = inserted.id;
-        }
+              // Deputat fuer jeden Monat: Upsert + Aenderungserkennung
+              for (const { monat } of monate) {
+                const key = `${lehrerId}_${monat}`;
+                const alt = deputatMap.get(key);
 
-        // 7b. Deputat fuer jeden Monat im Zeitraum schreiben
-        for (const { monat } of monate) {
-          const existingDeputat = await db
-            .select()
-            .from(schema.deputatMonatlich)
-            .where(
-              and(
-                eq(schema.deputatMonatlich.lehrerId, lehrerId),
-                eq(schema.deputatMonatlich.haushaltsjahrId, hj.id),
-                eq(schema.deputatMonatlich.monat, monat)
-              )
-            )
-            .limit(1);
+                // Aenderung erkennen (nur wenn bereits Daten vorhanden)
+                if (alt) {
+                  const altGesamt = Number(alt.deputatGesamt ?? 0);
+                  const neuGesamt = lehrerData.deputat;
+                  const altGes = Number(alt.deputatGes ?? 0);
+                  const altGym = Number(alt.deputatGym ?? 0);
+                  const altBk = Number(alt.deputatBk ?? 0);
+                  const neuGes = lehrerData.deputat_ges;
+                  const neuGym = lehrerData.deputat_gym;
+                  const neuBk = lehrerData.deputat_bk;
 
-          if (existingDeputat.length > 0) {
-            await db
-              .update(schema.deputatMonatlich)
-              .set({
-                deputatGesamt: String(lehrerData.deputat),
-                deputatGes: String(lehrerData.deputat_ges),
-                deputatGym: String(lehrerData.deputat_gym),
-                deputatBk: String(lehrerData.deputat_bk),
-                untisTermId: payload.term_id ?? null,
-                syncDatum: new Date(),
-                updatedAt: new Date(),
-              })
-              .where(eq(schema.deputatMonatlich.id, existingDeputat[0].id));
-          } else {
-            await db.insert(schema.deputatMonatlich).values({
-              lehrerId,
-              haushaltsjahrId: hj.id,
-              monat,
-              deputatGesamt: String(lehrerData.deputat),
-              deputatGes: String(lehrerData.deputat_ges),
-              deputatGym: String(lehrerData.deputat_gym),
-              deputatBk: String(lehrerData.deputat_bk),
-              quelle: "untis",
-              untisTermId: payload.term_id ?? null,
-              syncDatum: new Date(),
-            });
+                  const gesamtGeaendert = Math.abs(altGesamt - neuGesamt) > 0.001;
+                  const verteilungGeaendert =
+                    Math.abs(altGes - neuGes) > 0.001 ||
+                    Math.abs(altGym - neuGym) > 0.001 ||
+                    Math.abs(altBk - neuBk) > 0.001;
+
+                  if (gesamtGeaendert || verteilungGeaendert) {
+                    const istGehaltsrelevant = gesamtGeaendert;
+                    const aenderungstyp = gesamtGeaendert
+                      ? "deputat_aenderung"
+                      : "verteilung_aenderung";
+
+                    await tx.insert(schema.deputatAenderungen).values({
+                      lehrerId,
+                      haushaltsjahrId: hj.id,
+                      monat,
+                      deputatGesamtAlt: String(altGesamt),
+                      deputatGesAlt: String(altGes),
+                      deputatGymAlt: String(altGym),
+                      deputatBkAlt: String(altBk),
+                      deputatGesamtNeu: String(neuGesamt),
+                      deputatGesNeu: String(neuGes),
+                      deputatGymNeu: String(neuGym),
+                      deputatBkNeu: String(neuBk),
+                      aenderungstyp,
+                      istGehaltsrelevant,
+                      termIdAlt: alt.untisTermId ?? null,
+                      termIdNeu: payload.term_id ?? null,
+                    });
+
+                    aenderungenGesamt++;
+                    if (istGehaltsrelevant) gehaltsrelevant++;
+                  }
+                }
+
+                // Upsert Deputat
+                await tx
+                  .insert(schema.deputatMonatlich)
+                  .values({
+                    lehrerId,
+                    haushaltsjahrId: hj.id,
+                    monat,
+                    deputatGesamt: String(lehrerData.deputat),
+                    deputatGes: String(lehrerData.deputat_ges),
+                    deputatGym: String(lehrerData.deputat_gym),
+                    deputatBk: String(lehrerData.deputat_bk),
+                    quelle: "untis",
+                    untisTermId: payload.term_id ?? null,
+                    syncDatum: new Date(),
+                  })
+                  .onConflictDoUpdate({
+                    target: [
+                      schema.deputatMonatlich.lehrerId,
+                      schema.deputatMonatlich.haushaltsjahrId,
+                      schema.deputatMonatlich.monat,
+                    ],
+                    set: {
+                      deputatGesamt: String(lehrerData.deputat),
+                      deputatGes: String(lehrerData.deputat_ges),
+                      deputatGym: String(lehrerData.deputat_gym),
+                      deputatBk: String(lehrerData.deputat_bk),
+                      untisTermId: payload.term_id ?? null,
+                      syncDatum: new Date(),
+                      updatedAt: new Date(),
+                    },
+                  });
+              }
+
+              verarbeitet++;
+            } catch (err) {
+              fehler++;
+              console.error(
+                `Fehler bei Lehrer teacher_id=${lehrerData.teacher_id}:`,
+                err instanceof Error ? err.message : "Unbekannt"
+              );
+            }
           }
-        }
-
-        verarbeitet++;
-      } catch (err) {
-        fehler++;
-        // DSGVO: Keine personenbezogenen Daten (Name) ins Log
+        });
+      } catch (batchErr) {
+        fehler += batch.length;
         console.error(
-          `Fehler bei Lehrer teacher_id=${lehrerData.teacher_id}:`,
-          err instanceof Error ? err.message : "Unbekannt"
+          `Batch-Fehler (${batch.length} Lehrer):`,
+          batchErr instanceof Error ? batchErr.message : "Unbekannt"
         );
       }
     }
 
-    // 8. Sync-Log schreiben
+    // 9. Sync-Log schreiben
     await db.insert(schema.deputatSyncLog).values({
       schuljahrText: payload.schuljahr_text ?? null,
       termId: payload.term_id ?? null,
@@ -260,7 +363,7 @@ export async function POST(request: NextRequest) {
       fehlerDetails: fehler > 0 ? `${fehler} Fehler aufgetreten` : null,
     });
 
-    // 9. Audit-Log
+    // 10. Audit-Log
     await writeAuditLog("deputat_sync", 0, "INSERT", null, {
       anzahlLehrer: payload.lehrer.length,
       verarbeitet,
@@ -273,7 +376,12 @@ export async function POST(request: NextRequest) {
       verarbeitet,
       fehler,
       monate: monate.length,
-      message: `${verarbeitet} Lehrer fuer ${monate.length} Monat(e) synchronisiert.`,
+      aenderungen: aenderungenGesamt,
+      gehaltsrelevant,
+      message: `${verarbeitet} Lehrer fuer ${monate.length} Monat(e) synchronisiert.`
+        + (aenderungenGesamt > 0 ? ` ${aenderungenGesamt} Aenderungen erkannt` : "")
+        + (gehaltsrelevant > 0 ? ` (${gehaltsrelevant} gehaltsrelevant!)` : "")
+        + ".",
     });
   } catch (err) {
     console.error("Sync-Fehler:", err instanceof Error ? err.message : "Unbekannt");

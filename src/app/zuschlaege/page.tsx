@@ -68,6 +68,16 @@ export default async function ZuschlaegePage() {
         haushaltsjahrId={aktuellesHj.id}
         haushaltsjahrLabel={String(aktuellesHj.jahr)}
       />
+
+      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
+        <strong>Rechtsgrundlage:</strong> Zuschlaege zum Grundstellenbedarf nach{" "}
+        <strong>§ 107 Abs. 3 SchulG NRW</strong>:{" "}
+        Personalbedarfspauschale (2 %), Personalnebenkostenpauschale (0,5 %).
+        Inklusion/Gemeinsames Lernen nach <strong>§ 3a FESchVO</strong> (Sek. I: 1/6 Stelle
+        pro Schueler mit sonderpaedag. Foerderbedarf; Grundschule: 0,5 Stelle je Zug).
+        Ganztagszuschlag nur bei ausdruecklicher Refinanzierungszusage der Bezirksregierung.
+        Alle Werte als Stellenanteile (FTE) eintragen.
+      </div>
     </PageContainer>
   );
 }

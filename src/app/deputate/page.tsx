@@ -7,6 +7,7 @@ import {
   getAktuellesHaushaltsjahr,
   getLehrerMitDeputaten,
   getLatestSync,
+  getDeputatAenderungen,
 } from "@/lib/db/queries";
 import { DeputateClient } from "./DeputateClient";
 
@@ -37,16 +38,35 @@ export default async function DeputatePage() {
     );
   }
 
-  // Deputate fuer alle Lehrer laden (ohne Schulfilter)
-  const deputatRaw = await getLehrerMitDeputaten(aktuellesHj.id);
+  // Deputate + Aenderungen laden
+  const [deputatRaw, alleAenderungen] = await Promise.all([
+    getLehrerMitDeputaten(aktuellesHj.id),
+    getDeputatAenderungen(aktuellesHj.id),
+  ]);
 
-  // Daten zu Lehrer-Objekten gruppieren
+  // Aenderungs-Flags pro Lehrer aufbauen
+  const lehrerMitGehaltsaenderung = new Set<number>();
+  const lehrerMitVerteilungsaenderung = new Set<number>();
+  for (const a of alleAenderungen) {
+    if (a.istGehaltsrelevant) lehrerMitGehaltsaenderung.add(a.lehrerId);
+    else lehrerMitVerteilungsaenderung.add(a.lehrerId);
+  }
+
+  // Daten zu Lehrer-Objekten gruppieren (inkl. schulspezifischer Deputate)
+  type MonatDetail = {
+    gesamt: number;
+    ges: number;
+    gym: number;
+    bk: number;
+  };
+
   type LehrerDeputat = {
     lehrerId: number;
     name: string;
     stammschuleCode: string | null;
     stammschuleId: number | null;
     stunden: (number | null)[];
+    monatsDetails: (MonatDetail | null)[];
   };
 
   const lehrerMap = new Map<number, LehrerDeputat>();
@@ -58,11 +78,18 @@ export default async function DeputatePage() {
         stammschuleCode: row.stammschuleCode,
         stammschuleId: row.stammschuleId,
         stunden: Array(12).fill(null),
+        monatsDetails: Array(12).fill(null),
       });
     }
     const l = lehrerMap.get(row.lehrerId)!;
-    const monatIdx = row.monat - 1; // Monat 1-12 → Index 0-11
+    const monatIdx = row.monat - 1;
     l.stunden[monatIdx] = row.deputatGesamt ? Number(row.deputatGesamt) : null;
+    l.monatsDetails[monatIdx] = {
+      gesamt: Number(row.deputatGesamt ?? 0),
+      ges: Number(row.deputatGes ?? 0),
+      gym: Number(row.deputatGym ?? 0),
+      bk: Number(row.deputatBk ?? 0),
+    };
   }
 
   const lehrerListe = Array.from(lehrerMap.values()).sort((a, b) =>
@@ -103,18 +130,40 @@ export default async function DeputatePage() {
           </div>
         </Card>
       ) : (
-        <DeputateClient
-          lehrerListe={lehrerListe.map((l) => ({
-            ...l,
-            stunden: l.stunden,
-          }))}
-          schulen={schulen.map((s) => ({
-            id: s.id,
-            kurzname: s.kurzname,
-            farbe: s.farbe,
-          }))}
-          schulFarben={schulFarben}
-        />
+        <>
+          {/* Warnungs-Banner fuer gehaltsrelevante Aenderungen */}
+          {lehrerMitGehaltsaenderung.size > 0 && (
+            <div className="mb-4 p-4 bg-red-50 border-2 border-[#E2001A] rounded-lg flex items-start gap-3">
+              <span className="text-2xl">⚠</span>
+              <div>
+                <p className="font-bold text-[#E2001A] text-[15px]">
+                  {lehrerMitGehaltsaenderung.size} Lehrkraft/Lehrkraefte mit gehaltsrelevanter Deputatsaenderung
+                </p>
+                <p className="text-sm text-[#575756] mt-1">
+                  Bei diesen Lehrkraeften hat sich das Gesamtdeputat (PlannedWeek) geaendert.
+                  Dies beeinflusst die Verguetung. Klicken Sie auf den Namen fuer Details.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DeputateClient
+            lehrerListe={lehrerListe.map((l) => ({
+              ...l,
+              stunden: l.stunden,
+              monatsDetails: l.monatsDetails,
+              hatGehaltsaenderung: lehrerMitGehaltsaenderung.has(l.lehrerId),
+              hatVerteilungsaenderung: lehrerMitVerteilungsaenderung.has(l.lehrerId),
+            }))}
+            schulen={schulen.map((s) => ({
+              id: s.id,
+              kurzname: s.kurzname,
+              farbe: s.farbe,
+            }))}
+            schulFarben={schulFarben}
+            anzahlGehaltsaenderungen={lehrerMitGehaltsaenderung.size}
+          />
+        </>
       )}
 
       <div className="mt-4 flex items-center gap-4 text-sm text-[#6B7280]">
@@ -127,6 +176,14 @@ export default async function DeputatePage() {
             {s.kurzname}
           </span>
         ))}
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#E2001A]" />
+          Gehaltsrelevant
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#FBC900]" />
+          Verteilung
+        </span>
         <span className="ml-auto">{syncText}</span>
       </div>
     </PageContainer>

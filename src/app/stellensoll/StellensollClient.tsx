@@ -210,10 +210,20 @@ export function StellensollClient({
                 </tfoot>
               </table>
 
-              <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-[#575756]">
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-[#575756] mb-3">
                 <strong>Wichtig:</strong> Teilergebnisse werden nach 2 Dezimalstellen{" "}
                 <strong>abgeschnitten</strong> (nicht gerundet!). Erst das Gesamtergebnis wird
                 kaufmaennisch gerundet.
+              </div>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-[#575756]">
+                <strong>Rechtsgrundlage:</strong> Grundstellenberechnung nach{" "}
+                <strong>§ 3 Abs. 1 FESchVO</strong> i.V.m.{" "}
+                <strong>§ 107 Abs. 1 SchulG NRW</strong>.
+                Rundungsregel nach <strong>Nr. 7.1.1 AVO-RL (BASS 11-11 Nr. 1.1)</strong> und{" "}
+                <strong>§ 7 Abs. 1 Satz 2 VO zu § 93 Abs. 2 SchulG</strong>:
+                Einzelwerte nach 2 Dezimalstellen abbrechen, Gesamtzahl auf 1 Dezimalstelle
+                kaufmaennisch runden. Die ganzzahlige Aufrundung nach § 7 Abs. 3 findet bei
+                Ersatzschulen nicht statt.
               </div>
             </Card>
 

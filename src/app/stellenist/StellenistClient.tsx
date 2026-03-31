@@ -152,6 +152,14 @@ export function StellenistClient({
             })()}
           </div>
 
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756] mb-4">
+            <strong>Rechtsgrundlage:</strong> Stellenistberechnung nach{" "}
+            <strong>§ 3 Abs. 1 FESchVO</strong>.
+            Regelstundendeputat nach <strong>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</strong>:
+            25,5 Std. (GES/GYM/BK) bzw. 28,0 Std. (Grundschulen).
+            Gewichteter Jahresdurchschnitt: (Jan-Jul x 7 + Aug-Dez x 5) / 12.
+          </div>
+
           {/* Details pro Zeitraum */}
           {aktuelleSchulDaten.zeitraeume.map((zr) => (
             <Card key={zr.zeitraum} className="mb-4">
@@ -240,12 +248,21 @@ export function StellenistClient({
             </div>
           </Card>
 
-          <div className="p-4 bg-[#FEF7CC] border border-[#FBC900] rounded-lg text-sm text-[#575756]">
+          <div className="p-4 bg-[#FEF7CC] border border-[#FBC900] rounded-lg text-sm text-[#575756] mb-4">
             <strong>Hinweis:</strong> Die Stellenist-Berechnung basiert auf den
             Deputatsdaten aus Untis.
             {!hatDeputate
               ? " Sobald die n8n-Synchronisation aktiv ist, koennen die Stelleniste berechnet werden."
               : " Klicken Sie oben auf 'Stellenist berechnen' um die Berechnung durchzufuehren."}
+          </div>
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
+            <strong>Rechtsgrundlage:</strong> Stellenistberechnung nach{" "}
+            <strong>§ 3 Abs. 1 FESchVO</strong>.
+            Das Regelstundendeputat richtet sich nach{" "}
+            <strong>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</strong>:
+            25,5 Wochenstunden (GES/GYM/BK) bzw. 28,0 Wochenstunden (Grundschulen).
+            Stichtage gemaess <strong>§ 3 FESchVO</strong>:
+            Jan-Jul = 15.10. Vorjahr, Aug-Dez = 15.10. laufendes Jahr.
           </div>
         </>
       )}

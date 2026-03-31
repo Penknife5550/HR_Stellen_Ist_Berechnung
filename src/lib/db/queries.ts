@@ -11,10 +11,12 @@ import {
   haushaltsjahre,
   schuelerzahlen,
   slrWerte,
+  slrHistorie,
   zuschlagArten,
   zuschlaege,
   lehrer,
   deputatMonatlich,
+  deputatAenderungen,
   mehrarbeit,
   deputatSyncLog,
   berechnungStellensoll,
@@ -393,6 +395,14 @@ export async function upsertSlrWert(data: {
   return result;
 }
 
+export async function getSlrHistorieBySchuljahr(schuljahrId: number) {
+  return db
+    .select()
+    .from(slrHistorie)
+    .where(eq(slrHistorie.schuljahrId, schuljahrId))
+    .orderBy(desc(slrHistorie.geaendertAm));
+}
+
 // ============================================================
 // ZUSCHLAEGE
 // ============================================================
@@ -489,6 +499,7 @@ export async function getLehrerMitDeputaten(haushaltsjahrId: number, schuleId?: 
 
 export async function getDeputatSummenByMonat(haushaltsjahrId: number, schuleId?: number) {
   // Monatliche Summen aller Wochenstunden (fuer Stellenist-Berechnung)
+  // OHNE Schul-Filter: Wird nur fuer Uebersicht/Vorschau genutzt
   const rows = await db
     .select({
       monat: deputatMonatlich.monat,
@@ -508,6 +519,57 @@ export async function getDeputatSummenByMonat(haushaltsjahrId: number, schuleId?
             eq(lehrer.aktiv, true)
           )
         : and(eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId), eq(lehrer.aktiv, true))
+    )
+    .groupBy(deputatMonatlich.monat)
+    .orderBy(asc(deputatMonatlich.monat));
+
+  return rows;
+}
+
+/**
+ * Schulspezifische Deputat-Summen pro Monat.
+ *
+ * KRITISCH: Summiert die schulspezifische Deputat-Spalte (deputat_ges/gym/bk)
+ * ueber ALLE Lehrer — nicht nur Stammschul-Lehrer.
+ *
+ * Beispiel: Lehrer Hoffmann (Stammschule GYM) unterrichtet 3h an GES.
+ * Diese 3h muessen im GES-Stellenist erscheinen, nicht im GYM-Stellenist.
+ *
+ * Rechtsgrundlage: § 3 FESchVO — das Stellenist basiert auf den tatsaechlich
+ * an der Schule erteilten Unterrichtsstunden, unabhaengig von der Stammschule.
+ */
+export async function getDeputatSummenBySchule(
+  haushaltsjahrId: number,
+  schulKurzname: string
+) {
+  // Schulspezifische Spalte je nach Kurzname
+  const spalteMap: Record<string, typeof deputatMonatlich.deputatGes> = {
+    GES: deputatMonatlich.deputatGes,
+    GYM: deputatMonatlich.deputatGym,
+    BK: deputatMonatlich.deputatBk,
+  };
+
+  const spalte = spalteMap[schulKurzname];
+
+  if (!spalte) {
+    // Grundschulen und andere: deputatGesamt verwenden (kein Cross-School)
+    return getDeputatSummenByMonat(haushaltsjahrId);
+  }
+
+  const rows = await db
+    .select({
+      monat: deputatMonatlich.monat,
+      summeSchulspezifisch: sql<string>`sum(${spalte}::numeric)`,
+      summeGesamt: sql<string>`sum(${deputatMonatlich.deputatGesamt}::numeric)`,
+      anzahlLehrer: sql<number>`count(distinct ${deputatMonatlich.lehrerId}) filter (where ${spalte}::numeric > 0)`,
+    })
+    .from(deputatMonatlich)
+    .innerJoin(lehrer, eq(deputatMonatlich.lehrerId, lehrer.id))
+    .where(
+      and(
+        eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId),
+        eq(lehrer.aktiv, true)
+      )
     )
     .groupBy(deputatMonatlich.monat)
     .orderBy(asc(deputatMonatlich.monat));
@@ -832,4 +894,99 @@ export async function updateBenutzerPasswort(id: number, passwortHash: string) {
     .update(benutzer)
     .set({ passwortHash, updatedAt: sql`now()` })
     .where(eq(benutzer.id, id));
+}
+
+// ============================================================
+// DEPUTAT-AENDERUNGEN
+// ============================================================
+
+/** Alle Aenderungen fuer ein Haushaltsjahr (fuer Dashboard-Warnungen) */
+export async function getDeputatAenderungen(haushaltsjahrId: number, nurGehaltsrelevant = false) {
+  const conditions = [eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId)];
+  if (nurGehaltsrelevant) {
+    conditions.push(eq(deputatAenderungen.istGehaltsrelevant, true));
+  }
+
+  return db
+    .select({
+      id: deputatAenderungen.id,
+      lehrerId: deputatAenderungen.lehrerId,
+      lehrerName: lehrer.vollname,
+      stammschuleCode: lehrer.stammschuleCode,
+      monat: deputatAenderungen.monat,
+      deputatGesamtAlt: deputatAenderungen.deputatGesamtAlt,
+      deputatGesamtNeu: deputatAenderungen.deputatGesamtNeu,
+      deputatGesAlt: deputatAenderungen.deputatGesAlt,
+      deputatGesNeu: deputatAenderungen.deputatGesNeu,
+      deputatGymAlt: deputatAenderungen.deputatGymAlt,
+      deputatGymNeu: deputatAenderungen.deputatGymNeu,
+      deputatBkAlt: deputatAenderungen.deputatBkAlt,
+      deputatBkNeu: deputatAenderungen.deputatBkNeu,
+      aenderungstyp: deputatAenderungen.aenderungstyp,
+      istGehaltsrelevant: deputatAenderungen.istGehaltsrelevant,
+      termIdAlt: deputatAenderungen.termIdAlt,
+      termIdNeu: deputatAenderungen.termIdNeu,
+      geaendertAm: deputatAenderungen.geaendertAm,
+    })
+    .from(deputatAenderungen)
+    .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))
+    .where(and(...conditions))
+    .orderBy(desc(deputatAenderungen.geaendertAm));
+}
+
+/** Aenderungen fuer einen einzelnen Lehrer (fuer Timeline) */
+export async function getDeputatAenderungenByLehrer(lehrerId: number, haushaltsjahrId: number) {
+  return db
+    .select()
+    .from(deputatAenderungen)
+    .where(
+      and(
+        eq(deputatAenderungen.lehrerId, lehrerId),
+        eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId)
+      )
+    )
+    .orderBy(asc(deputatAenderungen.monat), desc(deputatAenderungen.geaendertAm));
+}
+
+/** Lehrer-Detaildaten mit allen Monatswerten + Schulaufschluesselung */
+export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number) {
+  const [lehrerRow] = await db
+    .select()
+    .from(lehrer)
+    .where(eq(lehrer.id, lehrerId));
+
+  if (!lehrerRow) return null;
+
+  const monatsDaten = await db
+    .select()
+    .from(deputatMonatlich)
+    .where(
+      and(
+        eq(deputatMonatlich.lehrerId, lehrerId),
+        eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId)
+      )
+    )
+    .orderBy(asc(deputatMonatlich.monat));
+
+  const aenderungen = await getDeputatAenderungenByLehrer(lehrerId, haushaltsjahrId);
+
+  return {
+    lehrer: lehrerRow,
+    monatsDaten,
+    aenderungen,
+  };
+}
+
+/** Zusammenfassung der Aenderungen (fuer Dashboard-Badge) */
+export async function getAenderungenZusammenfassung(haushaltsjahrId: number) {
+  const [result] = await db
+    .select({
+      gesamt: sql<number>`count(distinct ${deputatAenderungen.lehrerId} || '_' || ${deputatAenderungen.monat})`,
+      gehaltsrelevant: sql<number>`count(distinct ${deputatAenderungen.lehrerId} || '_' || ${deputatAenderungen.monat}) filter (where ${deputatAenderungen.istGehaltsrelevant} = true)`,
+      betroffeneLehrer: sql<number>`count(distinct ${deputatAenderungen.lehrerId})`,
+    })
+    .from(deputatAenderungen)
+    .where(eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId));
+
+  return result ?? { gesamt: 0, gehaltsrelevant: 0, betroffeneLehrer: 0 };
 }

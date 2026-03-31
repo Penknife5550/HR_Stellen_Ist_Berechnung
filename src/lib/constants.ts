@@ -47,15 +47,19 @@ export const SCHULFORM_CONFIG = {
 export type SchulformCode = keyof typeof SCHULFORM_CONFIG;
 
 // SLR Standardwerte 2025/2026
+// Rechtsgrundlage: § 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)
 export const SLR_DEFAULTS_2025_2026 = {
   "Grundschule": 21.95,
   "Hauptschule": 17.86,
   "Realschule": 20.19,
   "Sekundarschule": 16.27,
+  "Gymnasium Sek I (G8)": 19.17,
   "Gymnasium Sek I (G9)": 19.87,
   "Gymnasium Sek II": 12.70,
   "Gesamtschule Sek I": 18.63,
   "Gesamtschule Sek II": 12.70,
+  "Berufskolleg Teilzeit": 41.64,
+  "Berufskolleg Vollzeit": 16.18,
 } as const;
 
 // Monate (deutsch)
