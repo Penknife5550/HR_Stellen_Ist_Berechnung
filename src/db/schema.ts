@@ -93,6 +93,30 @@ export const schuelerzahlen = pgTable("schuelerzahlen", {
 ]);
 
 // ============================================================
+// REGELDEPUTATE (Pflichtstunden je Schulform)
+// ============================================================
+
+/**
+ * Regeldeputate je Schulform — Pflichtstunden pro Vollzeitstelle.
+ * Rechtsgrundlage: § 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW (BASS 11-11 Nr. 1)
+ */
+export const regeldeputate = pgTable("regeldeputate", {
+  id: serial("id").primaryKey(),
+  schulformCode: varchar("schulform_code", { length: 10 }).notNull(),
+  schulformName: varchar("schulform_name", { length: 100 }).notNull(),
+  regeldeputat: numeric("regeldeputat", { precision: 4, scale: 1 }).notNull(),
+  rechtsgrundlage: varchar("rechtsgrundlage", { length: 300 }),
+  bassFundstelle: varchar("bass_fundstelle", { length: 100 }),
+  gueltigAb: date("gueltig_ab"),
+  bemerkung: text("bemerkung"),
+  aktiv: boolean("aktiv").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("regeldeputate_unique").on(table.schulformCode),
+]);
+
+// ============================================================
 // SLR-KONFIGURATION
 // ============================================================
 
@@ -162,23 +186,79 @@ export const zuschlaege = pgTable("zuschlaege", {
 ]);
 
 // ============================================================
+// STELLENARTEN & STELLENANTEILE
+// ============================================================
+
+/**
+ * Stammdaten: Welche Arten von zusaetzlichen Stellenanteilen gibt es?
+ * Rechtsgrundlagen: §§ 3, 3a, 3b FESchVO, § 106 Abs. 10, § 107 SchulG NRW
+ */
+export const stellenartTypen = pgTable("stellenart_typen", {
+  id: serial("id").primaryKey(),
+  bezeichnung: varchar("bezeichnung", { length: 150 }).notNull().unique(),
+  kurzbezeichnung: varchar("kurzbezeichnung", { length: 30 }),
+  beschreibung: text("beschreibung"),
+  rechtsgrundlage: varchar("rechtsgrundlage", { length: 300 }),
+  bindungstyp: varchar("bindungstyp", { length: 10 }).notNull().default("schule"),
+  istIsoliert: boolean("ist_isoliert").notNull().default(false),
+  istStandard: boolean("ist_standard").notNull().default(false),
+  sortierung: integer("sortierung").notNull().default(0),
+  aktiv: boolean("aktiv").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Konkrete Stellenanteile pro Schule/Haushaltsjahr.
+ * Kann schulbezogen (pauschal) oder personengebunden (mit Lehrer) sein.
+ */
+export const stellenanteile = pgTable("stellenanteile", {
+  id: serial("id").primaryKey(),
+  schuleId: integer("schule_id").notNull().references(() => schulen.id),
+  haushaltsjahrId: integer("haushaltsjahr_id").notNull().references(() => haushaltsjahre.id),
+  stellenartTypId: integer("stellenart_typ_id").notNull().references(() => stellenartTypen.id),
+  lehrerId: integer("lehrer_id").references(() => lehrer.id),
+  wert: numeric("wert", { precision: 8, scale: 4 }).notNull(),
+  zeitraum: varchar("zeitraum", { length: 10 }).notNull().default("ganzjahr"),
+  status: varchar("status", { length: 20 }).notNull().default("beantragt"),
+  befristetBis: date("befristet_bis"),
+  antragsdatum: date("antragsdatum"),
+  aktenzeichen: varchar("aktenzeichen", { length: 100 }),
+  dmsDokumentennummer: varchar("dms_dokumentennummer", { length: 100 }),
+  bemerkung: text("bemerkung"),
+  erstelltVon: varchar("erstellt_von", { length: 100 }),
+  geaendertVon: varchar("geaendert_von", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_stellenanteile_schule_hj").on(table.schuleId, table.haushaltsjahrId),
+  index("idx_stellenanteile_lehrer").on(table.lehrerId),
+  index("idx_stellenanteile_befristung").on(table.befristetBis),
+  index("idx_stellenanteile_status").on(table.status),
+]);
+
+// ============================================================
 // LEHRER & DEPUTATE (aus Untis via n8n)
 // ============================================================
 
-/** Lehrerstammdaten */
+/** Lehrerstammdaten — aus Untis (n8n-Sync) oder manuell angelegt (Grundschulen) */
 export const lehrer = pgTable("lehrer", {
   id: serial("id").primaryKey(),
-  untisTeacherId: integer("untis_teacher_id").notNull().unique(),
+  untisTeacherId: integer("untis_teacher_id").unique(),
   personalnummer: varchar("personalnummer", { length: 20 }),
   name: varchar("name", { length: 50 }).notNull(),
   vollname: varchar("vollname", { length: 200 }).notNull(),
+  vorname: varchar("vorname", { length: 100 }),
+  nachname: varchar("nachname", { length: 100 }),
   stammschuleId: integer("stammschule_id").references(() => schulen.id),
   stammschuleCode: varchar("stammschule_code", { length: 10 }),
+  quelle: varchar("quelle", { length: 20 }).notNull().default("untis"),
   aktiv: boolean("aktiv").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_lehrer_stammschule").on(table.stammschuleId),
+  index("idx_lehrer_quelle").on(table.quelle),
 ]);
 
 /** Monatliche Deputate */
@@ -258,6 +338,10 @@ export const deputatAenderungen = pgTable("deputat_aenderungen", {
   // Wer hat das tatsaechliche Datum gesetzt?
   datumKorrigiertVon: varchar("datum_korrigiert_von", { length: 100 }),
   datumKorrigiertAm: timestamp("datum_korrigiert_am", { withTimezone: true }),
+  // Nachtrag-Status: null = offen, "erstellt", "versendet"
+  nachtragStatus: varchar("nachtrag_status", { length: 20 }),
+  nachtragErstelltAm: timestamp("nachtrag_erstellt_am", { withTimezone: true }),
+  nachtragErstelltVon: varchar("nachtrag_erstellt_von", { length: 100 }),
 }, (table) => [
   index("idx_deputat_aenderungen_lehrer").on(table.lehrerId, table.haushaltsjahrId),
   index("idx_deputat_aenderungen_gehaltsrelevant")

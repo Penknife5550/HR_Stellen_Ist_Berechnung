@@ -111,7 +111,7 @@ async function generateExcel(
     const statusText =
       v.status === "im_soll" ? "Im Soll" :
       v.status === "grenzbereich" ? "Grenzbereich" :
-      v.status === "ueber_soll" ? "Ueber Soll" : "—";
+      v.status === "ueber_soll" ? "Ueber Soll" : "-";
 
     ueb.addRow([
       v.schulKurzname,
@@ -131,8 +131,8 @@ async function generateExcel(
     setColumnWidths(ws, [16, 24, 14, 12, 16, 16]);
 
     for (const erg of ergebnisse) {
-      const zeitraumLabel = erg.zeitraum === "jan-jul" ? "Januar – Juli" : "August – Dezember";
-      addSchulHeader(ws, schule.kurzname, `${schule.name} — ${zeitraumLabel}`, schule.farbe, 6);
+      const zeitraumLabel = erg.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember";
+      addSchulHeader(ws, schule.kurzname, `${schule.name} - ${zeitraumLabel}`, schule.farbe, 6);
 
       // Grundstellen-Details
       addHeaderRow(ws, ["Zeitraum", "Stufe", "Schueler", "SLR", "Rohwert", "Abgeschnitten"]);
@@ -225,10 +225,10 @@ function generatePdf(
     if (ergebnisse.length === 0) continue;
 
     doc.addPage();
-    y = addPdfHeader(doc, `Stellenplan — ${schule.kurzname}`, schule.name);
+    y = addPdfHeader(doc, `Stellenplan - ${schule.kurzname}`, schule.name);
 
     for (const erg of ergebnisse) {
-      const zeitraumLabel = erg.zeitraum === "jan-jul" ? "Januar – Juli" : "August – Dezember";
+      const zeitraumLabel = erg.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember";
       y = addPdfSchulHeader(doc, schule.kurzname, zeitraumLabel, schule.farbe, y);
 
       // Grundstellen
@@ -260,7 +260,7 @@ function generatePdf(
       const ergHead = [["", "Wert"]];
       const ergBody = [
         ["Stellensoll", fmtNum(erg.stellensoll)],
-        ["Stellenist", ist ? fmtNum(ist.stellenistGesamt) : "—"],
+        ["Stellenist", ist ? fmtNum(ist.stellenistGesamt) : "-"],
       ];
       y = addPdfTable(doc, y, ergHead, ergBody, {
         columnStyles: { 1: { halign: "right" } },
@@ -288,9 +288,11 @@ function numStr(val: unknown): string {
   return String(val);
 }
 
+/** PDF-sicher formatieren (kein Unicode-Minus, keine schmalen Leerzeichen) */
 function fmtNum(val: unknown): string {
   const n = num(val);
-  return n.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  const formatted = n.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  return formatted.replace(/\u2212/g, "-").replace(/[\u00A0\u2009\u202F]/g, " ");
 }
 
 function parseJsonArray(val: unknown): Record<string, unknown>[] {

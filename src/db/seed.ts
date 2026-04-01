@@ -142,6 +142,64 @@ async function seed() {
   ]);
 
   // ============================================================
+  // 6b. REGELDEPUTATE
+  // ============================================================
+  console.log("6b. Regeldeputate anlegen...");
+  await db.insert(schema.regeldeputate).values([
+    {
+      schulformCode: "GES",
+      schulformName: "Gesamtschule",
+      regeldeputat: "25.5",
+      rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
+      bassFundstelle: "BASS 11-11 Nr. 1",
+      gueltigAb: "2025-05-13",
+      bemerkung: "Auf-/Abrundung ueber 3 Schuljahre (§ 2 Abs. 1 Satz 2)",
+    },
+    {
+      schulformCode: "GYM",
+      schulformName: "Gymnasium",
+      regeldeputat: "25.5",
+      rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
+      bassFundstelle: "BASS 11-11 Nr. 1",
+      gueltigAb: "2025-05-13",
+      bemerkung: "Auf-/Abrundung ueber 3 Schuljahre (§ 2 Abs. 1 Satz 2)",
+    },
+    {
+      schulformCode: "BK",
+      schulformName: "Berufskolleg",
+      regeldeputat: "25.5",
+      rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
+      bassFundstelle: "BASS 11-11 Nr. 1",
+      gueltigAb: "2025-05-13",
+      bemerkung: "Auf-/Abrundung ueber 3 Schuljahre (§ 2 Abs. 1 Satz 2)",
+    },
+    {
+      schulformCode: "GSH",
+      schulformName: "Grundschule Herford",
+      regeldeputat: "28.0",
+      rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
+      bassFundstelle: "BASS 11-11 Nr. 1",
+      gueltigAb: "2025-05-13",
+    },
+    {
+      schulformCode: "GSM",
+      schulformName: "Grundschule Minden",
+      regeldeputat: "28.0",
+      rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
+      bassFundstelle: "BASS 11-11 Nr. 1",
+      gueltigAb: "2025-05-13",
+    },
+    {
+      schulformCode: "GSS",
+      schulformName: "Grundschule Stemwede",
+      regeldeputat: "28.0",
+      rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
+      bassFundstelle: "BASS 11-11 Nr. 1",
+      gueltigAb: "2025-05-13",
+    },
+  ]);
+
+  // ============================================================
   // 7. BEISPIEL-SCHUELERZAHLEN (aus Excel)
   // ============================================================
   console.log("7. Beispiel-Schuelerzahlen anlegen...");

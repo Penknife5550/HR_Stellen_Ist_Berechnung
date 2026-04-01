@@ -14,8 +14,13 @@ type StellensollDetail = {
 };
 
 type ZuschlagDetail = {
+  id?: number;
   bezeichnung: string;
   wert: number;
+  zeitraum?: string;
+  lehrerName?: string;
+  aktenzeichen?: string;
+  istIsoliert?: boolean;
 };
 
 type Ergebnis = {
@@ -34,6 +39,7 @@ type SchuleDaten = {
   kurzname: string;
   name: string;
   farbe: string;
+  regeldeputat: number;
   ergebnisse: Ergebnis[];
 };
 
@@ -114,7 +120,7 @@ export function StellensollClient({
         active.ergebnisse.map((erg) => (
           <div key={erg.zeitraum} className="mb-8">
             {/* KPI-Uebersicht */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <KPICard
                 label="Grundstellen"
                 value={erg.grundstellenGerundet.toLocaleString("de-DE", {
@@ -142,6 +148,21 @@ export function StellensollClient({
                 })}
                 subtitle="Grundstellen + Zuschlaege"
                 status="success"
+              />
+              <KPICard
+                label="Deputatstundenrahmen"
+                value={active.regeldeputat > 0
+                  ? (erg.stellensoll * active.regeldeputat).toLocaleString("de-DE", {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 1,
+                    }) + " Std."
+                  : "—"
+                }
+                subtitle={active.regeldeputat > 0
+                  ? `${erg.stellensoll.toLocaleString("de-DE", { minimumFractionDigits: 1 })} Stellen × ${active.regeldeputat.toLocaleString("de-DE", { minimumFractionDigits: 1 })} Std.`
+                  : "Regeldeputat nicht konfiguriert"
+                }
+                accentColor={active.farbe}
               />
             </div>
 
@@ -231,17 +252,23 @@ export function StellensollClient({
               </div>
             </Card>
 
-            {/* Schritt 2: Zuschlaege */}
+            {/* Schritt 2: Stellenanteile / Zuschlaege */}
             {erg.zuschlaege_details && erg.zuschlaege_details.length > 0 && (
               <Card>
                 <h3 className="text-lg font-bold text-[#1A1A1A] mb-4">
-                  Schritt 2: Zuschlaege
+                  Schritt 2: Zusaetzliche Stellenanteile
                 </h3>
                 <table className="w-full">
                   <thead>
                     <tr className="border-b-2 border-[#575756]">
                       <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                        Zuschlag
+                        Stellenart
+                      </th>
+                      <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
+                        Lehrkraft
+                      </th>
+                      <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
+                        Aktenzeichen
                       </th>
                       <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
                         Stellen
@@ -250,8 +277,21 @@ export function StellensollClient({
                   </thead>
                   <tbody>
                     {erg.zuschlaege_details.map((z, i) => (
-                      <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"}>
-                        <td className="py-3 px-3 text-[15px]">{z.bezeichnung}</td>
+                      <tr key={i} className={`${i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"} ${z.istIsoliert ? "border-l-4 border-amber-400" : ""}`}>
+                        <td className="py-3 px-3 text-[15px]">
+                          {z.bezeichnung}
+                          {z.istIsoliert && (
+                            <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded" title="Isoliert nach § 3 Abs. 6 FESchVO">
+                              ISO
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-[15px] text-[#6B7280]">
+                          {z.lehrerName ?? "—"}
+                        </td>
+                        <td className="py-3 px-3 text-sm text-[#6B7280] tabular-nums">
+                          {z.aktenzeichen ?? "—"}
+                        </td>
                         <td className="py-3 px-3 text-[15px] text-right tabular-nums font-bold">
                           {z.wert.toFixed(2)}
                         </td>
@@ -260,13 +300,13 @@ export function StellensollClient({
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-[#575756]">
-                      <td className="py-3 px-3 text-[15px] font-bold">Summe Zuschlaege</td>
+                      <td colSpan={3} className="py-3 px-3 text-[15px] font-bold">Summe Stellenanteile</td>
                       <td className="py-3 px-3 text-[15px] text-right tabular-nums font-bold">
                         {erg.zuschlaegeSumme.toFixed(2)}
                       </td>
                     </tr>
                     <tr style={{ backgroundColor: `${active.farbe}15` }}>
-                      <td className="py-4 px-3 text-lg font-bold text-[#1A1A1A]">
+                      <td colSpan={3} className="py-4 px-3 text-lg font-bold text-[#1A1A1A]">
                         Stellensoll = {erg.grundstellenGerundet.toFixed(1)} +{" "}
                         {erg.zuschlaegeSumme.toFixed(2)}
                       </td>

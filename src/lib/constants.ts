@@ -73,4 +73,59 @@ export const MONATE_KURZ = [
   "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
 ] as const;
 
+// Regelstundendeputat — Fallback wenn kein DB-Eintrag in Tabelle `regeldeputate` existiert
+// Primaer aus DB laden via getRegeldeputateMap() (queries.ts)
+export const REGELSTUNDEN_DEFAULT = "25.5";
+
+// Schulform-Langbezeichnung fuer Vertragsunterlagen
+export function getSchulformLang(schulform: string | null): string {
+  switch (schulform) {
+    case "Gesamtschule": return "Ev. priv. Gesamtschule";
+    case "Gymnasium": return "Ev. priv. Gymnasium";
+    case "Berufskolleg": return "Ev. priv. Berufskolleg";
+    default: return schulform ?? "Schule";
+  }
+}
+
+// Nachtrag-Status
+export const NACHTRAG_STATUS = {
+  OFFEN: null,
+  ERSTELLT: "erstellt",
+  VERSENDET: "versendet",
+} as const;
+
+// Stellenanteil-Status
+export const STELLENANTEIL_STATUS = {
+  BEANTRAGT: "beantragt",
+  GENEHMIGT: "genehmigt",
+  ABGELEHNT: "abgelehnt",
+  ZURUECKGEZOGEN: "zurueckgezogen",
+} as const;
+
+export const STELLENANTEIL_STATUS_LABELS: Record<string, string> = {
+  beantragt: "Beantragt",
+  genehmigt: "Genehmigt",
+  abgelehnt: "Abgelehnt",
+  zurueckgezogen: "Zurueckgezogen",
+};
+
+export const STELLENANTEIL_STATUS_FARBEN: Record<string, { bg: string; text: string }> = {
+  beantragt: { bg: "bg-amber-50 border-amber-300", text: "text-amber-800" },
+  genehmigt: { bg: "bg-green-50 border-green-300", text: "text-green-800" },
+  abgelehnt: { bg: "bg-red-50 border-red-300", text: "text-red-800" },
+  zurueckgezogen: { bg: "bg-gray-50 border-gray-300", text: "text-gray-600" },
+};
+
+export const ZEITRAUM_OPTIONS = [
+  { value: "ganzjahr", label: "Ganzjahr" },
+  { value: "jan-jul", label: "Januar - Juli" },
+  { value: "aug-dez", label: "August - Dezember" },
+] as const;
+
+export const BINDUNGSTYP_LABELS: Record<string, string> = {
+  schule: "Schulbezogen",
+  person: "Personengebunden",
+  beides: "Schul- oder personengebunden",
+};
+
 // Navigation: Siehe Sidebar.tsx (dort als einzige Quelle definiert)

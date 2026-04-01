@@ -23,8 +23,11 @@ import {
   berechnungStellenist,
   berechnungVergleich,
   benutzer,
+  regeldeputate,
+  stellenartTypen,
+  stellenanteile,
 } from "@/db/schema";
-import { eq, and, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
 
 // ============================================================
 // SCHULEN
@@ -100,6 +103,76 @@ export async function toggleSchuleAktiv(id: number, aktiv: boolean) {
     .update(schulen)
     .set({ aktiv, updatedAt: sql`now()` })
     .where(eq(schulen.id, id))
+    .returning();
+  return result;
+}
+
+// ============================================================
+// REGELDEPUTATE
+// ============================================================
+
+/** Nur Regeldeputate fuer Schulen die in Einstellungen angelegt sind */
+export async function getAlleRegeldeputate() {
+  return db
+    .select({
+      id: regeldeputate.id,
+      schulformCode: regeldeputate.schulformCode,
+      schulformName: regeldeputate.schulformName,
+      regeldeputat: regeldeputate.regeldeputat,
+      rechtsgrundlage: regeldeputate.rechtsgrundlage,
+      bassFundstelle: regeldeputate.bassFundstelle,
+      gueltigAb: regeldeputate.gueltigAb,
+      bemerkung: regeldeputate.bemerkung,
+      aktiv: regeldeputate.aktiv,
+      createdAt: regeldeputate.createdAt,
+      updatedAt: regeldeputate.updatedAt,
+    })
+    .from(regeldeputate)
+    .innerJoin(schulen, eq(regeldeputate.schulformCode, schulen.kurzname))
+    .where(and(eq(regeldeputate.aktiv, true), eq(schulen.aktiv, true)))
+    .orderBy(asc(regeldeputate.schulformCode));
+}
+
+/** Map: schulformCode -> regeldeputat (z.B. "GES" -> 25.5) */
+export async function getRegeldeputateMap(): Promise<Map<string, number>> {
+  const rows = await getAlleRegeldeputate();
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(row.schulformCode, Number(row.regeldeputat));
+  }
+  return map;
+}
+
+export async function updateRegeldeputat(
+  id: number,
+  data: {
+    regeldeputat?: string;
+    rechtsgrundlage?: string | null;
+    bassFundstelle?: string | null;
+    gueltigAb?: string | null;
+    bemerkung?: string | null;
+  }
+) {
+  const [result] = await db
+    .update(regeldeputate)
+    .set({ ...data, updatedAt: sql`now()` })
+    .where(eq(regeldeputate.id, id))
+    .returning();
+  return result;
+}
+
+export async function createRegeldeputat(data: {
+  schulformCode: string;
+  schulformName: string;
+  regeldeputat: string;
+  rechtsgrundlage?: string | null;
+  bassFundstelle?: string | null;
+  gueltigAb?: string | null;
+  bemerkung?: string | null;
+}) {
+  const [result] = await db
+    .insert(regeldeputate)
+    .values(data)
     .returning();
   return result;
 }
@@ -592,7 +665,8 @@ export async function getDeputatSummenBySchule(
   schulKurzname: string
 ) {
   // Schulspezifische Spalte je nach Kurzname
-  const spalteMap: Record<string, typeof deputatMonatlich.deputatGes> = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const spalteMap: Record<string, any> = {
     GES: deputatMonatlich.deputatGes,
     GYM: deputatMonatlich.deputatGym,
     BK: deputatMonatlich.deputatBk,
@@ -1038,4 +1112,411 @@ export async function getAenderungenZusammenfassung(haushaltsjahrId: number) {
     .where(eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId));
 
   return result ?? { gesamt: 0, gehaltsrelevant: 0, betroffeneLehrer: 0 };
+}
+
+// ============================================================
+// NACHTRAEGE (gehaltsrelevante Aenderungen mit Nachtrag-Status)
+// ============================================================
+
+/** Alle gehaltsrelevanten Aenderungen fuer Nachtrags-Uebersicht */
+export async function getGehaltsrelevanteAenderungen(haushaltsjahrId: number) {
+  return db
+    .select({
+      id: deputatAenderungen.id,
+      lehrerId: deputatAenderungen.lehrerId,
+      lehrerName: lehrer.vollname,
+      personalnummer: lehrer.personalnummer,
+      stammschuleCode: lehrer.stammschuleCode,
+      stammschuleId: lehrer.stammschuleId,
+      schuleName: schulen.name,
+      monat: deputatAenderungen.monat,
+      deputatGesamtAlt: deputatAenderungen.deputatGesamtAlt,
+      deputatGesamtNeu: deputatAenderungen.deputatGesamtNeu,
+      geaendertAm: deputatAenderungen.geaendertAm,
+      tatsaechlichesDatum: deputatAenderungen.tatsaechlichesDatum,
+      nachtragStatus: deputatAenderungen.nachtragStatus,
+      nachtragErstelltAm: deputatAenderungen.nachtragErstelltAm,
+      nachtragErstelltVon: deputatAenderungen.nachtragErstelltVon,
+    })
+    .from(deputatAenderungen)
+    .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))
+    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
+    .where(
+      and(
+        eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId),
+        eq(deputatAenderungen.istGehaltsrelevant, true)
+      )
+    )
+    .orderBy(desc(deputatAenderungen.geaendertAm));
+}
+
+/** Einzelne Aenderung fuer Nachtrag-Generierung laden */
+export async function getAenderungFuerNachtrag(aenderungId: number) {
+  const [result] = await db
+    .select({
+      id: deputatAenderungen.id,
+      lehrerId: deputatAenderungen.lehrerId,
+      lehrerName: lehrer.vollname,
+      personalnummer: lehrer.personalnummer,
+      stammschuleCode: lehrer.stammschuleCode,
+      schuleName: schulen.name,
+      schulform: schulen.schulform,
+      monat: deputatAenderungen.monat,
+      haushaltsjahrId: deputatAenderungen.haushaltsjahrId,
+      deputatGesamtAlt: deputatAenderungen.deputatGesamtAlt,
+      deputatGesamtNeu: deputatAenderungen.deputatGesamtNeu,
+      geaendertAm: deputatAenderungen.geaendertAm,
+      tatsaechlichesDatum: deputatAenderungen.tatsaechlichesDatum,
+    })
+    .from(deputatAenderungen)
+    .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))
+    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
+    .where(eq(deputatAenderungen.id, aenderungId));
+
+  return result ?? null;
+}
+
+// ============================================================
+// STELLENARTEN (Stammdaten)
+// ============================================================
+
+export async function getStellenartTypen() {
+  return db
+    .select()
+    .from(stellenartTypen)
+    .where(eq(stellenartTypen.aktiv, true))
+    .orderBy(asc(stellenartTypen.sortierung));
+}
+
+export async function createStellenartTyp(data: {
+  bezeichnung: string;
+  kurzbezeichnung?: string | null;
+  beschreibung?: string | null;
+  rechtsgrundlage?: string | null;
+  bindungstyp: string;
+  istIsoliert?: boolean;
+}) {
+  const [result] = await db
+    .insert(stellenartTypen)
+    .values(data)
+    .returning();
+  return result;
+}
+
+export async function updateStellenartTyp(
+  id: number,
+  data: {
+    bezeichnung?: string;
+    kurzbezeichnung?: string | null;
+    beschreibung?: string | null;
+    rechtsgrundlage?: string | null;
+    bindungstyp?: string;
+    istIsoliert?: boolean;
+    aktiv?: boolean;
+  }
+) {
+  const [result] = await db
+    .update(stellenartTypen)
+    .set({ ...data, updatedAt: sql`now()` })
+    .where(eq(stellenartTypen.id, id))
+    .returning();
+  return result;
+}
+
+// ============================================================
+// STELLENANTEILE
+// ============================================================
+
+export async function getStellenanteileBySchuleUndHj(schuleId: number, haushaltsjahrId: number) {
+  return db
+    .select({
+      id: stellenanteile.id,
+      schuleId: stellenanteile.schuleId,
+      haushaltsjahrId: stellenanteile.haushaltsjahrId,
+      stellenartTypId: stellenanteile.stellenartTypId,
+      stellenartBezeichnung: stellenartTypen.bezeichnung,
+      stellenartKurz: stellenartTypen.kurzbezeichnung,
+      bindungstyp: stellenartTypen.bindungstyp,
+      istIsoliert: stellenartTypen.istIsoliert,
+      rechtsgrundlage: stellenartTypen.rechtsgrundlage,
+      lehrerId: stellenanteile.lehrerId,
+      lehrerName: lehrer.vollname,
+      lehrerPersonalnr: lehrer.personalnummer,
+      wert: stellenanteile.wert,
+      zeitraum: stellenanteile.zeitraum,
+      status: stellenanteile.status,
+      befristetBis: stellenanteile.befristetBis,
+      antragsdatum: stellenanteile.antragsdatum,
+      aktenzeichen: stellenanteile.aktenzeichen,
+      dmsDokumentennummer: stellenanteile.dmsDokumentennummer,
+      bemerkung: stellenanteile.bemerkung,
+      erstelltVon: stellenanteile.erstelltVon,
+      createdAt: stellenanteile.createdAt,
+    })
+    .from(stellenanteile)
+    .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
+    .leftJoin(lehrer, eq(stellenanteile.lehrerId, lehrer.id))
+    .where(
+      and(
+        eq(stellenanteile.schuleId, schuleId),
+        eq(stellenanteile.haushaltsjahrId, haushaltsjahrId)
+      )
+    )
+    .orderBy(asc(stellenartTypen.sortierung), asc(stellenanteile.createdAt));
+}
+
+export async function getAlleStellenanteileByHj(haushaltsjahrId: number) {
+  return db
+    .select({
+      id: stellenanteile.id,
+      schuleId: stellenanteile.schuleId,
+      stellenartBezeichnung: stellenartTypen.bezeichnung,
+      istIsoliert: stellenartTypen.istIsoliert,
+      lehrerId: stellenanteile.lehrerId,
+      lehrerName: lehrer.vollname,
+      wert: stellenanteile.wert,
+      zeitraum: stellenanteile.zeitraum,
+      status: stellenanteile.status,
+      aktenzeichen: stellenanteile.aktenzeichen,
+    })
+    .from(stellenanteile)
+    .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
+    .leftJoin(lehrer, eq(stellenanteile.lehrerId, lehrer.id))
+    .where(eq(stellenanteile.haushaltsjahrId, haushaltsjahrId))
+    .orderBy(asc(stellenanteile.schuleId), asc(stellenartTypen.sortierung));
+}
+
+export async function createStellenanteil(data: {
+  schuleId: number;
+  haushaltsjahrId: number;
+  stellenartTypId: number;
+  lehrerId?: number | null;
+  wert: string;
+  zeitraum: string;
+  status: string;
+  befristetBis?: string | null;
+  antragsdatum?: string | null;
+  aktenzeichen?: string | null;
+  dmsDokumentennummer?: string | null;
+  bemerkung?: string | null;
+  erstelltVon?: string | null;
+}) {
+  const [result] = await db
+    .insert(stellenanteile)
+    .values(data)
+    .returning();
+  return result;
+}
+
+export async function updateStellenanteil(
+  id: number,
+  data: {
+    stellenartTypId?: number;
+    lehrerId?: number | null;
+    wert?: string;
+    zeitraum?: string;
+    status?: string;
+    befristetBis?: string | null;
+    antragsdatum?: string | null;
+    aktenzeichen?: string | null;
+    dmsDokumentennummer?: string | null;
+    bemerkung?: string | null;
+    geaendertVon?: string | null;
+  }
+) {
+  const [result] = await db
+    .update(stellenanteile)
+    .set({ ...data, updatedAt: sql`now()` })
+    .where(eq(stellenanteile.id, id))
+    .returning();
+  return result;
+}
+
+export async function deleteStellenanteil(id: number) {
+  await db.delete(stellenanteile).where(eq(stellenanteile.id, id));
+}
+
+export async function getStellenanteilById(id: number) {
+  const [result] = await db
+    .select({
+      id: stellenanteile.id,
+      schuleId: stellenanteile.schuleId,
+      haushaltsjahrId: stellenanteile.haushaltsjahrId,
+      stellenartTypId: stellenanteile.stellenartTypId,
+      stellenartBezeichnung: stellenartTypen.bezeichnung,
+      bindungstyp: stellenartTypen.bindungstyp,
+      lehrerId: stellenanteile.lehrerId,
+      lehrerName: lehrer.vollname,
+      wert: stellenanteile.wert,
+      zeitraum: stellenanteile.zeitraum,
+      status: stellenanteile.status,
+      befristetBis: stellenanteile.befristetBis,
+      antragsdatum: stellenanteile.antragsdatum,
+      aktenzeichen: stellenanteile.aktenzeichen,
+      dmsDokumentennummer: stellenanteile.dmsDokumentennummer,
+      bemerkung: stellenanteile.bemerkung,
+    })
+    .from(stellenanteile)
+    .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
+    .leftJoin(lehrer, eq(stellenanteile.lehrerId, lehrer.id))
+    .where(eq(stellenanteile.id, id));
+  return result ?? null;
+}
+
+// ============================================================
+// LEHRER — erweiterte Queries (Mitarbeiterverwaltung)
+// ============================================================
+
+export async function getAlleLehrerMitDetails() {
+  return db
+    .select({
+      id: lehrer.id,
+      untisTeacherId: lehrer.untisTeacherId,
+      personalnummer: lehrer.personalnummer,
+      name: lehrer.name,
+      vollname: lehrer.vollname,
+      vorname: lehrer.vorname,
+      nachname: lehrer.nachname,
+      stammschuleId: lehrer.stammschuleId,
+      stammschuleCode: lehrer.stammschuleCode,
+      schuleName: schulen.name,
+      schuleKurzname: schulen.kurzname,
+      schuleFarbe: schulen.farbe,
+      quelle: lehrer.quelle,
+      aktiv: lehrer.aktiv,
+      createdAt: lehrer.createdAt,
+    })
+    .from(lehrer)
+    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
+    .orderBy(asc(lehrer.vollname));
+}
+
+export async function getAktiveLehrerBySchule(schuleId: number) {
+  return db
+    .select({
+      id: lehrer.id,
+      vollname: lehrer.vollname,
+      personalnummer: lehrer.personalnummer,
+    })
+    .from(lehrer)
+    .where(and(eq(lehrer.stammschuleId, schuleId), eq(lehrer.aktiv, true)))
+    .orderBy(asc(lehrer.vollname));
+}
+
+export async function createLehrerManuell(data: {
+  vorname: string;
+  nachname: string;
+  personalnummer?: string | null;
+  stammschuleId: number;
+}) {
+  const stammschule = await db.select({ kurzname: schulen.kurzname }).from(schulen).where(eq(schulen.id, data.stammschuleId));
+  const code = stammschule[0]?.kurzname ?? null;
+
+  const [result] = await db
+    .insert(lehrer)
+    .values({
+      name: data.nachname.substring(0, 3),
+      vollname: `${data.nachname} ${data.vorname}`,
+      vorname: data.vorname,
+      nachname: data.nachname,
+      personalnummer: data.personalnummer || null,
+      stammschuleId: data.stammschuleId,
+      stammschuleCode: code,
+      quelle: "manuell",
+    })
+    .returning();
+  return result;
+}
+
+export async function updateLehrerManuell(
+  id: number,
+  data: {
+    vorname?: string;
+    nachname?: string;
+    personalnummer?: string | null;
+    stammschuleId?: number;
+  }
+) {
+  const updates: Record<string, unknown> = { updatedAt: sql`now()` };
+  if (data.vorname !== undefined) updates.vorname = data.vorname;
+  if (data.nachname !== undefined) updates.nachname = data.nachname;
+  if (data.vorname !== undefined || data.nachname !== undefined) {
+    const v = data.vorname ?? "";
+    const n = data.nachname ?? "";
+    updates.vollname = `${n} ${v}`;
+    updates.name = n.substring(0, 3);
+  }
+  if (data.personalnummer !== undefined) updates.personalnummer = data.personalnummer || null;
+  if (data.stammschuleId !== undefined) {
+    updates.stammschuleId = data.stammschuleId;
+    const stammschule = await db.select({ kurzname: schulen.kurzname }).from(schulen).where(eq(schulen.id, data.stammschuleId));
+    updates.stammschuleCode = stammschule[0]?.kurzname ?? null;
+  }
+
+  const [result] = await db
+    .update(lehrer)
+    .set(updates)
+    .where(and(eq(lehrer.id, id), eq(lehrer.quelle, "manuell")))
+    .returning();
+  return result;
+}
+
+// ============================================================
+// STELLENANTEILE — KPIs + Befristungs-Monitoring
+// ============================================================
+
+/** Ablaufende Befristungen innerhalb der naechsten X Tage */
+export async function getAblaufendeBefristungen(haushaltsjahrId: number, tageVoraus = 90) {
+  const heute = new Date().toISOString().split("T")[0];
+  const grenze = new Date(Date.now() + tageVoraus * 86400000).toISOString().split("T")[0];
+
+  return db
+    .select({
+      id: stellenanteile.id,
+      schuleId: stellenanteile.schuleId,
+      stellenartBezeichnung: stellenartTypen.bezeichnung,
+      lehrerName: lehrer.vollname,
+      wert: stellenanteile.wert,
+      befristetBis: stellenanteile.befristetBis,
+      status: stellenanteile.status,
+      schuleKurzname: schulen.kurzname,
+    })
+    .from(stellenanteile)
+    .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
+    .leftJoin(lehrer, eq(stellenanteile.lehrerId, lehrer.id))
+    .innerJoin(schulen, eq(stellenanteile.schuleId, schulen.id))
+    .where(
+      and(
+        eq(stellenanteile.haushaltsjahrId, haushaltsjahrId),
+        eq(stellenanteile.status, "genehmigt"),
+        lte(stellenanteile.befristetBis, grenze),
+        gte(stellenanteile.befristetBis, heute)
+      )
+    )
+    .orderBy(asc(stellenanteile.befristetBis));
+}
+
+/** KPI-Zusammenfassung Stellenanteile */
+export async function getStellenanteileKPIs(haushaltsjahrId: number) {
+  const rows = await db
+    .select({
+      status: stellenanteile.status,
+      wert: stellenanteile.wert,
+    })
+    .from(stellenanteile)
+    .where(eq(stellenanteile.haushaltsjahrId, haushaltsjahrId));
+
+  let beantragt = 0;
+  let genehmigt = 0;
+  let genehmigtStellen = 0;
+
+  for (const row of rows) {
+    if (row.status === "beantragt") beantragt++;
+    if (row.status === "genehmigt") {
+      genehmigt++;
+      genehmigtStellen += Number(row.wert);
+    }
+  }
+
+  return { beantragt, genehmigt, genehmigtStellen: Math.round(genehmigtStellen * 10000) / 10000 };
 }

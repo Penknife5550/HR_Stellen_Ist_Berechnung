@@ -214,3 +214,53 @@ export function safeFormString(formData: FormData, key: string, maxLength = 500)
   if (raw === null || raw === undefined) return "";
   return String(raw).slice(0, maxLength);
 }
+
+// ============================================================
+// STELLENANTEILE
+// ============================================================
+
+const stellenanteilWert = z
+  .string()
+  .transform((v) => v.replaceAll(",", "."))
+  .pipe(z.string().regex(/^-?\d{1,4}(\.\d{1,4})?$/, "Ungueltiger Stellenanteil (z.B. 0,5 oder 2,0)."));
+
+const optionalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Ungueltiges Datum.").optional().or(z.literal(""));
+
+export const stellenanteilCreateSchema = z.object({
+  schuleId: z.number().int().positive(),
+  haushaltsjahrId: z.number().int().positive(),
+  stellenartTypId: z.number().int().positive("Stellenart auswaehlen."),
+  lehrerId: z.number().int().positive().optional().nullable(),
+  wert: stellenanteilWert,
+  zeitraum: z.enum(["ganzjahr", "jan-jul", "aug-dez"]),
+  status: z.enum(["beantragt", "genehmigt", "abgelehnt", "zurueckgezogen"]).default("beantragt"),
+  befristetBis: optionalDate,
+  antragsdatum: optionalDate,
+  aktenzeichen: z.string().max(100).optional(),
+  dmsDokumentennummer: z.string().max(100).optional(),
+  bemerkung: z.string().max(1000).optional(),
+});
+
+export const stellenanteilUpdateSchema = stellenanteilCreateSchema.extend({
+  id: z.number().int().positive(),
+});
+
+export const stellenartTypCreateSchema = z.object({
+  bezeichnung: z.string().min(1, "Bezeichnung erforderlich.").max(150),
+  kurzbezeichnung: z.string().max(30).optional(),
+  beschreibung: z.string().max(500).optional(),
+  rechtsgrundlage: z.string().max(300).optional(),
+  bindungstyp: z.enum(["schule", "person", "beides"]),
+  istIsoliert: z.boolean().default(false),
+});
+
+// ============================================================
+// LEHRER (manuelle Anlage)
+// ============================================================
+
+export const createLehrerManualSchema = z.object({
+  vorname: z.string().min(1, "Vorname erforderlich.").max(100),
+  nachname: z.string().min(1, "Nachname erforderlich.").max(100),
+  personalnummer: z.string().max(20).optional().or(z.literal("")),
+  stammschuleId: z.number().int().positive("Schule auswaehlen."),
+});

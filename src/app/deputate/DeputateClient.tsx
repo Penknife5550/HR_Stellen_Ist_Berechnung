@@ -145,7 +145,7 @@ export function DeputateClient({
         )}
       </div>
 
-      <Card id="deputate-panel" role="tabpanel">
+      <div id="deputate-panel" role="tabpanel"><Card>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -304,7 +304,7 @@ export function DeputateClient({
             </tfoot>
           </table>
         </div>
-      </Card>
+      </Card></div>
     </>
   );
 }

@@ -5,6 +5,7 @@ import {
   getSchulen,
   getAktuellesHaushaltsjahr,
   getAktuelleStellensollBySchule,
+  getRegeldeputateMap,
 } from "@/lib/db/queries";
 import { StellensollClient } from "./StellensollClient";
 
@@ -24,9 +25,10 @@ type ZuschlagDetail = {
 };
 
 export default async function StellensollPage() {
-  const [schulen, aktuellesHj] = await Promise.all([
+  const [schulen, aktuellesHj, regeldeputateMap] = await Promise.all([
     getSchulen(),
     getAktuellesHaushaltsjahr(),
+    getRegeldeputateMap(),
   ]);
 
   if (!aktuellesHj) {
@@ -48,11 +50,13 @@ export default async function StellensollPage() {
   const schulenMitErgebnissen = await Promise.all(
     schulen.map(async (schule) => {
       const ergebnisse = await getAktuelleStellensollBySchule(schule.id, aktuellesHj.id);
+      const rd = regeldeputateMap.get(schule.kurzname) ?? 0;
       return {
         id: schule.id,
         kurzname: schule.kurzname,
         name: schule.name,
         farbe: schule.farbe,
+        regeldeputat: rd,
         ergebnisse: ergebnisse.map((e) => ({
           zeitraum: e.zeitraum,
           grundstellenGerundet: Number(e.grundstellenGerundet),

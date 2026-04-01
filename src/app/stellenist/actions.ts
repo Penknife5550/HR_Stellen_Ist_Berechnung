@@ -8,6 +8,7 @@ import {
   getAktuellesHaushaltsjahr,
   getDeputatSummenBySchule,
   getMehrarbeitByHaushaltsjahr,
+  getRegeldeputateMap,
 } from "@/lib/db/queries";
 import { berechneStellenist } from "@/lib/berechnungen/stellenist";
 import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
@@ -15,26 +16,16 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
 
-// Regelstundendeputat je Schulform (NRW)
-// Rechtsgrundlage: § 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW
-// Grundschulen: 28 Wochenstunden (Pflichtstundenband GS)
-// Weiterführende Schulen (GES, GYM, BK): 25,5 Wochenstunden
-const REGELDEPUTAT: Record<string, number> = {
-  GES: 25.5,
-  GYM: 25.5,
-  BK: 25.5,
-  GSH: 28.0,
-  GSM: 28.0,
-  GSS: 28.0,
-};
-
 export async function berechneStellenisteAction() {
   const session = await requireWriteAccess();
   try {
     const aktuellesHj = await getAktuellesHaushaltsjahr();
     if (!aktuellesHj) return { error: "Kein aktuelles Haushaltsjahr gefunden." };
 
-    const schulen = await getSchulen();
+    const [schulen, regeldeputateMap] = await Promise.all([
+      getSchulen(),
+      getRegeldeputateMap(),
+    ]);
 
     const ergebnisse: Array<{
       schule: string;
@@ -45,17 +36,18 @@ export async function berechneStellenisteAction() {
     }> = [];
 
     for (const schule of schulen) {
-      const regeldeputat = REGELDEPUTAT[schule.kurzname] ?? 25.5;
+      const regeldeputat = regeldeputateMap.get(schule.kurzname);
+      if (regeldeputat === undefined) {
+        console.warn(`Kein Regeldeputat fuer Schulform "${schule.kurzname}" in DB konfiguriert. Schule wird uebersprungen.`);
+        continue;
+      }
 
-      // Schulspezifische Deputat-Summen laden:
-      // Summiert deputat_ges/gym/bk ueber ALLE Lehrer (nicht nur Stammschule).
-      // Damit werden schuluebergreifend eingesetzte Lehrer korrekt zugeordnet.
-      const monatsSummen = await getDeputatSummenBySchule(aktuellesHj.id, schule.kurzname);
+      const [monatsSummen, mehrarbeitRows] = await Promise.all([
+        getDeputatSummenBySchule(aktuellesHj.id, schule.kurzname),
+        getMehrarbeitByHaushaltsjahr(aktuellesHj.id, schule.id),
+      ]);
 
       if (monatsSummen.length === 0) continue;
-
-      // Mehrarbeit laden
-      const mehrarbeitRows = await getMehrarbeitByHaushaltsjahr(aktuellesHj.id, schule.id);
 
       // Schulspezifische Stunden verwenden (deputat_ges fuer GES, deputat_gym fuer GYM, etc.)
       const libResult = berechneStellenist({

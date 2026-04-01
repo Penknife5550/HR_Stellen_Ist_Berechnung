@@ -155,8 +155,8 @@ export function StellenistClient({
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756] mb-4">
             <strong>Rechtsgrundlage:</strong> Stellenistberechnung nach{" "}
             <strong>§ 3 Abs. 1 FESchVO</strong>.
-            Regelstundendeputat nach <strong>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</strong>:
-            25,5 Std. (GES/GYM/BK) bzw. 28,0 Std. (Grundschulen).
+            Regelstundendeputat nach <strong>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</strong>{" "}
+            (siehe Stammdaten &quot;Regeldeputate&quot;).
             Gewichteter Jahresdurchschnitt: (Jan-Jul x 7 + Aug-Dez x 5) / 12.
           </div>
 
@@ -167,14 +167,14 @@ export function StellenistClient({
                 {zr.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember"}
               </h3>
               <div className="space-y-2 text-[15px]">
-                <div className="flex justify-between p-3 bg-[#F9FAFB] rounded">
-                  <span>Monats-Durchschnitt Wochenstunden</span>
-                  <span className="font-bold tabular-nums">
+                <div className="flex justify-between p-3 bg-blue-50 rounded border border-blue-200">
+                  <span className="font-medium">Tatsaechliche Wochenstunden (Durchschnitt)</span>
+                  <span className="font-bold tabular-nums text-lg">
                     {zr.monatsDurchschnittStunden
                       ? Number(zr.monatsDurchschnittStunden).toLocaleString("de-DE", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
-                        })
+                        }) + " Std."
                       : "—"}
                   </span>
                 </div>
@@ -259,8 +259,8 @@ export function StellenistClient({
             <strong>Rechtsgrundlage:</strong> Stellenistberechnung nach{" "}
             <strong>§ 3 Abs. 1 FESchVO</strong>.
             Das Regelstundendeputat richtet sich nach{" "}
-            <strong>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</strong>:
-            25,5 Wochenstunden (GES/GYM/BK) bzw. 28,0 Wochenstunden (Grundschulen).
+            <strong>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</strong>{" "}
+            (siehe Stammdaten &quot;Regeldeputate&quot;).
             Stichtage gemaess <strong>§ 3 FESchVO</strong>:
             Jan-Jul = 15.10. Vorjahr, Aug-Dez = 15.10. laufendes Jahr.
           </div>

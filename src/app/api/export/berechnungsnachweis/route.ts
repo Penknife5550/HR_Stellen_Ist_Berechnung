@@ -45,20 +45,20 @@ export async function GET(request: NextRequest) {
     let y = addPdfHeader(
       doc,
       "Berechnungsnachweis",
-      `Haushaltsjahr ${haushaltsjahrId} — Alle Zwischenschritte`
+      `Haushaltsjahr ${haushaltsjahrId} -Alle Zwischenschritte`
     );
 
     // Inhaltsverzeichnis
     y = addPdfText(doc, "Inhalt:", y, { bold: true, size: 11 });
     for (const schule of schulen) {
-      y = addPdfText(doc, `• ${schule.kurzname} — ${schule.name}`, y, { indent: 5 });
+      y = addPdfText(doc, `-${schule.kurzname} -${schule.name}`, y, { indent: 5 });
     }
 
     // Pro Schule eine Detail-Seite
     for (const schule of schulen) {
       doc.addPage();
 
-      y = addPdfHeader(doc, `Berechnungsnachweis — ${schule.kurzname}`, schule.name);
+      y = addPdfHeader(doc, `Berechnungsnachweis -${schule.kurzname}`, schule.name);
 
       // Stellensoll laden
       const sollErgebnisse = await getAktuelleStellensollBySchule(schule.id, haushaltsjahrId);
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 
       // --- STELLENSOLL pro Zeitraum ---
       for (const soll of sollErgebnisse) {
-        const zeitraumLabel = soll.zeitraum === "jan-jul" ? "Januar – Juli" : "August – Dezember";
+        const zeitraumLabel = soll.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember";
         y = addPdfSchulHeader(doc, schule.kurzname, zeitraumLabel, schule.farbe, y);
 
         // 1. Grundstellen
@@ -82,14 +82,28 @@ export async function GET(request: NextRequest) {
         abschnitt++;
 
         const details = parseJsonArray(soll.grundstellenDetails);
+        const grundstellenSumme = num(soll.grundstellenSumme);
+        const grundstellenGerundet = num(soll.grundstellenGerundet);
+
         if (details.length > 0) {
           const grundHead = [["Stufe", "Schueler", "SLR", "Rohwert", "Abgeschnitten (2 Dez.)"]];
-          const grundBody = details.map((d) => [
+          const grundBody: (string | { content: string; styles?: Record<string, unknown> })[][] = details.map((d) => [
             String(d.stufe ?? d.schulformTyp ?? ""),
             String(d.schueler ?? 0),
             fmtNum(d.slr),
             fmtNum(d.rohErgebnis, 6),
             fmtNum(d.truncErgebnis),
+          ]);
+          // Summenzeilen direkt in die Tabelle
+          grundBody.push([
+            { content: "Summe (ungerundet)", styles: { fontStyle: "italic" } },
+            "", "", "",
+            { content: fmtNum(grundstellenSumme), styles: { fontStyle: "italic", halign: "right" } },
+          ]);
+          grundBody.push([
+            { content: "Grundstellen (gerundet)", styles: { fontStyle: "bold" } },
+            "", "", "",
+            { content: fmtNum(grundstellenGerundet, 1), styles: { fontStyle: "bold", halign: "right" } },
           ]);
           y = addPdfTable(doc, y, grundHead, grundBody, {
             columnStyles: {
@@ -100,11 +114,6 @@ export async function GET(request: NextRequest) {
             },
           });
         }
-
-        const grundstellenSumme = num(soll.grundstellenSumme);
-        const grundstellenGerundet = num(soll.grundstellenGerundet);
-        y = addPdfText(doc, `Summe (ungerundet): ${fmtNum(grundstellenSumme)}`, y, { indent: 5 });
-        y = addPdfText(doc, `Grundstellen (gerundet auf 1 Dez.): ${fmtNum(grundstellenGerundet)}`, y, { indent: 5, bold: true });
         y += 2;
 
         // 2. Zuschlaege
@@ -144,7 +153,7 @@ export async function GET(request: NextRequest) {
 
       // --- STELLENIST pro Zeitraum ---
       for (const ist of istErgebnisse) {
-        const zeitraumLabel = ist.zeitraum === "jan-jul" ? "Januar – Juli" : "August – Dezember";
+        const zeitraumLabel = ist.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember";
 
         y = addPdfText(doc, `${abschnitt}. STELLENIST (${zeitraumLabel})`, y, { bold: true, size: 11 });
         abschnitt++;
@@ -171,7 +180,7 @@ export async function GET(request: NextRequest) {
         const vBody = [
           ["Stellensoll (gewichtet)", fmtNum(vergleich.stellensoll)],
           ["Stellenist (gewichtet)", fmtNum(vergleich.stellenist)],
-          ["Differenz (Ist − Soll)", fmtNum(vergleich.differenz)],
+          ["Differenz (Ist - Soll)", fmtNum(vergleich.differenz)],
           ["Status", vergleich.status === "im_soll" ? "Im Soll" : vergleich.status === "grenzbereich" ? "Grenzbereich" : "Ueber Soll"],
           ["Refinanzierung", fmtNum(vergleich.refinanzierung)],
         ];
@@ -199,12 +208,21 @@ function num(val: unknown): number {
   return Number(val) || 0;
 }
 
+/**
+ * Formatiert Zahlen PDF-sicher (ohne Unicode-Sonderzeichen).
+ * jsPDF/Helvetica kann kein Unicode-Minus (U+2212), schmalen Leerraum etc.
+ * → Ergebnis nur mit ASCII-Zeichen.
+ */
 function fmtNum(val: unknown, decimals = 2): string {
   const n = num(val);
-  return n.toLocaleString("de-DE", {
+  const formatted = n.toLocaleString("de-DE", {
     minimumFractionDigits: 1,
     maximumFractionDigits: decimals,
   });
+  // Unicode-Minus (−) → ASCII-Hyphen (-), schmale Leerzeichen → normal
+  return formatted
+    .replace(/\u2212/g, "-")
+    .replace(/[\u00A0\u2009\u202F]/g, " ");
 }
 
 function parseJsonArray(val: unknown): Record<string, unknown>[] {

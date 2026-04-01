@@ -13,6 +13,7 @@ import {
   getAlleAktivenSchulStufen,
   getAlleSchuelerzahlenByStichtage,
   getAlleZuschlaegeByHaushaltsjahr,
+  getAlleStellenanteileByHj,
 } from "@/lib/db/queries";
 import { getSlrWerteBySchuljahr, getAktuellesSchuljahr } from "@/lib/db/queries";
 import { berechneGrundstellen } from "@/lib/berechnungen/grundstellen";
@@ -44,10 +45,11 @@ export async function berechneStellensollAction() {
       (s): s is string => s !== null && s !== undefined
     );
 
-    const [alleSchulStufen, alleSchuelerzahlen, alleZuschlaege] = await Promise.all([
+    const [alleSchulStufen, alleSchuelerzahlen, alleZuschlaege, alleStellenanteile] = await Promise.all([
       getAlleAktivenSchulStufen(),
       getAlleSchuelerzahlenByStichtage(stichtage),
       getAlleZuschlaegeByHaushaltsjahr(aktuellesHj.id),
+      getAlleStellenanteileByHj(aktuellesHj.id),
     ]);
 
     // Lookup-Maps fuer schnellen Zugriff
@@ -67,7 +69,16 @@ export async function berechneStellensollAction() {
       zahlenBySchuleStichtag.set(key, arr);
     }
 
-    // zuschlaege nach schuleId gruppieren
+    // Stellenanteile nach schuleId gruppieren (nur genehmigte!)
+    const stellenanteileBySchule = new Map<number, typeof alleStellenanteile>();
+    for (const sa of alleStellenanteile) {
+      if (sa.status !== "genehmigt") continue;
+      const arr = stellenanteileBySchule.get(sa.schuleId) ?? [];
+      arr.push(sa);
+      stellenanteileBySchule.set(sa.schuleId, arr);
+    }
+
+    // Fallback: alte zuschlaege nach schuleId (nur fuer Schulen ohne Stellenanteile)
     const zuschlaegeBySchule = new Map<number, typeof alleZuschlaege>();
     for (const z of alleZuschlaege) {
       const arr = zuschlaegeBySchule.get(z.schuleId) ?? [];
@@ -87,7 +98,9 @@ export async function berechneStellensollAction() {
     for (const schule of schulen) {
       const stufen = stufenBySchule.get(schule.id) ?? [];
 
-      // Zuschlaege aus vorgeladenem Lookup
+      // Dual-Source: Wenn Stellenanteile vorhanden → nutzen, sonst Fallback auf alte Zuschlaege
+      const hatStellenanteile = stellenanteileBySchule.has(schule.id);
+      const stellenanteileRows = stellenanteileBySchule.get(schule.id) ?? [];
       const zuschlaegeRows = zuschlaegeBySchule.get(schule.id) ?? [];
 
       // Fuer beide Zeitraeume berechnen (jan-jul = Vorjahr-Stichtag, aug-dez = laufender Stichtag)
@@ -127,19 +140,46 @@ export async function berechneStellensollAction() {
         // Grundstellen berechnen (mit korrekter Truncation!)
         const grundstellenResult = berechneGrundstellen(stufenDaten);
 
-        // F1-Fix: Zuschlaege nach Zeitraum filtern
+        // Zuschlaege/Stellenanteile nach Zeitraum filtern
         // "ganzjahr" gilt immer, sonst nur passender Zeitraum (jan-jul / aug-dez)
-        const relevanteZuschlaege = zuschlaegeRows.filter(
-          (z) => z.zeitraum === "ganzjahr" || z.zeitraum === zr.key
-        );
-        const zuschlaegeSumme = relevanteZuschlaege.reduce(
-          (acc, z) => acc + Number(z.wert),
-          0
-        );
+        let zuschlaegeSumme: number;
+        let zuschlagDetailsForDb: Array<Record<string, unknown>>;
+
+        if (hatStellenanteile) {
+          // Neue Quelle: stellenanteile (nur genehmigt, bereits gefiltert)
+          const relevante = stellenanteileRows.filter(
+            (sa) => sa.zeitraum === "ganzjahr" || sa.zeitraum === zr.key
+          );
+          zuschlaegeSumme = relevante.reduce((acc, sa) => acc + Number(sa.wert), 0);
+          zuschlagDetailsForDb = relevante.map((sa) => ({
+            id: sa.id,
+            bezeichnung: sa.stellenartBezeichnung,
+            wert: Number(sa.wert),
+            zeitraum: sa.zeitraum,
+            lehrerId: sa.lehrerId,
+            lehrerName: sa.lehrerName,
+            aktenzeichen: sa.aktenzeichen,
+            istIsoliert: sa.istIsoliert,
+          }));
+        } else {
+          // Fallback: alte zuschlaege-Tabelle
+          const relevanteZuschlaege = zuschlaegeRows.filter(
+            (z) => z.zeitraum === "ganzjahr" || z.zeitraum === zr.key
+          );
+          zuschlaegeSumme = relevanteZuschlaege.reduce(
+            (acc, z) => acc + Number(z.wert),
+            0
+          );
+          zuschlagDetailsForDb = relevanteZuschlaege.map((z) => ({
+            bezeichnung: z.bezeichnung,
+            wert: Number(z.wert),
+            zeitraum: z.zeitraum,
+          }));
+        }
 
         const stellensollWert = grundstellenResult.grundstellenzahl + zuschlaegeSumme;
 
-        // Details fuer JSONB aufbereiten
+        // Grundstellen-Details fuer JSONB
         const detailsFuerDb = grundstellenResult.teilErgebnisse.map((te) => ({
           stufe: te.stufe,
           schueler: te.schueler,
@@ -150,7 +190,6 @@ export async function berechneStellensollAction() {
 
         // Transaktion: Deaktivieren + Einfuegen atomar
         await db.transaction(async (tx) => {
-          // Alte Berechnungen deaktivieren
           await tx
             .update(berechnungStellensoll)
             .set({ istAktuell: false })
@@ -162,7 +201,6 @@ export async function berechneStellensollAction() {
               )
             );
 
-          // Neue Berechnung speichern
           await tx.insert(berechnungStellensoll).values({
             schuleId: schule.id,
             haushaltsjahrId: aktuellesHj.id,
@@ -171,11 +209,7 @@ export async function berechneStellensollAction() {
             grundstellenSumme: String(grundstellenResult.summeTrunc),
             grundstellenGerundet: String(grundstellenResult.grundstellenzahl),
             zuschlaegeSumme: String(zuschlaegeSumme),
-            zuschlaege_details: relevanteZuschlaege.map((z) => ({
-              bezeichnung: z.bezeichnung,
-              wert: Number(z.wert),
-              zeitraum: z.zeitraum,
-            })),
+            zuschlaege_details: zuschlagDetailsForDb,
             stellensoll: String(Math.round(stellensollWert * 10) / 10),
             berechnetVon: session.name,
             istAktuell: true,
