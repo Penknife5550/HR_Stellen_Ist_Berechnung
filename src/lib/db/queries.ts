@@ -341,6 +341,12 @@ export async function getAktuellesHaushaltsjahr() {
   return getHaushaltsjahrByJahr(currentYear);
 }
 
+/** Haushaltsjahr per ID laden */
+export async function getHaushaltsjahrById(id: number) {
+  const [result] = await db.select().from(haushaltsjahre).where(eq(haushaltsjahre.id, id));
+  return result ?? null;
+}
+
 /** Alle Haushaltsjahre, absteigend sortiert (neuestes zuerst) */
 export async function getAlleHaushaltsjahre() {
   return db
@@ -1303,7 +1309,20 @@ export async function getStellenanteileBySchuleUndHj(schuleId: number, haushalts
     .orderBy(asc(stellenartTypen.sortierung), asc(stellenanteile.createdAt));
 }
 
+/** Alle genehmigten Stellenanteile fuer ein HJ (fuer Stellensoll-Berechnung) */
+export async function getAlleGenehmigteStellenanteileByHj(haushaltsjahrId: number) {
+  return _stellenanteileByHjQuery(haushaltsjahrId, "genehmigt");
+}
+
+/** Alle Stellenanteile fuer ein HJ unabhaengig vom Status (fuer Dashboard, KPIs) */
 export async function getAlleStellenanteileByHj(haushaltsjahrId: number) {
+  return _stellenanteileByHjQuery(haushaltsjahrId, null);
+}
+
+function _stellenanteileByHjQuery(haushaltsjahrId: number, statusFilter: string | null) {
+  const conditions = [eq(stellenanteile.haushaltsjahrId, haushaltsjahrId)];
+  if (statusFilter) conditions.push(eq(stellenanteile.status, statusFilter));
+
   return db
     .select({
       id: stellenanteile.id,
@@ -1322,16 +1341,12 @@ export async function getAlleStellenanteileByHj(haushaltsjahrId: number) {
       zeitraum: stellenanteile.zeitraum,
       status: stellenanteile.status,
       aktenzeichen: stellenanteile.aktenzeichen,
+      befristetBis: stellenanteile.befristetBis,
     })
     .from(stellenanteile)
     .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
     .leftJoin(lehrer, eq(stellenanteile.lehrerId, lehrer.id))
-    .where(
-      and(
-        eq(stellenanteile.haushaltsjahrId, haushaltsjahrId),
-        eq(stellenanteile.status, "genehmigt")
-      )
-    )
+    .where(and(...conditions))
     .orderBy(asc(stellenanteile.schuleId), asc(stellenartTypen.sortierung));
 }
 

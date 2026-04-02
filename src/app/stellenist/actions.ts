@@ -5,8 +5,8 @@ import { db } from "@/db";
 import { berechnungStellenist } from "@/db/schema";
 import {
   getSchulen,
-  getHaushaltsjahrByJahr,
   getAktuellesHaushaltsjahr,
+  getHaushaltsjahrById,
   getDeputatSummenBySchule,
   getMehrarbeitByHaushaltsjahr,
   getRegeldeputateMap,
@@ -22,17 +22,9 @@ import { eq, and } from "drizzle-orm";
 export async function berechneStellenisteAction(haushaltsjahrId?: number) {
   const session = await requireWriteAccess();
   try {
-    let aktuellesHj;
-    if (haushaltsjahrId) {
-      // HJ per ID laden (aus der DB)
-      const { db: database } = await import("@/db");
-      const { haushaltsjahre } = await import("@/db/schema");
-      const { eq } = await import("drizzle-orm");
-      const [found] = await database.select().from(haushaltsjahre).where(eq(haushaltsjahre.id, haushaltsjahrId));
-      aktuellesHj = found ?? null;
-    } else {
-      aktuellesHj = await getAktuellesHaushaltsjahr();
-    }
+    const aktuellesHj = haushaltsjahrId
+      ? await getHaushaltsjahrById(haushaltsjahrId)
+      : await getAktuellesHaushaltsjahr();
     if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
     const [schulen, regeldeputateMap, alleAenderungen] = await Promise.all([

@@ -42,21 +42,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
 
   // Alles parallel laden
-  const [vergleiche, stellenistDaten, stellensollDaten, alleStellenanteile, regeldeputateMap, ablaufendeBefristungen] = await Promise.all([
+  const [vergleiche, stellenistDaten, stellensollDaten, alleStellenanteile, regeldeputateMap, ablaufendeBefristungen, lehrerCountRows] = await Promise.all([
     getAktuelleVergleiche(hjId),
     getAktuelleStellenisteAlleSchulen(hjId),
     getAktuelleStellensollAlleSchulen(hjId),
     getAlleStellenanteileByHj(hjId),
     getRegeldeputateMap(),
     getAblaufendeBefristungen(hjId, 90),
+    db.select({ stammschuleId: lehrer.stammschuleId, count: sql<number>`count(*)` }).from(lehrer).where(eq(lehrer.aktiv, true)).groupBy(lehrer.stammschuleId),
   ]);
-
-  // Lehrer-Anzahl pro Schule
-  const lehrerCountRows = await db
-    .select({ stammschuleId: lehrer.stammschuleId, count: sql<number>`count(*)` })
-    .from(lehrer)
-    .where(eq(lehrer.aktiv, true))
-    .groupBy(lehrer.stammschuleId);
   const lehrerCounts: Record<number, number> = {};
   for (const row of lehrerCountRows) {
     if (row.stammschuleId) lehrerCounts[row.stammschuleId] = Number(row.count);
@@ -118,33 +112,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }
   }
 
-  // Stellenanteile pro Schule (alle, inkl. beantragt etc.)
-  // Wir brauchen hier ALLE Status, nicht nur genehmigt — Query filtert auf genehmigt
-  // Also separate Query noetig
-  const alleSaRaw = await db
-    .select({
-      id: (await import("@/db/schema")).stellenanteile.id,
-      schuleId: (await import("@/db/schema")).stellenanteile.schuleId,
-      wert: (await import("@/db/schema")).stellenanteile.wert,
-      eurBetrag: (await import("@/db/schema")).stellenanteile.eurBetrag,
-      wahlrecht: (await import("@/db/schema")).stellenanteile.wahlrecht,
-      status: (await import("@/db/schema")).stellenanteile.status,
-      befristetBis: (await import("@/db/schema")).stellenanteile.befristetBis,
-      stellenartBezeichnung: (await import("@/db/schema")).stellenartTypen.bezeichnung,
-      stellenartKuerzel: (await import("@/db/schema")).stellenartTypen.kuerzel,
-      stellenartTyp: (await import("@/db/schema")).stellenartTypen.typ,
-      lehrerName: (await import("@/db/schema")).lehrer.vollname,
-    })
-    .from((await import("@/db/schema")).stellenanteile)
-    .innerJoin(
-      (await import("@/db/schema")).stellenartTypen,
-      eq((await import("@/db/schema")).stellenanteile.stellenartTypId, (await import("@/db/schema")).stellenartTypen.id)
-    )
-    .leftJoin(
-      (await import("@/db/schema")).lehrer,
-      eq((await import("@/db/schema")).stellenanteile.lehrerId, (await import("@/db/schema")).lehrer.id)
-    )
-    .where(eq((await import("@/db/schema")).stellenanteile.haushaltsjahrId, hjId));
+  // Stellenanteile pro Schule — getAlleStellenanteileByHj gibt jetzt ALLE Status zurueck
+  const alleSaRaw = alleStellenanteile;
 
   type SaRow = {
     id: number;

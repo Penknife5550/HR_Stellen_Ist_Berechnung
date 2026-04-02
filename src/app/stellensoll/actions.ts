@@ -10,10 +10,11 @@ import {
 import {
   getSchulen,
   getAktuellesHaushaltsjahr,
+  getHaushaltsjahrById,
   getAlleAktivenSchulStufen,
   getAlleSchuelerzahlenByStichtage,
   getAlleZuschlaegeByHaushaltsjahr,
-  getAlleStellenanteileByHj,
+  getAlleGenehmigteStellenanteileByHj,
 } from "@/lib/db/queries";
 import { getSlrWerteBySchuljahr, getAktuellesSchuljahr } from "@/lib/db/queries";
 import { berechneGrundstellen } from "@/lib/berechnungen/grundstellen";
@@ -25,16 +26,9 @@ import { eq, and } from "drizzle-orm";
 export async function berechneStellensollAction(haushaltsjahrId?: number) {
   const session = await requireWriteAccess();
   try {
-    let aktuellesHj;
-    if (haushaltsjahrId) {
-      const { db: database } = await import("@/db");
-      const { haushaltsjahre } = await import("@/db/schema");
-      const { eq } = await import("drizzle-orm");
-      const [found] = await database.select().from(haushaltsjahre).where(eq(haushaltsjahre.id, haushaltsjahrId));
-      aktuellesHj = found ?? null;
-    } else {
-      aktuellesHj = await getAktuellesHaushaltsjahr();
-    }
+    const aktuellesHj = haushaltsjahrId
+      ? await getHaushaltsjahrById(haushaltsjahrId)
+      : await getAktuellesHaushaltsjahr();
     if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
     const aktuellesSj = await getAktuellesSchuljahr();
@@ -58,7 +52,7 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
       getAlleAktivenSchulStufen(),
       getAlleSchuelerzahlenByStichtage(stichtage),
       getAlleZuschlaegeByHaushaltsjahr(aktuellesHj.id),
-      getAlleStellenanteileByHj(aktuellesHj.id),
+      getAlleGenehmigteStellenanteileByHj(aktuellesHj.id),
     ]);
 
     // Lookup-Maps fuer schnellen Zugriff
