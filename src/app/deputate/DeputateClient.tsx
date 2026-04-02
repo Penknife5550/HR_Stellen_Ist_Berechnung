@@ -89,6 +89,18 @@ export function DeputateClient({
     return v.gesamt;
   }
 
+  /**
+   * Prueft ob Untis-Gesamtdeputat von der Summe der Einzelwerte abweicht.
+   * Abweichung > 0.01 = nicht zugeordnete Stunden in Untis.
+   */
+  function getDeputatAbweichung(detail: MonatDetail | null): number | null {
+    if (!detail) return null;
+    const summeEinzel = detail.ges + detail.gym + detail.bk;
+    const diff = Math.abs(detail.gesamt - summeEinzel);
+    if (diff > 0.01) return detail.gesamt - summeEinzel;
+    return null;
+  }
+
   return (
     <>
       {/* Filter-Tabs */}
@@ -180,6 +192,7 @@ export function DeputateClient({
                     : "#F9FAFB";
 
                 const stammDep = getStammDeputat(lehrer);
+                const hatAbweichung = lehrer.monatsDetails.some((d) => getDeputatAbweichung(d) !== null);
                 const fremd = getFremdschulen(lehrer);
 
                 return (
@@ -198,6 +211,9 @@ export function DeputateClient({
                         )}
                         {lehrer.hatVerteilungsaenderung && !lehrer.hatGehaltsaenderung && (
                           <span className="w-2 h-2 rounded-full bg-[#FBC900] flex-shrink-0" title="Verteilungsaenderung" />
+                        )}
+                        {hatAbweichung && (
+                          <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" title="Untis-Gesamt weicht von Summe der Schuldeputate ab — nicht zugeordnete Stunden in Untis" />
                         )}
                         <a
                           href={`/deputate/${lehrer.lehrerId}`}
@@ -234,15 +250,28 @@ export function DeputateClient({
                         <span className="text-[#9CA3AF]">—</span>
                       )}
                     </td>
-                    {lehrer.stunden.map((std, j) => (
-                      <td key={j} className="py-2.5 px-3 text-right tabular-nums">
-                        {std !== null && std > 0 ? (
-                          std.toFixed(1)
-                        ) : (
-                          <span className="text-[#D1D5DB]">—</span>
-                        )}
-                      </td>
-                    ))}
+                    {lehrer.stunden.map((std, j) => {
+                      const abw = getDeputatAbweichung(lehrer.monatsDetails[j]);
+                      return (
+                        <td key={j} className={`py-2.5 px-3 text-right tabular-nums ${abw !== null ? "bg-amber-50" : ""}`}>
+                          {std !== null && std > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 justify-end">
+                              {std.toFixed(1)}
+                              {abw !== null && (
+                                <span
+                                  className="text-amber-600 cursor-help text-xs"
+                                  title={`Untis-Gesamt (${lehrer.monatsDetails[j]!.gesamt}) weicht von Summe der Schulen ab (${(lehrer.monatsDetails[j]!.ges + lehrer.monatsDetails[j]!.gym + lehrer.monatsDetails[j]!.bk).toFixed(1)}). ${Math.abs(abw).toFixed(1)} Std. nicht zugeordnet.`}
+                                >
+                                  !
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[#D1D5DB]">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
                     <td className="py-2.5 px-3 text-right tabular-nums font-bold bg-[#F3F4F6]">
                       {avg > 0 ? avg.toFixed(1) : "—"}
                     </td>

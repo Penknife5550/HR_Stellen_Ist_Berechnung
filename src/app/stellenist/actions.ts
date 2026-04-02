@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { berechnungStellenist } from "@/db/schema";
 import {
   getSchulen,
+  getHaushaltsjahrByJahr,
   getAktuellesHaushaltsjahr,
   getDeputatSummenBySchule,
   getMehrarbeitByHaushaltsjahr,
@@ -16,11 +17,21 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
 
-export async function berechneStellenisteAction() {
+export async function berechneStellenisteAction(haushaltsjahrId?: number) {
   const session = await requireWriteAccess();
   try {
-    const aktuellesHj = await getAktuellesHaushaltsjahr();
-    if (!aktuellesHj) return { error: "Kein aktuelles Haushaltsjahr gefunden." };
+    let aktuellesHj;
+    if (haushaltsjahrId) {
+      // HJ per ID laden (aus der DB)
+      const { db: database } = await import("@/db");
+      const { haushaltsjahre } = await import("@/db/schema");
+      const { eq } = await import("drizzle-orm");
+      const [found] = await database.select().from(haushaltsjahre).where(eq(haushaltsjahre.id, haushaltsjahrId));
+      aktuellesHj = found ?? null;
+    } else {
+      aktuellesHj = await getAktuellesHaushaltsjahr();
+    }
+    if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
     const [schulen, regeldeputateMap] = await Promise.all([
       getSchulen(),
@@ -50,14 +61,11 @@ export async function berechneStellenisteAction() {
       if (monatsSummen.length === 0) continue;
 
       // Schulspezifische Stunden verwenden (deputat_ges fuer GES, deputat_gym fuer GYM, etc.)
+      // Beide Pfade von getDeputatSummenBySchule liefern summeSchulspezifisch
       const libResult = berechneStellenist({
         monatlicheStunden: monatsSummen.map((m) => ({
           monat: m.monat,
-          stunden: Number(
-            "summeSchulspezifisch" in m
-              ? (m.summeSchulspezifisch ?? 0)
-              : (m.summeGesamt ?? 0)
-          ),
+          stunden: Number(m.summeSchulspezifisch ?? 0),
         })),
         regeldeputat,
         mehrarbeitStunden: mehrarbeitRows.map((m) => ({
@@ -132,11 +140,7 @@ export async function berechneStellenisteAction() {
             details: {
               monateImZeitraum: monateImZeitraum.map((m) => ({
                 monat: m.monat,
-                summeWochenstunden: Number(
-                  "summeSchulspezifisch" in m
-                    ? (m.summeSchulspezifisch ?? 0)
-                    : (m.summeGesamt ?? 0)
-                ),
+                summeWochenstunden: Number(m.summeSchulspezifisch ?? 0),
                 anzahlLehrer: m.anzahlLehrer,
               })),
               mehrarbeitStunden,

@@ -9,11 +9,12 @@
  * 2. Payload mit Zod validieren
  * 3. Lehrer upserten (Match auf untis_teacher_id)
  * 4. Term-Datumsbereich auf Monate mappen
- * 5. Deputat-Monatsdaten upserten
+ * 5. Deputat-Monatsdaten upserten (pro Monat ins korrekte Haushaltsjahr!)
  * 6. Sync-Log schreiben
  *
- * Performance: Batch-Verarbeitung in Transaktionen fuer schnellen Sync
- * bei grossen Datenmengen (100+ Lehrer).
+ * WICHTIG: Das Haushaltsjahr wird pro Monat aus dem Kalenderjahr des Monats
+ * bestimmt — NICHT aus dem Sync-Datum. Ein Term von Aug 2024 bis Feb 2025
+ * schreibt Aug-Dez nach HJ 2024 und Jan-Feb nach HJ 2025.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -53,6 +54,7 @@ function parseGermanDate(dateStr: string): Date | null {
 
 /**
  * Ermittelt alle Monate in einem Datumsbereich.
+ * Jeder Monat traegt sein korrektes Kalenderjahr.
  */
 function getMonthsInRange(
   dateFrom: string,
@@ -116,7 +118,7 @@ export async function POST(request: NextRequest) {
       alleSchulen.map((s) => [s.untisCode?.toUpperCase(), s.id])
     );
 
-    // 5. Haushaltsjahr ermitteln
+    // 5. Sync-Datum validieren
     const syncDate = new Date(payload.sync_datum);
     if (isNaN(syncDate.getTime())) {
       return NextResponse.json(
@@ -125,23 +127,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const jahr = syncDate.getFullYear();
+    // 6. Alle Haushaltsjahre laden (fuer Multi-HJ-Mapping)
     const alleHJ = await db.select().from(schema.haushaltsjahre);
-    const hj = alleHJ.find((h) => h.jahr === jahr);
+    const hjByJahr = new Map(alleHJ.map((h) => [h.jahr, h]));
 
-    if (!hj) {
-      return NextResponse.json(
-        { error: `Haushaltsjahr ${jahr} nicht gefunden.` },
-        { status: 400 }
-      );
-    }
-
-    // 6. Monate ermitteln
+    // 7. Monate ermitteln (jeder Monat traegt sein Kalenderjahr)
     let monate: Array<{ jahr: number; monat: number }>;
     if (payload.date_from && payload.date_to) {
       monate = getMonthsInRange(payload.date_from, payload.date_to);
     } else {
       // Fallback: aktueller Monat
+      const jahr = syncDate.getFullYear();
       monate = [{ jahr, monat: syncDate.getMonth() + 1 }];
     }
 
@@ -152,7 +148,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6b. Lehrer ohne gueltige Stammschule filtern (z.B. Code "Z")
+    // 7b. Pruefen ob alle benoetigten Haushaltsjahre existieren
+    const benoetigteJahre = [...new Set(monate.map((m) => m.jahr))];
+    const fehlendeJahre = benoetigteJahre.filter((j) => !hjByJahr.has(j));
+    if (fehlendeJahre.length > 0) {
+      return NextResponse.json(
+        { error: `Haushaltsjahr(e) ${fehlendeJahre.join(", ")} nicht gefunden. Bitte zuerst anlegen.` },
+        { status: 400 }
+      );
+    }
+
+    // 7c. Monate nach Haushaltsjahr gruppieren
+    const monateByHjId = new Map<number, Array<{ monat: number }>>();
+    for (const m of monate) {
+      const hj = hjByJahr.get(m.jahr)!;
+      const arr = monateByHjId.get(hj.id) ?? [];
+      arr.push({ monat: m.monat });
+      monateByHjId.set(hj.id, arr);
+    }
+
+    // 8. Lehrer ohne gueltige Stammschule filtern (z.B. Code "Z")
     const gueltigeSchulen = new Set(alleSchulen.map((s) => s.untisCode?.toUpperCase()));
     payload.lehrer = payload.lehrer.filter((l) => {
       const code = l.stammschule?.toUpperCase();
@@ -167,7 +182,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 7. Bestehende Lehrer vorladen (Batch statt Einzel-Queries)
+    // 9. Bestehende Lehrer vorladen (Batch statt Einzel-Queries)
     const teacherIds = payload.lehrer.map((l) => l.teacher_id);
     const existingLehrer = await db
       .select()
@@ -178,28 +193,31 @@ export async function POST(request: NextRequest) {
       existingLehrer.map((l) => [l.untisTeacherId, l])
     );
 
-    // 7b. Bestehende Deputate vorladen (fuer Aenderungserkennung)
+    // 9b. Bestehende Deputate vorladen — pro Haushaltsjahr
     const alleLehrerIds = existingLehrer.map((l) => l.id);
-    const monatsNummern = monate.map((m) => m.monat);
-    const existingDeputate = alleLehrerIds.length > 0
-      ? await db
+    const deputatMap = new Map<string, typeof existingLehrer[0] extends never ? never : (typeof schema.deputatMonatlich.$inferSelect)>();
+
+    if (alleLehrerIds.length > 0) {
+      for (const [hjId, hjMonate] of monateByHjId) {
+        const monatsNummern = hjMonate.map((m) => m.monat);
+        const existingDeputate = await db
           .select()
           .from(schema.deputatMonatlich)
           .where(
             and(
               inArray(schema.deputatMonatlich.lehrerId, alleLehrerIds),
-              eq(schema.deputatMonatlich.haushaltsjahrId, hj.id),
+              eq(schema.deputatMonatlich.haushaltsjahrId, hjId),
               inArray(schema.deputatMonatlich.monat, monatsNummern)
             )
-          )
-      : [];
+          );
 
-    // Key: "lehrerId_monat" → bestehendes Deputat
-    const deputatMap = new Map(
-      existingDeputate.map((d) => [`${d.lehrerId}_${d.monat}`, d])
-    );
+        for (const d of existingDeputate) {
+          deputatMap.set(`${d.lehrerId}_${d.haushaltsjahrId}_${d.monat}`, d);
+        }
+      }
+    }
 
-    // 8. Lehrer verarbeiten (in Transaktion fuer Performance)
+    // 10. Lehrer verarbeiten (in Transaktion fuer Performance)
     let verarbeitet = 0;
     let fehler = 0;
     let aenderungenGesamt = 0;
@@ -255,8 +273,10 @@ export async function POST(request: NextRequest) {
               }
 
               // Deputat fuer jeden Monat: Upsert + Aenderungserkennung
-              for (const { monat } of monate) {
-                const key = `${lehrerId}_${monat}`;
+              // WICHTIG: Jeder Monat geht ins korrekte Haushaltsjahr
+              for (const m of monate) {
+                const hj = hjByJahr.get(m.jahr)!;
+                const key = `${lehrerId}_${hj.id}_${m.monat}`;
                 const alt = deputatMap.get(key);
 
                 // Aenderung erkennen (nur wenn bereits Daten vorhanden)
@@ -285,7 +305,7 @@ export async function POST(request: NextRequest) {
                     await tx.insert(schema.deputatAenderungen).values({
                       lehrerId,
                       haushaltsjahrId: hj.id,
-                      monat,
+                      monat: m.monat,
                       deputatGesamtAlt: String(altGesamt),
                       deputatGesAlt: String(altGes),
                       deputatGymAlt: String(altGym),
@@ -305,13 +325,13 @@ export async function POST(request: NextRequest) {
                   }
                 }
 
-                // Upsert Deputat
+                // Upsert Deputat — ins korrekte Haushaltsjahr
                 await tx
                   .insert(schema.deputatMonatlich)
                   .values({
                     lehrerId,
                     haushaltsjahrId: hj.id,
-                    monat,
+                    monat: m.monat,
                     deputatGesamt: String(lehrerData.deputat),
                     deputatGes: String(lehrerData.deputat_ges),
                     deputatGym: String(lehrerData.deputat_gym),
@@ -366,7 +386,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 9. Sync-Log schreiben
+    // 11. Sync-Log schreiben
+    const hjLabels = benoetigteJahre.join(", ");
     await db.insert(schema.deputatSyncLog).values({
       schuljahrText: payload.schuljahr_text ?? null,
       termId: payload.term_id ?? null,
@@ -376,12 +397,13 @@ export async function POST(request: NextRequest) {
       fehlerDetails: fehler > 0 ? `${fehler} Fehler aufgetreten` : null,
     });
 
-    // 10. Audit-Log
+    // 12. Audit-Log
     await writeAuditLog("deputat_sync", 0, "INSERT", null, {
       anzahlLehrer: payload.lehrer.length,
       verarbeitet,
       fehler,
       monate: monate.length,
+      haushaltsjahre: hjLabels,
     }, "n8n");
 
     return NextResponse.json({
@@ -389,9 +411,10 @@ export async function POST(request: NextRequest) {
       verarbeitet,
       fehler,
       monate: monate.length,
+      haushaltsjahre: hjLabels,
       aenderungen: aenderungenGesamt,
       gehaltsrelevant,
-      message: `${verarbeitet} Lehrer fuer ${monate.length} Monat(e) synchronisiert.`
+      message: `${verarbeitet} Lehrer fuer ${monate.length} Monat(e) synchronisiert (HJ: ${hjLabels}).`
         + (aenderungenGesamt > 0 ? ` ${aenderungenGesamt} Aenderungen erkannt` : "")
         + (gehaltsrelevant > 0 ? ` (${gehaltsrelevant} gehaltsrelevant!)` : "")
         + ".",

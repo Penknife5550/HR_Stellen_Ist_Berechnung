@@ -22,9 +22,15 @@ type SchulStellenist = {
   }>;
 };
 
+type SollKontext = { zeitraum: string; stellensoll: number; grundstellen: number; zuschlaege: number };
+type SaKontext = { stellenGenehmigt: number; eurGenehmigt: number; anzahl: number };
+
 interface StellenistClientProps {
   schulen: Schule[];
   schulStelleniste: SchulStellenist[];
+  sollBySchule: Record<number, SollKontext[]>;
+  saBySchule: Record<number, SaKontext>;
+  haushaltsjahrId: number;
   hatDeputate: boolean;
   hatErgebnisse: boolean;
   latestSyncDatum: string | null;
@@ -33,6 +39,9 @@ interface StellenistClientProps {
 export function StellenistClient({
   schulen,
   schulStelleniste,
+  sollBySchule,
+  saBySchule,
+  haushaltsjahrId,
   hatDeputate,
   hatErgebnisse,
   latestSyncDatum,
@@ -50,7 +59,7 @@ export function StellenistClient({
   function handleBerechnen() {
     setResult(null);
     startTransition(async () => {
-      const res = await berechneStellenisteAction();
+      const res = await berechneStellenisteAction(haushaltsjahrId);
       setResult(res);
     });
   }
@@ -151,6 +160,105 @@ export function StellenistClient({
               );
             })()}
           </div>
+
+          {/* Soll-Ist-Kontext: Stellensoll + Stellenanteile */}
+          {(() => {
+            const schuleId = aktuelleSchulDaten!.schuleId;
+            const sollDaten = sollBySchule[schuleId];
+            const saDaten = saBySchule[schuleId];
+            if (!sollDaten || sollDaten.length === 0) return null;
+
+            // Gewichteter Jahresdurchschnitt Soll
+            const sollJanJul = sollDaten.find((s) => s.zeitraum === "jan-jul");
+            const sollAugDez = sollDaten.find((s) => s.zeitraum === "aug-dez");
+            const sollGewichtet = sollJanJul && sollAugDez
+              ? (sollJanJul.stellensoll * 7 + sollAugDez.stellensoll * 5) / 12
+              : sollDaten[0]?.stellensoll ?? 0;
+
+            // Gewichteter Jahresdurchschnitt Ist
+            const istJanJul = aktuelleSchulDaten!.zeitraeume.find((z) => z.zeitraum === "jan-jul");
+            const istAugDez = aktuelleSchulDaten!.zeitraeume.find((z) => z.zeitraum === "aug-dez");
+            const istGewichtet = istJanJul && istAugDez
+              ? (Number(istJanJul.stellenistGesamt) * 7 + Number(istAugDez.stellenistGesamt) * 5) / 12
+              : Number(aktuelleSchulDaten!.zeitraeume[0]?.stellenistGesamt ?? 0);
+
+            const differenz = Math.round((sollGewichtet - istGewichtet) * 10) / 10;
+
+            return (
+              <Card className="mb-4 border-2 border-[#575756]">
+                <h3 className="text-[15px] font-bold text-[#1A1A1A] mb-3">
+                  Soll-Ist-Vergleich (Jahresdurchschnitt)
+                </h3>
+                <div className="space-y-2 text-[15px]">
+                  {/* Stellensoll */}
+                  <div className="flex justify-between p-3 bg-blue-50 rounded border border-blue-200">
+                    <div>
+                      <span className="font-medium">Stellensoll</span>
+                      <span className="text-xs text-[#6B7280] ml-2">
+                        (Grundstellen + Zuschlaege)
+                      </span>
+                    </div>
+                    <span className="font-bold tabular-nums text-lg text-blue-800">
+                      {sollGewichtet.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                    </span>
+                  </div>
+
+                  {/* Stellenanteile-Detail */}
+                  {saDaten && saDaten.anzahl > 0 && (
+                    <div className="flex justify-between p-3 bg-[#F9FAFB] rounded ml-4 text-sm">
+                      <div>
+                        <span className="text-[#6B7280]">davon zusaetzliche Stellenanteile</span>
+                        <span className="text-xs text-[#6B7280] ml-2">({saDaten.anzahl} genehmigt)</span>
+                      </div>
+                      <span className="font-bold tabular-nums text-blue-700">
+                        {saDaten.stellenGenehmigt.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Stellen
+                      </span>
+                    </div>
+                  )}
+                  {saDaten && saDaten.eurGenehmigt > 0 && (
+                    <div className="flex justify-between p-3 bg-[#F9FAFB] rounded ml-4 text-sm">
+                      <span className="text-[#6B7280]">davon Geldleistungen</span>
+                      <span className="font-bold tabular-nums text-emerald-700">
+                        {saDaten.eurGenehmigt.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Stellenist */}
+                  <div className="flex justify-between p-3 bg-[#E8F5D6] rounded border border-[#6BAA24]">
+                    <div>
+                      <span className="font-medium">Stellenist</span>
+                      <span className="text-xs text-[#6B7280] ml-2">
+                        (aus Deputaten + Mehrarbeit)
+                      </span>
+                    </div>
+                    <span className="font-bold tabular-nums text-lg">
+                      {istGewichtet.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                    </span>
+                  </div>
+
+                  {/* Differenz */}
+                  <div className={`flex justify-between p-3 rounded border-2 ${
+                    differenz >= 0
+                      ? "bg-green-50 border-green-300"
+                      : "bg-red-50 border-red-300"
+                  }`}>
+                    <div>
+                      <span className="font-bold">Differenz (Soll - Ist)</span>
+                      <span className="text-xs text-[#6B7280] ml-2">
+                        {differenz >= 0 ? "Stellen frei" : "Ueberbesetzung"}
+                      </span>
+                    </div>
+                    <span className={`font-bold tabular-nums text-xl ${
+                      differenz >= 0 ? "text-green-700" : "text-red-700"
+                    }`}>
+                      {differenz >= 0 ? "+" : ""}{differenz.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            );
+          })()}
 
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756] mb-4">
             <strong>Rechtsgrundlage:</strong> Stellenistberechnung nach{" "}

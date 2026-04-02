@@ -224,6 +224,16 @@ const stellenanteilWert = z
   .transform((v) => v.replaceAll(",", "."))
   .pipe(z.string().regex(/^-?\d{1,4}(\.\d{1,4})?$/, "Ungueltiger Stellenanteil (z.B. 0,5 oder 2,0)."));
 
+/** EUR-Betrag: Leer/undefined = kein Betrag, sonst Zahl mit max. 2 Dezimalstellen */
+const eurBetragSchema = z.union([
+  z.literal(""),
+  z.undefined(),
+  z
+    .string()
+    .transform((v) => v.replaceAll(",", "."))
+    .pipe(z.string().regex(/^\d{1,9}(\.\d{1,2})?$/, "Ungueltiger EUR-Betrag (z.B. 20200 oder 12500.50).")),
+]);
+
 const optionalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Ungueltiges Datum.").optional().or(z.literal(""));
 
 export const stellenanteilCreateSchema = z.object({
@@ -232,6 +242,8 @@ export const stellenanteilCreateSchema = z.object({
   stellenartTypId: z.number().int().positive("Stellenart auswaehlen."),
   lehrerId: z.number().int().positive().optional().nullable(),
   wert: stellenanteilWert,
+  eurBetrag: eurBetragSchema,
+  wahlrecht: z.enum(["stelle", "geld"]).optional().nullable(),
   zeitraum: z.enum(["ganzjahr", "jan-jul", "aug-dez"]),
   status: z.enum(["beantragt", "genehmigt", "abgelehnt", "zurueckgezogen"]).default("beantragt"),
   befristetBis: optionalDate,

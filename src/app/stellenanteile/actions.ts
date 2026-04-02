@@ -12,6 +12,7 @@ import {
   deleteStellenanteil,
 } from "@/lib/db/queries";
 import { stellenanteilCreateSchema, stellenanteilUpdateSchema } from "@/lib/validation";
+import { VALID_STELLENANTEIL_STATUSES } from "@/lib/constants";
 
 function optionalString(formData: FormData, key: string): string | undefined {
   const val = String(formData.get(key) ?? "").trim();
@@ -35,6 +36,8 @@ export async function createStellenanteilAction(formData: FormData) {
       stellenartTypId: Number(formData.get("stellenartTypId")),
       lehrerId: optionalNumber(formData, "lehrerId"),
       wert: String(formData.get("wert") ?? ""),
+      eurBetrag: optionalString(formData, "eurBetrag") ?? "",
+      wahlrecht: optionalString(formData, "wahlrecht"),
       zeitraum: String(formData.get("zeitraum") ?? "ganzjahr"),
       status: String(formData.get("status") ?? "beantragt"),
       befristetBis: optionalString(formData, "befristetBis"),
@@ -55,6 +58,8 @@ export async function createStellenanteilAction(formData: FormData) {
       stellenartTypId: parsed.data.stellenartTypId,
       lehrerId: parsed.data.lehrerId ?? null,
       wert: parsed.data.wert,
+      eurBetrag: parsed.data.eurBetrag || null,
+      wahlrecht: parsed.data.wahlrecht ?? null,
       zeitraum: parsed.data.zeitraum,
       status: parsed.data.status,
       befristetBis: parsed.data.befristetBis || null,
@@ -94,6 +99,8 @@ export async function updateStellenanteilAction(formData: FormData) {
       stellenartTypId: Number(formData.get("stellenartTypId")),
       lehrerId: optionalNumber(formData, "lehrerId"),
       wert: String(formData.get("wert") ?? ""),
+      eurBetrag: optionalString(formData, "eurBetrag") ?? "",
+      wahlrecht: optionalString(formData, "wahlrecht"),
       zeitraum: String(formData.get("zeitraum") ?? "ganzjahr"),
       status: String(formData.get("status") ?? "beantragt"),
       befristetBis: optionalString(formData, "befristetBis"),
@@ -117,6 +124,8 @@ export async function updateStellenanteilAction(formData: FormData) {
       stellenartTypId: parsed.data.stellenartTypId,
       lehrerId: parsed.data.lehrerId ?? null,
       wert: parsed.data.wert,
+      eurBetrag: parsed.data.eurBetrag || null,
+      wahlrecht: parsed.data.wahlrecht ?? null,
       zeitraum: parsed.data.zeitraum,
       status: parsed.data.status,
       befristetBis: parsed.data.befristetBis || null,
@@ -194,8 +203,7 @@ export async function updateStellenanteilStatusAction(formData: FormData) {
       return { error: "Ungueltige ID." };
     }
 
-    const validStatuses = ["beantragt", "genehmigt", "abgelehnt", "zurueckgezogen"];
-    if (!validStatuses.includes(newStatus)) {
+    if (!(VALID_STELLENANTEIL_STATUSES as readonly string[]).includes(newStatus)) {
       return { error: "Ungueltiger Status." };
     }
 

@@ -192,15 +192,32 @@ export const zuschlaege = pgTable("zuschlaege", {
 /**
  * Stammdaten: Welche Arten von zusaetzlichen Stellenanteilen gibt es?
  * Rechtsgrundlagen: §§ 3, 3a, 3b FESchVO, § 106 Abs. 10, § 107 SchulG NRW
+ *
+ * Drei Grundtypen nach NRW-Recht:
+ *   A      = Stellenzuschlag (deputatswirksam, Anlage 2a Abschnitt 2)
+ *   A_106  = Sonderbedarf § 106 Abs. 10 SchulG (Anlage 2a Abschnitt 4, isoliert)
+ *   B      = Wahlleistung Geld oder Stelle (BASS 11-02 Nr. 24)
+ *   C      = Reine Geldleistung (keine Deputatswirkung)
  */
 export const stellenartTypen = pgTable("stellenart_typen", {
   id: serial("id").primaryKey(),
   bezeichnung: varchar("bezeichnung", { length: 150 }).notNull().unique(),
   kurzbezeichnung: varchar("kurzbezeichnung", { length: 30 }),
+  kuerzel: varchar("kuerzel", { length: 15 }),
   beschreibung: text("beschreibung"),
   rechtsgrundlage: varchar("rechtsgrundlage", { length: 300 }),
+  /** Grundtyp: A = Stellenzuschlag, A_106 = §106 Sonderbedarf, B = Wahlleistung, C = Geldleistung */
+  typ: varchar("typ", { length: 10 }).notNull().default("A"),
   bindungstyp: varchar("bindungstyp", { length: 10 }).notNull().default("schule"),
   istIsoliert: boolean("ist_isoliert").notNull().default(false),
+  /** Erscheint in Anlage 2a der FESchVO? */
+  anlage2a: boolean("anlage2a").notNull().default(true),
+  /** Erhoeht die Personalbedarfspauschale (nur Abschnitt 2 = true)? */
+  erhoehtPauschale: boolean("erhoeht_pauschale").notNull().default(false),
+  /** Wert aendert sich jaehrlich per Erlass? */
+  parametrisierbar: boolean("parametrisierbar").notNull().default(false),
+  /** Schulformfilter: z.B. ["GE","GY"] oder ["ALLE"]. NULL = alle Schulformen. */
+  schulformFilter: jsonb("schulform_filter"),
   istStandard: boolean("ist_standard").notNull().default(false),
   sortierung: integer("sortierung").notNull().default(0),
   aktiv: boolean("aktiv").notNull().default(true),
@@ -218,7 +235,12 @@ export const stellenanteile = pgTable("stellenanteile", {
   haushaltsjahrId: integer("haushaltsjahr_id").notNull().references(() => haushaltsjahre.id),
   stellenartTypId: integer("stellenart_typ_id").notNull().references(() => stellenartTypen.id),
   lehrerId: integer("lehrer_id").references(() => lehrer.id),
+  /** Stellenanteil in VZE (z.B. 0.5). Bei Typ C oder Typ B mit wahlrecht="geld" ist wert = 0. */
   wert: numeric("wert", { precision: 8, scale: 4 }).notNull(),
+  /** EUR-Betrag fuer Typ B (Geldvariante) und Typ C (reine Geldleistung). NULL bei reinen Stellenzuschlaegen. */
+  eurBetrag: numeric("eur_betrag", { precision: 12, scale: 2 }),
+  /** Wahlrecht: "stelle" | "geld" | NULL. Nur relevant bei Typ B. */
+  wahlrecht: varchar("wahlrecht", { length: 10 }),
   zeitraum: varchar("zeitraum", { length: 10 }).notNull().default("ganzjahr"),
   status: varchar("status", { length: 20 }).notNull().default("beantragt"),
   befristetBis: date("befristet_bis"),

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { lehrer } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { createLehrerManuell, updateLehrerManuell } from "@/lib/db/queries";
+import { createLehrerManuell, updateLehrerManuell, upsertManuellDeputat, getAktuellesHaushaltsjahr } from "@/lib/db/queries";
 import { createLehrerManualSchema, safeFormNumber } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
@@ -28,14 +28,27 @@ export async function createLehrerAction(formData: FormData) {
 
     const result = await createLehrerManuell(parsed.data);
 
+    // Deputat fuer alle 12 Monate anlegen wenn angegeben
+    const deputatStr = formData.get("deputat")?.toString().replace(",", ".").trim() ?? "";
+    const deputatVal = parseFloat(deputatStr);
+    if (deputatStr && Number.isFinite(deputatVal) && deputatVal >= 0) {
+      const hj = await getAktuellesHaushaltsjahr();
+      if (hj) {
+        await upsertManuellDeputat(result.id, hj.id, String(deputatVal));
+      }
+    }
+
     await writeAuditLog("lehrer", result.id, "INSERT", null, {
       vorname: parsed.data.vorname,
       nachname: parsed.data.nachname,
       personalnummer: parsed.data.personalnummer ?? null,
       stammschuleId: parsed.data.stammschuleId,
+      deputat: deputatStr || null,
     }, session.name);
 
     revalidatePath("/mitarbeiter");
+    revalidatePath("/deputate");
+    revalidatePath("/stellenist");
     return { success: true, message: `Lehrkraft "${parsed.data.nachname} ${parsed.data.vorname}" angelegt.` };
   } catch (err: unknown) {
     console.error("Fehler beim Anlegen der Lehrkraft:", err instanceof Error ? err.message : "Unbekannt");
@@ -73,15 +86,28 @@ export async function updateLehrerAction(formData: FormData) {
     const result = await updateLehrerManuell(id, parsed.data);
     if (!result) return { error: "Lehrkraft konnte nicht aktualisiert werden." };
 
+    // Deputat aktualisieren wenn angegeben
+    const deputatStr = formData.get("deputat")?.toString().replace(",", ".").trim() ?? "";
+    const deputatVal = parseFloat(deputatStr);
+    if (deputatStr && Number.isFinite(deputatVal) && deputatVal >= 0) {
+      const hj = await getAktuellesHaushaltsjahr();
+      if (hj) {
+        await upsertManuellDeputat(id, hj.id, String(deputatVal));
+      }
+    }
+
     await writeAuditLog("lehrer", id, "UPDATE", null, {
       vorname: parsed.data.vorname,
       nachname: parsed.data.nachname,
       personalnummer: parsed.data.personalnummer ?? null,
       stammschuleId: parsed.data.stammschuleId,
+      deputat: deputatStr || null,
     }, session.name);
 
     revalidatePath("/mitarbeiter");
+    revalidatePath("/deputate");
     revalidatePath("/stellenanteile");
+    revalidatePath("/stellenist");
     return { success: true, message: `Lehrkraft "${parsed.data.nachname} ${parsed.data.vorname}" aktualisiert.` };
   } catch (err: unknown) {
     console.error("Fehler beim Aktualisieren der Lehrkraft:", err instanceof Error ? err.message : "Unbekannt");

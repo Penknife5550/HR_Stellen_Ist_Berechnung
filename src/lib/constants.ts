@@ -102,6 +102,10 @@ export const STELLENANTEIL_STATUS = {
   ZURUECKGEZOGEN: "zurueckgezogen",
 } as const;
 
+export const VALID_STELLENANTEIL_STATUSES = [
+  "beantragt", "genehmigt", "abgelehnt", "zurueckgezogen",
+] as const;
+
 export const STELLENANTEIL_STATUS_LABELS: Record<string, string> = {
   beantragt: "Beantragt",
   genehmigt: "Genehmigt",
@@ -127,5 +131,32 @@ export const BINDUNGSTYP_LABELS: Record<string, string> = {
   person: "Personengebunden",
   beides: "Schul- oder personengebunden",
 };
+
+// Stellenart-Typen (Drei-Typen-Modell NRW)
+export const STELLENART_TYP_LABELS: Record<string, string> = {
+  A: "Stellenzuschlag (Abschnitt 2)",
+  A_106: "Sonderbedarf § 106 Abs. 10 (Abschnitt 4)",
+  B: "Wahlleistung (Geld oder Stelle)",
+  C: "Geldleistung",
+};
+
+export const STELLENART_TYP_KURZ: Record<string, string> = {
+  A: "Abschnitt 2",
+  A_106: "Abschnitt 4 (§ 106)",
+  B: "Geld oder Stelle",
+  C: "Geldleistung",
+};
+
+export const STELLENART_TYP_FARBEN: Record<string, { bg: string; text: string; border: string }> = {
+  A: { bg: "bg-blue-50", text: "text-blue-800", border: "border-blue-200" },
+  A_106: { bg: "bg-purple-50", text: "text-purple-800", border: "border-purple-200" },
+  B: { bg: "bg-orange-50", text: "text-orange-800", border: "border-orange-200" },
+  C: { bg: "bg-emerald-50", text: "text-emerald-800", border: "border-emerald-200" },
+};
+
+export const WAHLRECHT_OPTIONS = [
+  { value: "stelle", label: "Stelle (VZE)" },
+  { value: "geld", label: "Geld (EUR)" },
+] as const;
 
 // Navigation: Siehe Sidebar.tsx (dort als einzige Quelle definiert)

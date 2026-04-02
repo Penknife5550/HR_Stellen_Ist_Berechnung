@@ -1,15 +1,35 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
-import { getAlleLehrerMitDetails, getSchulen } from "@/lib/db/queries";
+import { getAlleLehrerMitDetails, getSchulen, getAktuellesHaushaltsjahr } from "@/lib/db/queries";
+import { db } from "@/db";
+import { deputatMonatlich } from "@/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 import { MitarbeiterClient } from "./MitarbeiterClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function MitarbeiterPage() {
-  const [alleLehrer, schulen] = await Promise.all([
+  const [alleLehrer, schulen, hj] = await Promise.all([
     getAlleLehrerMitDetails(),
     getSchulen(),
+    getAktuellesHaushaltsjahr(),
   ]);
+
+  // Aktuelles Deputat pro Lehrer laden (Durchschnitt ueber alle Monate mit Daten)
+  const deputatByLehrer: Record<number, number> = {};
+  if (hj) {
+    const depRows = await db
+      .select({
+        lehrerId: deputatMonatlich.lehrerId,
+        avg: sql<string>`ROUND(AVG(NULLIF(${deputatMonatlich.deputatGesamt}::numeric, 0)), 1)`,
+      })
+      .from(deputatMonatlich)
+      .where(eq(deputatMonatlich.haushaltsjahrId, hj.id))
+      .groupBy(deputatMonatlich.lehrerId);
+    for (const row of depRows) {
+      if (row.avg) deputatByLehrer[row.lehrerId] = Number(row.avg);
+    }
+  }
 
   return (
     <PageContainer>
@@ -36,6 +56,7 @@ export default async function MitarbeiterPage() {
           schuleFarbe: l.schuleFarbe,
           quelle: l.quelle,
           aktiv: l.aktiv,
+          deputat: deputatByLehrer[l.id] ?? null,
         }))}
         schulen={schulen.map((s) => ({
           id: s.id,

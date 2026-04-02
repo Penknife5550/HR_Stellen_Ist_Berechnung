@@ -3,10 +3,11 @@ import { Header } from "@/components/layout/Header";
 import { Card, KPICard } from "@/components/ui/Card";
 import {
   getSchulen,
-  getAktuellesHaushaltsjahr,
   getAktuelleStellensollBySchule,
   getRegeldeputateMap,
 } from "@/lib/db/queries";
+import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
+import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { StellensollClient } from "./StellensollClient";
 
 export const dynamic = "force-dynamic";
@@ -24,14 +25,15 @@ type ZuschlagDetail = {
   wert: number;
 };
 
-export default async function StellensollPage() {
-  const [schulen, aktuellesHj, regeldeputateMap] = await Promise.all([
+export default async function StellensollPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
+
+  const [schulen, regeldeputateMap] = await Promise.all([
     getSchulen(),
-    getAktuellesHaushaltsjahr(),
     getRegeldeputateMap(),
   ]);
 
-  if (!aktuellesHj) {
+  if (!hj) {
     return (
       <PageContainer>
         <Header
@@ -49,7 +51,7 @@ export default async function StellensollPage() {
   // Berechnungsergebnisse pro Schule laden
   const schulenMitErgebnissen = await Promise.all(
     schulen.map(async (schule) => {
-      const ergebnisse = await getAktuelleStellensollBySchule(schule.id, aktuellesHj.id);
+      const ergebnisse = await getAktuelleStellensollBySchule(schule.id, hj.id);
       const rd = regeldeputateMap.get(schule.kurzname) ?? 0;
       return {
         id: schule.id,
@@ -77,14 +79,15 @@ export default async function StellensollPage() {
     <PageContainer>
       <Header
         title="Stellensoll-Berechnung"
-        subtitle={`Berechnung des Stellensolls nach NRW-Recht (§ 3 FESchVO) — Haushaltsjahr ${aktuellesHj.jahr}`}
+        subtitle={`Berechnung des Stellensolls nach NRW-Recht (§ 3 FESchVO) — Haushaltsjahr ${hj.jahr}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Stellensoll" },
         ]}
       />
+      {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} /></div>}
 
-      <StellensollClient schulen={schulenMitErgebnissen} hatErgebnisse={hatErgebnisse} />
+      <StellensollClient schulen={schulenMitErgebnissen} hatErgebnisse={hatErgebnisse} haushaltsjahrId={hj.id} />
 
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
         <strong>Rechtsgrundlage:</strong> Stellensollberechnung nach{" "}

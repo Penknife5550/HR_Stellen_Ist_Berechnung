@@ -341,6 +341,14 @@ export async function getAktuellesHaushaltsjahr() {
   return getHaushaltsjahrByJahr(currentYear);
 }
 
+/** Alle Haushaltsjahre, absteigend sortiert (neuestes zuerst) */
+export async function getAlleHaushaltsjahre() {
+  return db
+    .select()
+    .from(haushaltsjahre)
+    .orderBy(desc(haushaltsjahre.jahr));
+}
+
 export async function createHaushaltsjahr(data: {
   jahr: number;
   stichtagVorjahr: string;
@@ -665,6 +673,10 @@ export async function getDeputatSummenBySchule(
   schulKurzname: string
 ) {
   // Schulspezifische Spalte je nach Kurzname
+  // GES/GYM/BK haben Cross-School-Deputate (deputat_ges, deputat_gym, deputat_bk)
+  // → summiert ueber ALLE Lehrer (egal welche Stammschule), nur die schulspezifische Spalte
+  // Grundschulen u.a. haben nur deputat_gesamt
+  // → summiert nur Lehrer mit dieser Stammschule
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const spalteMap: Record<string, any> = {
     GES: deputatMonatlich.deputatGes,
@@ -675,10 +687,30 @@ export async function getDeputatSummenBySchule(
   const spalte = spalteMap[schulKurzname];
 
   if (!spalte) {
-    // Grundschulen und andere: deputatGesamt verwenden (kein Cross-School)
-    return getDeputatSummenByMonat(haushaltsjahrId);
+    // Grundschulen u.a.: deputatGesamt verwenden, NUR Lehrer dieser Stammschule
+    const rows = await db
+      .select({
+        monat: deputatMonatlich.monat,
+        summeSchulspezifisch: sql<string>`sum(${deputatMonatlich.deputatGesamt}::numeric)`,
+        summeGesamt: sql<string>`sum(${deputatMonatlich.deputatGesamt}::numeric)`,
+        anzahlLehrer: sql<number>`count(distinct ${deputatMonatlich.lehrerId})`,
+      })
+      .from(deputatMonatlich)
+      .innerJoin(lehrer, eq(deputatMonatlich.lehrerId, lehrer.id))
+      .where(
+        and(
+          eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId),
+          eq(lehrer.aktiv, true),
+          eq(lehrer.stammschuleCode, schulKurzname)
+        )
+      )
+      .groupBy(deputatMonatlich.monat)
+      .orderBy(asc(deputatMonatlich.monat));
+
+    return rows;
   }
 
+  // GES/GYM/BK: schulspezifische Spalte ueber alle Lehrer summieren
   const rows = await db
     .select({
       monat: deputatMonatlich.monat,
@@ -1236,13 +1268,19 @@ export async function getStellenanteileBySchuleUndHj(schuleId: number, haushalts
       stellenartTypId: stellenanteile.stellenartTypId,
       stellenartBezeichnung: stellenartTypen.bezeichnung,
       stellenartKurz: stellenartTypen.kurzbezeichnung,
+      stellenartKuerzel: stellenartTypen.kuerzel,
+      stellenartTyp: stellenartTypen.typ,
       bindungstyp: stellenartTypen.bindungstyp,
       istIsoliert: stellenartTypen.istIsoliert,
+      anlage2a: stellenartTypen.anlage2a,
+      erhoehtPauschale: stellenartTypen.erhoehtPauschale,
       rechtsgrundlage: stellenartTypen.rechtsgrundlage,
       lehrerId: stellenanteile.lehrerId,
       lehrerName: lehrer.vollname,
       lehrerPersonalnr: lehrer.personalnummer,
       wert: stellenanteile.wert,
+      eurBetrag: stellenanteile.eurBetrag,
+      wahlrecht: stellenanteile.wahlrecht,
       zeitraum: stellenanteile.zeitraum,
       status: stellenanteile.status,
       befristetBis: stellenanteile.befristetBis,
@@ -1271,10 +1309,16 @@ export async function getAlleStellenanteileByHj(haushaltsjahrId: number) {
       id: stellenanteile.id,
       schuleId: stellenanteile.schuleId,
       stellenartBezeichnung: stellenartTypen.bezeichnung,
+      stellenartKuerzel: stellenartTypen.kuerzel,
+      stellenartTyp: stellenartTypen.typ,
       istIsoliert: stellenartTypen.istIsoliert,
+      anlage2a: stellenartTypen.anlage2a,
+      erhoehtPauschale: stellenartTypen.erhoehtPauschale,
       lehrerId: stellenanteile.lehrerId,
       lehrerName: lehrer.vollname,
       wert: stellenanteile.wert,
+      eurBetrag: stellenanteile.eurBetrag,
+      wahlrecht: stellenanteile.wahlrecht,
       zeitraum: stellenanteile.zeitraum,
       status: stellenanteile.status,
       aktenzeichen: stellenanteile.aktenzeichen,
@@ -1282,7 +1326,12 @@ export async function getAlleStellenanteileByHj(haushaltsjahrId: number) {
     .from(stellenanteile)
     .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
     .leftJoin(lehrer, eq(stellenanteile.lehrerId, lehrer.id))
-    .where(eq(stellenanteile.haushaltsjahrId, haushaltsjahrId))
+    .where(
+      and(
+        eq(stellenanteile.haushaltsjahrId, haushaltsjahrId),
+        eq(stellenanteile.status, "genehmigt")
+      )
+    )
     .orderBy(asc(stellenanteile.schuleId), asc(stellenartTypen.sortierung));
 }
 
@@ -1292,6 +1341,8 @@ export async function createStellenanteil(data: {
   stellenartTypId: number;
   lehrerId?: number | null;
   wert: string;
+  eurBetrag?: string | null;
+  wahlrecht?: string | null;
   zeitraum: string;
   status: string;
   befristetBis?: string | null;
@@ -1314,6 +1365,8 @@ export async function updateStellenanteil(
     stellenartTypId?: number;
     lehrerId?: number | null;
     wert?: string;
+    eurBetrag?: string | null;
+    wahlrecht?: string | null;
     zeitraum?: string;
     status?: string;
     befristetBis?: string | null;
@@ -1344,10 +1397,15 @@ export async function getStellenanteilById(id: number) {
       haushaltsjahrId: stellenanteile.haushaltsjahrId,
       stellenartTypId: stellenanteile.stellenartTypId,
       stellenartBezeichnung: stellenartTypen.bezeichnung,
+      stellenartKuerzel: stellenartTypen.kuerzel,
+      stellenartTyp: stellenartTypen.typ,
       bindungstyp: stellenartTypen.bindungstyp,
+      istIsoliert: stellenartTypen.istIsoliert,
       lehrerId: stellenanteile.lehrerId,
       lehrerName: lehrer.vollname,
       wert: stellenanteile.wert,
+      eurBetrag: stellenanteile.eurBetrag,
+      wahlrecht: stellenanteile.wahlrecht,
       zeitraum: stellenanteile.zeitraum,
       status: stellenanteile.status,
       befristetBis: stellenanteile.befristetBis,
@@ -1461,6 +1519,90 @@ export async function updateLehrerManuell(
   return result;
 }
 
+/**
+ * Setzt das Deputat fuer einen manuell angelegten Lehrer auf alle 12 Monate
+ * eines Haushaltsjahres. Upsert: bestehende Werte werden ueberschrieben.
+ */
+export async function upsertManuellDeputat(
+  lehrerId: number,
+  haushaltsjahrId: number,
+  deputatGesamt: string,
+) {
+  for (let monat = 1; monat <= 12; monat++) {
+    await db
+      .insert(deputatMonatlich)
+      .values({
+        lehrerId,
+        haushaltsjahrId,
+        monat,
+        deputatGesamt,
+        deputatGes: "0",
+        deputatGym: "0",
+        deputatBk: "0",
+        quelle: "manuell",
+      })
+      .onConflictDoUpdate({
+        target: [deputatMonatlich.lehrerId, deputatMonatlich.haushaltsjahrId, deputatMonatlich.monat],
+        set: {
+          deputatGesamt,
+          quelle: "manuell",
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+}
+
+/**
+ * Setzt das Deputat fuer einen einzelnen Monat (manuell).
+ */
+export async function upsertManuellDeputatMonat(
+  lehrerId: number,
+  haushaltsjahrId: number,
+  monat: number,
+  deputatGesamt: string,
+) {
+  await db
+    .insert(deputatMonatlich)
+    .values({
+      lehrerId,
+      haushaltsjahrId,
+      monat,
+      deputatGesamt,
+      deputatGes: "0",
+      deputatGym: "0",
+      deputatBk: "0",
+      quelle: "manuell",
+    })
+    .onConflictDoUpdate({
+      target: [deputatMonatlich.lehrerId, deputatMonatlich.haushaltsjahrId, deputatMonatlich.monat],
+      set: {
+        deputatGesamt,
+        quelle: "manuell",
+        updatedAt: sql`now()`,
+      },
+    });
+}
+
+/**
+ * Laedt das aktuelle Deputat eines Lehrers (letzter Monat mit Daten).
+ */
+export async function getAktuellesDeputat(lehrerId: number, haushaltsjahrId: number) {
+  const rows = await db
+    .select({
+      monat: deputatMonatlich.monat,
+      deputatGesamt: deputatMonatlich.deputatGesamt,
+    })
+    .from(deputatMonatlich)
+    .where(
+      and(
+        eq(deputatMonatlich.lehrerId, lehrerId),
+        eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId),
+      )
+    )
+    .orderBy(asc(deputatMonatlich.monat));
+  return rows;
+}
+
 // ============================================================
 // STELLENANTEILE — KPIs + Befristungs-Monitoring
 // ============================================================
@@ -1496,27 +1638,47 @@ export async function getAblaufendeBefristungen(haushaltsjahrId: number, tageVor
     .orderBy(asc(stellenanteile.befristetBis));
 }
 
-/** KPI-Zusammenfassung Stellenanteile */
+/** KPI-Zusammenfassung Stellenanteile (mit Geldleistungen) */
 export async function getStellenanteileKPIs(haushaltsjahrId: number) {
   const rows = await db
     .select({
       status: stellenanteile.status,
       wert: stellenanteile.wert,
+      eurBetrag: stellenanteile.eurBetrag,
+      wahlrecht: stellenanteile.wahlrecht,
+      stellenartTyp: stellenartTypen.typ,
     })
     .from(stellenanteile)
+    .innerJoin(stellenartTypen, eq(stellenanteile.stellenartTypId, stellenartTypen.id))
     .where(eq(stellenanteile.haushaltsjahrId, haushaltsjahrId));
 
   let beantragt = 0;
   let genehmigt = 0;
   let genehmigtStellen = 0;
+  let genehmigtEurBetrag = 0;
 
   for (const row of rows) {
     if (row.status === "beantragt") beantragt++;
     if (row.status === "genehmigt") {
       genehmigt++;
-      genehmigtStellen += Number(row.wert);
+      // Stellen nur zaehlen wenn deputatswirksam (A, A_106, B mit Stellenwahl)
+      const typ = row.stellenartTyp;
+      if (typ === "A" || typ === "A_106") {
+        genehmigtStellen += Number(row.wert);
+      } else if (typ === "B" && row.wahlrecht === "stelle") {
+        genehmigtStellen += Number(row.wert);
+      }
+      // EUR-Betraege zaehlen (B mit Geldwahl + C)
+      if (row.eurBetrag) {
+        genehmigtEurBetrag += Number(row.eurBetrag);
+      }
     }
   }
 
-  return { beantragt, genehmigt, genehmigtStellen: Math.round(genehmigtStellen * 10000) / 10000 };
+  return {
+    beantragt,
+    genehmigt,
+    genehmigtStellen: Math.round(genehmigtStellen * 10000) / 10000,
+    genehmigtEurBetrag: Math.round(genehmigtEurBetrag * 100) / 100,
+  };
 }

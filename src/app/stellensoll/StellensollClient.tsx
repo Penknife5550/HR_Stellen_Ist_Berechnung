@@ -16,11 +16,16 @@ type StellensollDetail = {
 type ZuschlagDetail = {
   id?: number;
   bezeichnung: string;
+  kuerzel?: string;
+  typ?: string; // "A" | "A_106" | "B" | "C"
   wert: number;
+  eurBetrag?: number | null;
+  wahlrecht?: string | null; // "stelle" | "geld"
   zeitraum?: string;
   lehrerName?: string;
   aktenzeichen?: string;
   istIsoliert?: boolean;
+  istDeputatswirksam?: boolean;
 };
 
 type Ergebnis = {
@@ -46,9 +51,11 @@ type SchuleDaten = {
 export function StellensollClient({
   schulen,
   hatErgebnisse,
+  haushaltsjahrId,
 }: {
   schulen: SchuleDaten[];
   hatErgebnisse: boolean;
+  haushaltsjahrId: number;
 }) {
   const [activeSchool, setActiveSchool] = useState(schulen[0]?.kurzname ?? "");
   const [berechne, setBerechne] = useState(false);
@@ -59,7 +66,7 @@ export function StellensollClient({
   const handleBerechnung = async () => {
     setBerechne(true);
     setMessage(null);
-    const result = await berechneStellensollAction();
+    const result = await berechneStellensollAction(haushaltsjahrId);
     setBerechne(false);
     if (result.error) {
       setMessage({ type: "error", text: result.error });
@@ -252,73 +259,143 @@ export function StellensollClient({
               </div>
             </Card>
 
-            {/* Schritt 2: Stellenanteile / Zuschlaege */}
+            {/* Schritt 2: Stellenanteile / Zuschlaege (gruppiert nach Typ) */}
             {erg.zuschlaege_details && erg.zuschlaege_details.length > 0 && (
               <Card>
                 <h3 className="text-lg font-bold text-[#1A1A1A] mb-4">
                   Schritt 2: Zusaetzliche Stellenanteile
                 </h3>
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b-2 border-[#575756]">
-                      <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                        Stellenart
-                      </th>
-                      <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                        Lehrkraft
-                      </th>
-                      <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                        Aktenzeichen
-                      </th>
-                      <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                        Stellen
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {erg.zuschlaege_details.map((z, i) => (
-                      <tr key={i} className={`${i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"} ${z.istIsoliert ? "border-l-4 border-amber-400" : ""}`}>
-                        <td className="py-3 px-3 text-[15px]">
-                          {z.bezeichnung}
-                          {z.istIsoliert && (
-                            <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded" title="Isoliert nach § 3 Abs. 6 FESchVO">
-                              ISO
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-[15px] text-[#6B7280]">
-                          {z.lehrerName ?? "—"}
-                        </td>
-                        <td className="py-3 px-3 text-sm text-[#6B7280] tabular-nums">
-                          {z.aktenzeichen ?? "—"}
-                        </td>
-                        <td className="py-3 px-3 text-[15px] text-right tabular-nums font-bold">
-                          {z.wert.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-[#575756]">
-                      <td colSpan={3} className="py-3 px-3 text-[15px] font-bold">Summe Stellenanteile</td>
-                      <td className="py-3 px-3 text-[15px] text-right tabular-nums font-bold">
-                        {erg.zuschlaegeSumme.toFixed(2)}
-                      </td>
-                    </tr>
-                    <tr style={{ backgroundColor: `${active.farbe}15` }}>
-                      <td colSpan={3} className="py-4 px-3 text-lg font-bold text-[#1A1A1A]">
-                        Stellensoll = {erg.grundstellenGerundet.toFixed(1)} +{" "}
-                        {erg.zuschlaegeSumme.toFixed(2)}
-                      </td>
-                      <td
-                        className="py-4 px-3 text-2xl text-right tabular-nums font-bold"
-                        style={{ color: active.farbe }}
-                      >
-                        {erg.stellensoll.toFixed(1)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+
+                {(() => {
+                  const all = erg.zuschlaege_details ?? [];
+                  // Gruppierung: Typ A = Standard (oder Legacy ohne typ), A_106, B, C
+                  const typA = all.filter((z) => z.typ === "A" || (!z.typ && !z.istIsoliert));
+                  const typA106 = all.filter((z) => z.typ === "A_106" || (!z.typ && z.istIsoliert));
+                  const typB = all.filter((z) => z.typ === "B");
+                  const typC = all.filter((z) => z.typ === "C");
+
+                  const gruppen = [
+                    { key: "A", label: "Abschnitt 2 – Standardzuschlaege", desc: "Deputatswirksam, erhoehen Personalbedarfspauschale", rows: typA, farbe: "blue" },
+                    { key: "A_106", label: "Abschnitt 4 – Sonderbedarfe § 106 Abs. 10", desc: "Deputatswirksam, isoliert (ohne Pauschalen-Wirkung)", rows: typA106, farbe: "purple" },
+                    { key: "B", label: "Wahlleistungen (Geld oder Stelle)", desc: "Nur bei Stellenwahl: deputatswirksam", rows: typB, farbe: "orange" },
+                    { key: "C", label: "Geldleistungen", desc: "Keine Stellenwirkung – nur EUR-Betrag", rows: typC, farbe: "emerald" },
+                  ].filter((g) => g.rows.length > 0);
+
+                  return (
+                    <div className="space-y-4">
+                      {gruppen.map((g) => {
+                        const summeStellen = g.rows
+                          .filter((z) => z.istDeputatswirksam !== false)
+                          .reduce((s, z) => s + z.wert, 0);
+                        const summeEur = g.rows
+                          .filter((z) => z.eurBetrag && Number(z.eurBetrag) > 0)
+                          .reduce((s, z) => s + Number(z.eurBetrag ?? 0), 0);
+
+                        return (
+                          <div key={g.key} className={`border border-${g.farbe}-200 rounded-lg overflow-hidden`}>
+                            <div className={`bg-${g.farbe}-50 px-4 py-2 border-b border-${g.farbe}-200`}>
+                              <div className={`text-sm font-bold text-${g.farbe}-800`}>{g.label}</div>
+                              <div className="text-xs text-[#6B7280]">{g.desc}</div>
+                            </div>
+                            <table className="w-full text-[15px]">
+                              <thead>
+                                <tr className="border-b border-[#E5E7EB]">
+                                  <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">Stellenart</th>
+                                  <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">Lehrkraft</th>
+                                  {g.key === "B" && (
+                                    <th className="text-center py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">Wahl</th>
+                                  )}
+                                  <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
+                                    {g.key === "C" ? "EUR" : "Stellen"}
+                                  </th>
+                                  {(g.key === "B") && (
+                                    <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">EUR</th>
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {g.rows.map((z, i) => (
+                                  <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"}>
+                                    <td className="py-2 px-3">
+                                      <span className="flex items-center gap-2">
+                                        {z.kuerzel && (
+                                          <span className="text-[11px] font-mono font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{z.kuerzel}</span>
+                                        )}
+                                        <span>{z.bezeichnung}</span>
+                                        {z.istDeputatswirksam === false && (
+                                          <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded">kein Stellensoll</span>
+                                        )}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 text-[#6B7280]">{z.lehrerName ?? "—"}</td>
+                                    {g.key === "B" && (
+                                      <td className="py-2 px-3 text-center">
+                                        {z.wahlrecht === "stelle" ? (
+                                          <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Stelle</span>
+                                        ) : z.wahlrecht === "geld" ? (
+                                          <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">Geld</span>
+                                        ) : "—"}
+                                      </td>
+                                    )}
+                                    <td className="py-2 px-3 text-right tabular-nums font-bold">
+                                      {g.key === "C" ? (
+                                        z.eurBetrag ? Number(z.eurBetrag).toLocaleString("de-DE", { style: "currency", currency: "EUR" }) : "—"
+                                      ) : z.istDeputatswirksam !== false ? (
+                                        z.wert.toFixed(2)
+                                      ) : (
+                                        <span className="text-[#6B7280]">—</span>
+                                      )}
+                                    </td>
+                                    {g.key === "B" && (
+                                      <td className="py-2 px-3 text-right tabular-nums text-emerald-700 font-bold">
+                                        {z.eurBetrag ? Number(z.eurBetrag).toLocaleString("de-DE", { style: "currency", currency: "EUR" }) : "—"}
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className={`border-t border-${g.farbe}-200 bg-${g.farbe}-50`}>
+                                  <td className={`py-2 px-3 font-bold text-sm text-${g.farbe}-800`} colSpan={g.key === "B" ? 3 : 2}>
+                                    Summe
+                                  </td>
+                                  <td className={`py-2 px-3 text-right font-bold tabular-nums text-${g.farbe}-800`}>
+                                    {g.key === "C" ? (
+                                      summeEur > 0 ? summeEur.toLocaleString("de-DE", { style: "currency", currency: "EUR" }) : "—"
+                                    ) : (
+                                      summeStellen > 0 ? summeStellen.toFixed(2) : "—"
+                                    )}
+                                  </td>
+                                  {g.key === "B" && (
+                                    <td className="py-2 px-3 text-right font-bold tabular-nums text-emerald-700">
+                                      {summeEur > 0 ? summeEur.toLocaleString("de-DE", { style: "currency", currency: "EUR" }) : "—"}
+                                    </td>
+                                  )}
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        );
+                      })}
+
+                      {/* Gesamt-Formel */}
+                      <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: `${active.farbe}15` }}>
+                        <div className="flex justify-between items-center">
+                          <div className="text-lg font-bold text-[#1A1A1A]">
+                            Stellensoll = {erg.grundstellenGerundet.toFixed(1)} + {erg.zuschlaegeSumme.toFixed(2)}
+                          </div>
+                          <div className="text-2xl tabular-nums font-bold" style={{ color: active.farbe }}>
+                            {erg.stellensoll.toFixed(1)}
+                          </div>
+                        </div>
+                        <div className="text-xs text-[#6B7280] mt-1">
+                          Nur deputatswirksame Stellenanteile (Typ A + A §106 + Typ B Stellenwahl) fliessen ins Stellensoll ein.
+                          Geldleistungen (Typ B Geldwahl + Typ C) haben keinen Stellensoll-Effekt.
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </Card>
             )}
           </div>

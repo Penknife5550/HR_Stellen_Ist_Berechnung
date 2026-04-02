@@ -4,21 +4,23 @@ import { Card } from "@/components/ui/Card";
 import { MONATE_KURZ } from "@/lib/constants";
 import {
   getSchulen,
-  getAktuellesHaushaltsjahr,
   getLehrerMitDeputaten,
   getLatestSync,
   getDeputatAenderungen,
 } from "@/lib/db/queries";
+import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
+import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { DeputateClient } from "./DeputateClient";
 
-export default async function DeputatePage() {
-  const [schulen, aktuellesHj, latestSync] = await Promise.all([
+export default async function DeputatePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
+
+  const [schulen, latestSync] = await Promise.all([
     getSchulen(),
-    getAktuellesHaushaltsjahr(),
     getLatestSync(),
   ]);
 
-  if (!aktuellesHj) {
+  if (!hj) {
     return (
       <PageContainer>
         <Header
@@ -40,8 +42,8 @@ export default async function DeputatePage() {
 
   // Deputate + Aenderungen laden
   const [deputatRaw, alleAenderungen] = await Promise.all([
-    getLehrerMitDeputaten(aktuellesHj.id),
-    getDeputatAenderungen(aktuellesHj.id),
+    getLehrerMitDeputaten(hj.id),
+    getDeputatAenderungen(hj.id),
   ]);
 
   // Aenderungs-Flags pro Lehrer aufbauen
@@ -110,12 +112,13 @@ export default async function DeputatePage() {
     <PageContainer>
       <Header
         title="Deputatsuebersicht"
-        subtitle={`Monatliche Wochenstunden pro Lehrkraft — Haushaltsjahr ${aktuellesHj.jahr}`}
+        subtitle={`Monatliche Wochenstunden pro Lehrkraft — Haushaltsjahr ${hj.jahr}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Deputate" },
         ]}
       />
+      {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} /></div>}
 
       {lehrerListe.length === 0 ? (
         <Card>

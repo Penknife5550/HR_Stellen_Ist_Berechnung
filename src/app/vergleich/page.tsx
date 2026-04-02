@@ -2,17 +2,19 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card, KPICard } from "@/components/ui/Card";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
-import { getAktuellesHaushaltsjahr, getAktuelleVergleiche } from "@/lib/db/queries";
+import { getAktuelleVergleiche } from "@/lib/db/queries";
+import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
+import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 
 export const dynamic = "force-dynamic";
 
-export default async function VergleichPage() {
-  const aktuellesHj = await getAktuellesHaushaltsjahr();
-  const hjLabel = aktuellesHj ? String(aktuellesHj.jahr) : "—";
+export default async function VergleichPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
+  const hjLabel = hj ? String(hj.jahr) : "—";
 
   let vergleiche: Awaited<ReturnType<typeof getAktuelleVergleiche>> = [];
-  if (aktuellesHj) {
-    vergleiche = await getAktuelleVergleiche(aktuellesHj.id);
+  if (hj) {
+    vergleiche = await getAktuelleVergleiche(hj.id);
   }
 
   // Gesamtwerte
@@ -30,6 +32,7 @@ export default async function VergleichPage() {
           { label: "Soll-Ist-Vergleich" },
         ]}
       />
+      {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj!.jahr} /></div>}
 
       {vergleiche.length > 0 ? (
         <>

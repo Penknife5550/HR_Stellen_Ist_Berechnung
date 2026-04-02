@@ -2,11 +2,12 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import {
   getSchulen,
-  getAktuellesHaushaltsjahr,
   getStellenartTypen,
   getStellenanteileBySchuleUndHj,
   getAktiveLehrerBySchule,
 } from "@/lib/db/queries";
+import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
+import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { StellenanteileClient } from "./StellenanteileClient";
 
 export const dynamic = "force-dynamic";
@@ -16,13 +17,19 @@ type StellenanteilRow = {
   stellenartTypId: number;
   stellenartBezeichnung: string;
   stellenartKurz: string | null;
+  stellenartKuerzel: string | null;
+  stellenartTyp: string;
   bindungstyp: string;
   istIsoliert: boolean;
+  anlage2a: boolean;
+  erhoehtPauschale: boolean;
   rechtsgrundlage: string | null;
   lehrerId: number | null;
   lehrerName: string | null;
   lehrerPersonalnr: string | null;
   wert: string;
+  eurBetrag: string | null;
+  wahlrecht: string | null;
   zeitraum: string;
   status: string;
   befristetBis: string | null;
@@ -32,10 +39,11 @@ type StellenanteilRow = {
   bemerkung: string | null;
 };
 
-export default async function StellenanteilePage() {
-  const [schulen, hj, stellenarten] = await Promise.all([
+export default async function StellenanteilePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
+
+  const [schulen, stellenarten] = await Promise.all([
     getSchulen(),
-    getAktuellesHaushaltsjahr(),
     getStellenartTypen(),
   ]);
 
@@ -68,13 +76,19 @@ export default async function StellenanteilePage() {
       stellenartTypId: r.stellenartTypId,
       stellenartBezeichnung: r.stellenartBezeichnung,
       stellenartKurz: r.stellenartKurz,
+      stellenartKuerzel: r.stellenartKuerzel,
+      stellenartTyp: r.stellenartTyp,
       bindungstyp: r.bindungstyp,
       istIsoliert: r.istIsoliert,
+      anlage2a: r.anlage2a,
+      erhoehtPauschale: r.erhoehtPauschale,
       rechtsgrundlage: r.rechtsgrundlage,
       lehrerId: r.lehrerId,
       lehrerName: r.lehrerName,
       lehrerPersonalnr: r.lehrerPersonalnr,
       wert: r.wert,
+      eurBetrag: r.eurBetrag,
+      wahlrecht: r.wahlrecht,
       zeitraum: r.zeitraum,
       status: r.status,
       befristetBis: r.befristetBis,
@@ -97,6 +111,7 @@ export default async function StellenanteilePage() {
           { label: "Stellenanteile" },
         ]}
       />
+      {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} /></div>}
 
       <StellenanteileClient
         schulen={schulen.map((s) => ({
@@ -110,6 +125,8 @@ export default async function StellenanteilePage() {
           id: sa.id,
           bezeichnung: sa.bezeichnung,
           kurzbezeichnung: sa.kurzbezeichnung,
+          kuerzel: sa.kuerzel,
+          typ: sa.typ,
           bindungstyp: sa.bindungstyp,
           rechtsgrundlage: sa.rechtsgrundlage,
         }))}

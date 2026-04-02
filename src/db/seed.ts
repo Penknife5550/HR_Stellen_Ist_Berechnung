@@ -20,11 +20,11 @@ async function seed() {
   // 1. SCHULEN
   // ============================================================
   console.log("1. Schulen anlegen...");
-  const [ges, gym, bk] = await db
+  const [ges, gym, bk, gss, gsm, gsh] = await db
     .insert(schema.schulen)
     .values([
       {
-        schulnummer: "TODO-GES",
+        schulnummer: "195182",
         name: "Freie Evangelische Gesamtschule Minden",
         kurzname: "GES",
         untisCode: "GES",
@@ -35,7 +35,7 @@ async function seed() {
         farbe: "#6BAA24",
       },
       {
-        schulnummer: "TODO-GYM",
+        schulnummer: "196083",
         name: "Freies Evangelisches Gymnasium Minden",
         kurzname: "GYM",
         untisCode: "GYM",
@@ -46,7 +46,7 @@ async function seed() {
         farbe: "#FBC900",
       },
       {
-        schulnummer: "TODO-BK",
+        schulnummer: "100166",
         name: "Freies Evangelisches Berufskolleg Minden",
         kurzname: "BK",
         untisCode: "BK",
@@ -56,10 +56,31 @@ async function seed() {
         ort: "Minden",
         farbe: "#5C82A5",
       },
+      {
+        schulnummer: "195054",
+        name: "Grundschule Stemwede",
+        kurzname: "GSS",
+        schulform: "Grundschule",
+        farbe: "#ad1928",
+      },
+      {
+        schulnummer: "195844",
+        name: "Grundschule Minderheide",
+        kurzname: "GSM",
+        schulform: "Grundschule",
+        farbe: "#e2001a",
+      },
+      {
+        schulnummer: "194608",
+        name: "Grundschule Haddenhausen",
+        kurzname: "GSH",
+        schulform: "Grundschule",
+        farbe: "#509ac6",
+      },
     ])
     .returning();
 
-  console.log(`   ${ges.kurzname} (id: ${ges.id}), ${gym.kurzname} (id: ${gym.id}), ${bk.kurzname} (id: ${bk.id})`);
+  console.log(`   ${ges.kurzname}, ${gym.kurzname}, ${bk.kurzname}, ${gss.kurzname}, ${gsm.kurzname}, ${gsh.kurzname}`);
 
   // ============================================================
   // 2. SCHUL-STUFEN
@@ -71,6 +92,9 @@ async function seed() {
     { schuleId: gym.id, stufe: "Sek I", schulformTyp: "Gymnasium Sek I (G9)" },
     { schuleId: gym.id, stufe: "Sek II", schulformTyp: "Gymnasium Sek II" },
     { schuleId: bk.id, stufe: "Vollzeit", schulformTyp: "Berufskolleg Vollzeit" },
+    { schuleId: gss.id, stufe: "Primarstufe", schulformTyp: "Grundschule" },
+    { schuleId: gsm.id, stufe: "Primarstufe", schulformTyp: "Grundschule" },
+    { schuleId: gsh.id, stufe: "Primarstufe", schulformTyp: "Grundschule" },
   ]);
 
   // ============================================================

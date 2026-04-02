@@ -340,7 +340,7 @@ function SchulenSection({
               />
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-4 mb-3">
+          <div className="grid grid-cols-3 gap-4 mb-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Farbe</label>
               <div className="flex items-center gap-2">
@@ -395,17 +395,17 @@ function SchulenSection({
                 />
               </div>
             </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 pb-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.istImAufbau}
-                  onChange={(e) => setForm({ ...form, istImAufbau: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-[#575756] focus:ring-[#575756]"
-                />
-                <span className="text-sm text-gray-600">Im Aufbau</span>
-              </label>
-            </div>
+          </div>
+          <div className="mb-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.istImAufbau}
+                onChange={(e) => setForm({ ...form, istImAufbau: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300 text-[#575756] focus:ring-[#575756]"
+              />
+              <span className="text-sm text-gray-600">Schule im Aufbau (Startjahr: nur laufende Schuelerzahl)</span>
+            </label>
           </div>
           <div className="flex justify-end gap-2">
             <button

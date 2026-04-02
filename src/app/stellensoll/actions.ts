@@ -22,11 +22,20 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
 
-export async function berechneStellensollAction() {
+export async function berechneStellensollAction(haushaltsjahrId?: number) {
   const session = await requireWriteAccess();
   try {
-    const aktuellesHj = await getAktuellesHaushaltsjahr();
-    if (!aktuellesHj) return { error: "Kein aktuelles Haushaltsjahr gefunden." };
+    let aktuellesHj;
+    if (haushaltsjahrId) {
+      const { db: database } = await import("@/db");
+      const { haushaltsjahre } = await import("@/db/schema");
+      const { eq } = await import("drizzle-orm");
+      const [found] = await database.select().from(haushaltsjahre).where(eq(haushaltsjahre.id, haushaltsjahrId));
+      aktuellesHj = found ?? null;
+    } else {
+      aktuellesHj = await getAktuellesHaushaltsjahr();
+    }
+    if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
     const aktuellesSj = await getAktuellesSchuljahr();
     if (!aktuellesSj) return { error: "Kein aktuelles Schuljahr gefunden." };
@@ -69,10 +78,9 @@ export async function berechneStellensollAction() {
       zahlenBySchuleStichtag.set(key, arr);
     }
 
-    // Stellenanteile nach schuleId gruppieren (nur genehmigte!)
+    // Stellenanteile nach schuleId gruppieren (Query filtert bereits auf genehmigt)
     const stellenanteileBySchule = new Map<number, typeof alleStellenanteile>();
     for (const sa of alleStellenanteile) {
-      if (sa.status !== "genehmigt") continue;
       const arr = stellenanteileBySchule.get(sa.schuleId) ?? [];
       arr.push(sa);
       stellenanteileBySchule.set(sa.schuleId, arr);
@@ -150,16 +158,38 @@ export async function berechneStellensollAction() {
           const relevante = stellenanteileRows.filter(
             (sa) => sa.zeitraum === "ganzjahr" || sa.zeitraum === zr.key
           );
-          zuschlaegeSumme = relevante.reduce((acc, sa) => acc + Number(sa.wert), 0);
+
+          // Drei-Gruppen-Logik: Nur deputatswirksame Stellenanteile ins Stellensoll
+          // Typ A + A_106: immer (wert = Stellen)
+          // Typ B mit wahlrecht="stelle": ja (wert = Stellen)
+          // Typ B mit wahlrecht="geld": NEIN (nur EUR-Betrag, kein Stellensoll-Effekt)
+          // Typ C: NEIN (reine Geldleistung, kein Stellensoll-Effekt)
+          const deputatswirksam = relevante.filter((sa) => {
+            const typ = sa.stellenartTyp;
+            if (typ === "A" || typ === "A_106") return true;
+            if (typ === "B" && sa.wahlrecht === "stelle") return true;
+            return false;
+          });
+
+          zuschlaegeSumme = deputatswirksam.reduce((acc, sa) => acc + Number(sa.wert), 0);
+
+          // Alle relevanten Stellenanteile in Details speichern (auch Geld/C fuer Transparenz)
           zuschlagDetailsForDb = relevante.map((sa) => ({
             id: sa.id,
             bezeichnung: sa.stellenartBezeichnung,
+            kuerzel: sa.stellenartKuerzel,
+            typ: sa.stellenartTyp,
             wert: Number(sa.wert),
+            eurBetrag: sa.eurBetrag ? Number(sa.eurBetrag) : null,
+            wahlrecht: sa.wahlrecht,
             zeitraum: sa.zeitraum,
             lehrerId: sa.lehrerId,
             lehrerName: sa.lehrerName,
             aktenzeichen: sa.aktenzeichen,
             istIsoliert: sa.istIsoliert,
+            anlage2a: sa.anlage2a,
+            erhoehtPauschale: sa.erhoehtPauschale,
+            istDeputatswirksam: deputatswirksam.some((d) => d.id === sa.id),
           }));
         } else {
           // Fallback: alte zuschlaege-Tabelle

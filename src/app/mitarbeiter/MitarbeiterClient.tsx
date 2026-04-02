@@ -18,6 +18,7 @@ type Lehrer = {
   schuleFarbe: string | null;
   quelle: string;
   aktiv: boolean;
+  deputat: number | null;
 };
 
 type Schule = {
@@ -199,6 +200,19 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm text-[#575756] mb-1">Deputat (Wochenstunden)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="45"
+                  name="deputat"
+                  placeholder="z.B. 28"
+                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-[15px] min-h-[44px] tabular-nums"
+                />
+                <span className="text-xs text-[#9CA3AF]">Wird fuer alle 12 Monate uebernommen</span>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button type="submit" disabled={saving}>
@@ -228,6 +242,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Name</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Personalnr.</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Stammschule</th>
+                <th className="text-right py-3 px-4 font-semibold text-[#575756]">Deputat</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Quelle</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Status</th>
                 <th className="text-right py-3 px-4 font-semibold text-[#575756]">Aktionen</th>
@@ -236,7 +251,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-[#6B7280]">
+                  <td colSpan={7} className="text-center py-8 text-[#6B7280]">
                     Keine Lehrkraefte gefunden.
                   </td>
                 </tr>
@@ -249,7 +264,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                 if (isEditing && isManuell) {
                   return (
                     <tr key={l.id} className="bg-yellow-50 border-y border-yellow-200">
-                      <td colSpan={6} className="py-3 px-4">
+                      <td colSpan={7} className="py-3 px-4">
                         <form
                           onSubmit={(e) => {
                             e.preventDefault();
@@ -301,6 +316,19 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                                 ))}
                               </select>
                             </div>
+                            <div>
+                              <label className="block text-xs text-[#575756] mb-1">Deputat (Std.)</label>
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                max="45"
+                                name="deputat"
+                                defaultValue={l.deputat ?? ""}
+                                placeholder="z.B. 28"
+                                className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2 text-[15px] min-h-[44px] tabular-nums"
+                              />
+                            </div>
                             <div className="flex gap-2">
                               <Button type="submit" disabled={saving}>
                                 {saving ? "..." : "Speichern"}
@@ -347,6 +375,15 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                         </span>
                       ) : (
                         <span className="text-[#D1D5DB]">-</span>
+                      )}
+                    </td>
+
+                    {/* Deputat */}
+                    <td className="py-3 px-4 text-right tabular-nums">
+                      {l.deputat !== null && l.deputat > 0 ? (
+                        <span className="font-bold">{l.deputat.toLocaleString("de-DE", { minimumFractionDigits: 1 })}</span>
+                      ) : (
+                        <span className="text-[#D1D5DB]">{"\u2014"}</span>
                       )}
                     </td>
 

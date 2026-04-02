@@ -116,22 +116,100 @@ export async function GET(request: NextRequest) {
         }
         y += 2;
 
-        // 2. Zuschlaege
+        // 2. Zuschlaege / Stellenanteile (gruppiert nach Typ)
         const zuschlaege = parseJsonArray(soll.zuschlaege_details);
         if (zuschlaege.length > 0) {
-          y = addPdfText(doc, `${abschnitt}. ZUSCHLAEGE (${zeitraumLabel})`, y, { bold: true, size: 11 });
-          abschnitt++;
+          // Abschnitt 2: Standard-Stellenzuschlaege (Typ A, deputatswirksam)
+          const typA = zuschlaege.filter((z) => z.typ === "A" || (!z.typ && !z.istIsoliert));
+          const typA106 = zuschlaege.filter((z) => z.typ === "A_106" || (!z.typ && z.istIsoliert));
+          const typB = zuschlaege.filter((z) => z.typ === "B");
+          const typC = zuschlaege.filter((z) => z.typ === "C");
 
-          const zuHead = [["Bezeichnung", "Wert (Stellen)"]];
-          const zuBody = zuschlaege.map((z) => [
-            String(z.bezeichnung ?? ""),
-            fmtNum(z.wert),
-          ]);
-          y = addPdfTable(doc, y, zuHead, zuBody, {
-            columnStyles: { 1: { halign: "right" } },
-          });
+          type PdfCell = string | { content: string; styles?: Record<string, unknown> };
 
-          y = addPdfText(doc, `Zuschlaege gesamt: ${fmtNum(soll.zuschlaegeSumme)}`, y, { indent: 5, bold: true });
+          if (typA.length > 0) {
+            y = addPdfText(doc, `${abschnitt}. ABSCHNITT 2 - STANDARDZUSCHLAEGE (${zeitraumLabel})`, y, { bold: true, size: 11 });
+            abschnitt++;
+            const zuHead = [["Kuerzel", "Bezeichnung", "Stellen"]];
+            const zuBody: PdfCell[][] = typA.map((z) => [
+              String(z.kuerzel ?? ""),
+              String(z.bezeichnung ?? ""),
+              z.istDeputatswirksam !== false ? fmtNum(z.wert) : "0,00",
+            ]);
+            const summeA = typA.filter((z) => z.istDeputatswirksam !== false).reduce((s, z) => s + num(z.wert), 0);
+            zuBody.push([
+              { content: "", styles: {} },
+              { content: "Summe Abschnitt 2", styles: { fontStyle: "bold" } },
+              { content: fmtNum(summeA), styles: { fontStyle: "bold", halign: "right" } },
+            ]);
+            y = addPdfTable(doc, y, zuHead, zuBody, {
+              columnStyles: { 2: { halign: "right" } },
+            });
+            y += 2;
+          }
+
+          if (typA106.length > 0) {
+            y = addPdfText(doc, `${abschnitt}. ABSCHNITT 4 - SONDERBEDARFE PAR. 106 ABS. 10 (${zeitraumLabel})`, y, { bold: true, size: 11 });
+            abschnitt++;
+            const zuHead = [["Kuerzel", "Bezeichnung", "Stellen"]];
+            const zuBody: PdfCell[][] = typA106.map((z) => [
+              String(z.kuerzel ?? ""),
+              String(z.bezeichnung ?? ""),
+              fmtNum(z.wert),
+            ]);
+            const summe106 = typA106.reduce((s, z) => s + num(z.wert), 0);
+            zuBody.push([
+              { content: "", styles: {} },
+              { content: "Summe Abschnitt 4 (isoliert)", styles: { fontStyle: "bold" } },
+              { content: fmtNum(summe106), styles: { fontStyle: "bold", halign: "right" } },
+            ]);
+            y = addPdfTable(doc, y, zuHead, zuBody, {
+              columnStyles: { 2: { halign: "right" } },
+            });
+            y = addPdfText(doc, "Hinweis: Stellen nach Par. 106 Abs. 10 SchulG erhoehen die Personalbedarfspauschale NICHT.", y, { indent: 5, size: 8 });
+            y += 2;
+          }
+
+          if (typB.length > 0) {
+            y = addPdfText(doc, `${abschnitt}. WAHLLEISTUNGEN - GELD ODER STELLE (${zeitraumLabel})`, y, { bold: true, size: 11 });
+            abschnitt++;
+            const zuHead = [["Kuerzel", "Bezeichnung", "Wahl", "Stellen", "EUR"]];
+            const zuBody = typB.map((z) => [
+              String(z.kuerzel ?? ""),
+              String(z.bezeichnung ?? ""),
+              z.wahlrecht === "stelle" ? "Stelle" : z.wahlrecht === "geld" ? "Geld" : "-",
+              z.wahlrecht === "stelle" ? fmtNum(z.wert) : "-",
+              z.eurBetrag ? fmtEur(num(z.eurBetrag)) : "-",
+            ]);
+            y = addPdfTable(doc, y, zuHead, zuBody, {
+              columnStyles: { 3: { halign: "right" }, 4: { halign: "right" } },
+            });
+            y += 2;
+          }
+
+          if (typC.length > 0) {
+            y = addPdfText(doc, `${abschnitt}. GELDLEISTUNGEN (${zeitraumLabel})`, y, { bold: true, size: 11 });
+            abschnitt++;
+            const zuHead = [["Kuerzel", "Bezeichnung", "EUR-Betrag"]];
+            const zuBody: PdfCell[][] = typC.map((z) => [
+              String(z.kuerzel ?? ""),
+              String(z.bezeichnung ?? ""),
+              z.eurBetrag ? fmtEur(num(z.eurBetrag)) : fmtEur(0),
+            ]);
+            const summeC = typC.reduce((s, z) => s + num(z.eurBetrag), 0);
+            zuBody.push([
+              { content: "", styles: {} },
+              { content: "Summe Geldleistungen", styles: { fontStyle: "bold" } },
+              { content: fmtEur(summeC), styles: { fontStyle: "bold", halign: "right" } },
+            ]);
+            y = addPdfTable(doc, y, zuHead, zuBody, {
+              columnStyles: { 2: { halign: "right" } },
+            });
+            y = addPdfText(doc, "Hinweis: Geldleistungen haben keinen Stellensoll-Effekt.", y, { indent: 5, size: 8 });
+            y += 2;
+          }
+
+          y = addPdfText(doc, `Stellenwirksame Zuschlaege gesamt: ${fmtNum(soll.zuschlaegeSumme)}`, y, { indent: 5, bold: true });
           y += 2;
         }
 
@@ -225,10 +303,22 @@ function fmtNum(val: unknown, decimals = 2): string {
     .replace(/[\u00A0\u2009\u202F]/g, " ");
 }
 
+function fmtEur(val: unknown): string {
+  const n = num(val);
+  return n.toLocaleString("de-DE", { style: "currency", currency: "EUR" })
+    .replace(/\u00A0/g, " ")
+    .replace(/\u2212/g, "-");
+}
+
 function parseJsonArray(val: unknown): Record<string, unknown>[] {
   if (Array.isArray(val)) return val;
   if (typeof val === "string") {
-    try { return JSON.parse(val); } catch { return []; }
+    try {
+      return JSON.parse(val);
+    } catch (err) {
+      console.error("Berechnungsnachweis: JSON-Parse-Fehler in zuschlaege_details:", err);
+      return [];
+    }
   }
   return [];
 }
