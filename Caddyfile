@@ -5,7 +5,7 @@
 # Pattern: wie Kassenbuch (kb-fv.fes-credo.de)
 # ============================================================
 
-stellenist.fes-credo.de {
+deputat.fes-credo.de {
 	# Security Headers (ergaenzend zu Next.js eigenen Headers)
 	header {
 		-Server

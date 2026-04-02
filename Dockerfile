@@ -61,9 +61,15 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Drizzle Migrations fuer Runtime (db:migrate beim Start)
+# Drizzle Migrations fuer Runtime (db:push/migrate beim Start)
 COPY --from=builder /app/src/db/migrations ./src/db/migrations
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+
+# Seed-Scripts fuer Ersteinrichtung (docker exec app node seed.js)
+COPY --from=builder /app/src/db/seed.ts ./src/db/seed.ts
+COPY --from=builder /app/src/db/seed-stellenarten.ts ./src/db/seed-stellenarten.ts
+COPY --from=builder /app/src/db/seed-regeldeputate.ts ./src/db/seed-regeldeputate.ts
+COPY --from=builder /app/src/db/schema.ts ./src/db/schema.ts
 
 # Non-root User verwenden
 USER nextjs
