@@ -10,9 +10,11 @@ import {
   getDeputatSummenBySchule,
   getMehrarbeitByHaushaltsjahr,
   getRegeldeputateMap,
+  getAenderungenMitDatum,
 } from "@/lib/db/queries";
 import { berechneStellenist } from "@/lib/berechnungen/stellenist";
 import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
+import { berechneTagesgenauKorrekturen, type TagesgenauAenderung } from "@/lib/berechnungen/tagesgenau";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
@@ -33,10 +35,35 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
     }
     if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
-    const [schulen, regeldeputateMap] = await Promise.all([
+    const [schulen, regeldeputateMap, alleAenderungen] = await Promise.all([
       getSchulen(),
       getRegeldeputateMap(),
+      getAenderungenMitDatum(aktuellesHj.id),
     ]);
+
+    // Tagesgenaue Korrekturen vorbereiten
+    // Aenderungen in das Format fuer berechneTagesgenauKorrekturen umwandeln
+    const tagesgenauInput: TagesgenauAenderung[] = alleAenderungen.map((a) => {
+      // Tag im Monat aus dem tatsaechlichen Datum extrahieren
+      const datum = a.tatsaechlichesDatum!; // IS NOT NULL in Query
+      const tag = new Date(datum + "T00:00:00").getDate();
+      const monatsTage = new Date(aktuellesHj.jahr, a.monat, 0).getDate();
+      return {
+        lehrerId: a.lehrerId,
+        monat: a.monat,
+        altGesamt: Number(a.deputatGesamtAlt ?? 0),
+        altGes: Number(a.deputatGesAlt ?? 0),
+        altGym: Number(a.deputatGymAlt ?? 0),
+        altBk: Number(a.deputatBkAlt ?? 0),
+        neuGesamt: Number(a.deputatGesamtNeu ?? 0),
+        neuGes: Number(a.deputatGesNeu ?? 0),
+        neuGym: Number(a.deputatGymNeu ?? 0),
+        neuBk: Number(a.deputatBkNeu ?? 0),
+        aenderungTag: tag,
+        monatsTage,
+        stammschuleCode: a.stammschuleCode,
+      };
+    });
 
     const ergebnisse: Array<{
       schule: string;
@@ -60,12 +87,19 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
 
       if (monatsSummen.length === 0) continue;
 
-      // Schulspezifische Stunden verwenden (deputat_ges fuer GES, deputat_gym fuer GYM, etc.)
-      // Beide Pfade von getDeputatSummenBySchule liefern summeSchulspezifisch
+      // Tagesgenaue Korrekturen fuer diese Schule berechnen
+      const korrekturen = berechneTagesgenauKorrekturen(
+        tagesgenauInput,
+        schule.kurzname,
+        aktuellesHj.jahr,
+      );
+      const korrekturByMonat = new Map(korrekturen.map((k) => [k.monat, k.differenzSchulspezifisch]));
+
+      // Schulspezifische Stunden + tagesgenaue Korrektur
       const libResult = berechneStellenist({
         monatlicheStunden: monatsSummen.map((m) => ({
           monat: m.monat,
-          stunden: Number(m.summeSchulspezifisch ?? 0),
+          stunden: Number(m.summeSchulspezifisch ?? 0) + (korrekturByMonat.get(m.monat) ?? 0),
         })),
         regeldeputat,
         mehrarbeitStunden: mehrarbeitRows.map((m) => ({
@@ -138,12 +172,19 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
             mehrarbeitStellen: String(mehrarbeitStellenGerundet),
             stellenistGesamt: String(gesamtStellen),
             details: {
-              monateImZeitraum: monateImZeitraum.map((m) => ({
-                monat: m.monat,
-                summeWochenstunden: Number(m.summeSchulspezifisch ?? 0),
-                anzahlLehrer: m.anzahlLehrer,
-              })),
+              monateImZeitraum: monateImZeitraum.map((m) => {
+                const korrektur = korrekturByMonat.get(m.monat) ?? 0;
+                const pauschal = Number(m.summeSchulspezifisch ?? 0);
+                return {
+                  monat: m.monat,
+                  summeWochenstunden: pauschal + korrektur,
+                  summeWochenstundenPauschal: pauschal,
+                  tagesgenauKorrektur: Math.abs(korrektur) > 0.001 ? Math.round(korrektur * 1000) / 1000 : 0,
+                  anzahlLehrer: m.anzahlLehrer,
+                };
+              }),
               mehrarbeitStunden,
+              hatTagesgenauKorrekturen: korrekturen.length > 0,
             },
             berechnetVon: session.name,
             istAktuell: true,

@@ -1603,6 +1603,39 @@ export async function getAktuellesDeputat(lehrerId: number, haushaltsjahrId: num
   return rows;
 }
 
+/**
+ * Laedt alle Deputat-Aenderungen mit eingetragenem tatsaechlichem Datum
+ * fuer ein Haushaltsjahr. Diese werden fuer die tagesgenaue Stellenist-Berechnung
+ * verwendet: Wenn HR ein tatsaechliches Datum eintraegt, wird der Monatswert
+ * nicht pauschal genommen sondern tagesgewichtet berechnet.
+ */
+export async function getAenderungenMitDatum(haushaltsjahrId: number) {
+  return db
+    .select({
+      lehrerId: deputatAenderungen.lehrerId,
+      monat: deputatAenderungen.monat,
+      deputatGesamtAlt: deputatAenderungen.deputatGesamtAlt,
+      deputatGesamtNeu: deputatAenderungen.deputatGesamtNeu,
+      deputatGesAlt: deputatAenderungen.deputatGesAlt,
+      deputatGesNeu: deputatAenderungen.deputatGesNeu,
+      deputatGymAlt: deputatAenderungen.deputatGymAlt,
+      deputatGymNeu: deputatAenderungen.deputatGymNeu,
+      deputatBkAlt: deputatAenderungen.deputatBkAlt,
+      deputatBkNeu: deputatAenderungen.deputatBkNeu,
+      tatsaechlichesDatum: deputatAenderungen.tatsaechlichesDatum,
+      stammschuleCode: lehrer.stammschuleCode,
+    })
+    .from(deputatAenderungen)
+    .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))
+    .where(
+      and(
+        eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId),
+        sql`${deputatAenderungen.tatsaechlichesDatum} IS NOT NULL`
+      )
+    )
+    .orderBy(asc(deputatAenderungen.lehrerId), asc(deputatAenderungen.monat));
+}
+
 // ============================================================
 // STELLENANTEILE — KPIs + Befristungs-Monitoring
 // ============================================================
