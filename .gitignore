@@ -51,3 +51,12 @@ next-env.d.ts
 # Temporaere Dateien
 *.tmp
 *.bak
+
+# Content-/Referenzdaten (nicht in Git — lokale Arbeitsdaten)
+/01_Content/
+/02_dokcer und co/
+/03_n8n/
+/04_Vorlagen_Verträge/
+/05_Zusätzliche Stellenanteile/
+/n8n/
+/stellenistberechnung/
