@@ -10,40 +10,54 @@
 # ============================================================
 
 services:
-  db:
-    image: postgres:16-alpine
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stellenist-app
     restart: unless-stopped
     environment:
-      POSTGRES_DB: stellenistberechnung
-      POSTGRES_USER: stellenist
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    networks:
-      - internal
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stellenist"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  app:
-    build: .
-    restart: unless-stopped
+      - DATABASE_URL=postgresql://stellenist:${DB_PASSWORD}@db:5432/stellenistberechnung
+      - SESSION_SECRET=${SESSION_SECRET}
+      - API_SYNC_KEY=${API_SYNC_KEY}
+      - NODE_ENV=production
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://stellenist:${DB_PASSWORD}@db:5432/stellenistberechnung
-      SESSION_SECRET: ${SESSION_SECRET}
-      API_SYNC_KEY: ${API_SYNC_KEY}
-      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - reverse_proxy
       - internal
 
+  db:
+    image: postgres:16-alpine
+    container_name: stellenist-db
+    restart: unless-stopped
+    volumes:
+      - stellenist_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    environment:
+      POSTGRES_DB: stellenistberechnung
+      POSTGRES_USER: stellenist
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stellenist -d stellenistberechnung"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+    # Kein Port-Exposure — nur aus dem app-Container erreichbar
+
 volumes:
-  pgdata:
+  stellenist_data:
 
 networks:
   reverse_proxy:
