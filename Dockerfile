@@ -37,6 +37,9 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Dummy-Werte fuer Build-Zeit Validierung (werden zur Runtime ueberschrieben)
+ENV SESSION_SECRET=build-time-dummy-secret-mindestens-32-zeichen-lang
+
 # Next.js Build (erzeugt .next/standalone)
 RUN npm run build
 
