@@ -6,7 +6,7 @@
 #
 # Starten: docker compose -f docker-compose.prod.yml up -d --build
 # Logs:    docker compose -f docker-compose.prod.yml logs -f app
-# Seed:    docker compose -f docker-compose.prod.yml exec app node seed.js
+# Seed:    docker compose -f docker-compose.prod.yml exec app node seed.mjs
 # ============================================================
 
 services:
@@ -27,7 +27,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3

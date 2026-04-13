@@ -139,12 +139,15 @@ CREATE TABLE "haushaltsjahre" (
 --> statement-breakpoint
 CREATE TABLE "lehrer" (
 	"id" serial PRIMARY KEY NOT NULL,
-	"untis_teacher_id" integer NOT NULL,
+	"untis_teacher_id" integer,
 	"personalnummer" varchar(20),
 	"name" varchar(50) NOT NULL,
 	"vollname" varchar(200) NOT NULL,
+	"vorname" varchar(100),
+	"nachname" varchar(100),
 	"stammschule_id" integer,
 	"stammschule_code" varchar(10),
+	"quelle" varchar(20) DEFAULT 'untis' NOT NULL,
 	"aktiv" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -256,6 +259,50 @@ CREATE TABLE "slr_werte" (
 	CONSTRAINT "slr_werte_unique" UNIQUE("schuljahr_id","schulform_typ")
 );
 --> statement-breakpoint
+CREATE TABLE "stellenanteile" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"schule_id" integer NOT NULL,
+	"haushaltsjahr_id" integer NOT NULL,
+	"stellenart_typ_id" integer NOT NULL,
+	"lehrer_id" integer,
+	"wert" numeric(8, 4) NOT NULL,
+	"eur_betrag" numeric(12, 2),
+	"wahlrecht" varchar(10),
+	"zeitraum" varchar(10) DEFAULT 'ganzjahr' NOT NULL,
+	"status" varchar(20) DEFAULT 'beantragt' NOT NULL,
+	"befristet_bis" date,
+	"antragsdatum" date,
+	"aktenzeichen" varchar(100),
+	"dms_dokumentennummer" varchar(100),
+	"bemerkung" text,
+	"erstellt_von" varchar(100),
+	"geaendert_von" varchar(100),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "stellenart_typen" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"bezeichnung" varchar(150) NOT NULL,
+	"kurzbezeichnung" varchar(30),
+	"kuerzel" varchar(15),
+	"beschreibung" text,
+	"rechtsgrundlage" varchar(300),
+	"typ" varchar(10) DEFAULT 'A' NOT NULL,
+	"bindungstyp" varchar(10) DEFAULT 'schule' NOT NULL,
+	"ist_isoliert" boolean DEFAULT false NOT NULL,
+	"anlage2a" boolean DEFAULT true NOT NULL,
+	"erhoeht_pauschale" boolean DEFAULT false NOT NULL,
+	"parametrisierbar" boolean DEFAULT false NOT NULL,
+	"schulform_filter" jsonb,
+	"ist_standard" boolean DEFAULT false NOT NULL,
+	"sortierung" integer DEFAULT 0 NOT NULL,
+	"aktiv" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "stellenart_typen_bezeichnung_unique" UNIQUE("bezeichnung")
+);
+--> statement-breakpoint
 CREATE TABLE "zuschlaege" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"schule_id" integer NOT NULL,
@@ -300,6 +347,10 @@ ALTER TABLE "schul_stufen" ADD CONSTRAINT "schul_stufen_schule_id_schulen_id_fk"
 ALTER TABLE "slr_historie" ADD CONSTRAINT "slr_historie_slr_wert_id_slr_werte_id_fk" FOREIGN KEY ("slr_wert_id") REFERENCES "public"."slr_werte"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "slr_historie" ADD CONSTRAINT "slr_historie_schuljahr_id_schuljahre_id_fk" FOREIGN KEY ("schuljahr_id") REFERENCES "public"."schuljahre"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "slr_werte" ADD CONSTRAINT "slr_werte_schuljahr_id_schuljahre_id_fk" FOREIGN KEY ("schuljahr_id") REFERENCES "public"."schuljahre"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stellenanteile" ADD CONSTRAINT "stellenanteile_schule_id_schulen_id_fk" FOREIGN KEY ("schule_id") REFERENCES "public"."schulen"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stellenanteile" ADD CONSTRAINT "stellenanteile_haushaltsjahr_id_haushaltsjahre_id_fk" FOREIGN KEY ("haushaltsjahr_id") REFERENCES "public"."haushaltsjahre"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stellenanteile" ADD CONSTRAINT "stellenanteile_stellenart_typ_id_stellenart_typen_id_fk" FOREIGN KEY ("stellenart_typ_id") REFERENCES "public"."stellenart_typen"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stellenanteile" ADD CONSTRAINT "stellenanteile_lehrer_id_lehrer_id_fk" FOREIGN KEY ("lehrer_id") REFERENCES "public"."lehrer"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "zuschlaege" ADD CONSTRAINT "zuschlaege_schule_id_schulen_id_fk" FOREIGN KEY ("schule_id") REFERENCES "public"."schulen"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "zuschlaege" ADD CONSTRAINT "zuschlaege_haushaltsjahr_id_haushaltsjahre_id_fk" FOREIGN KEY ("haushaltsjahr_id") REFERENCES "public"."haushaltsjahre"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "zuschlaege" ADD CONSTRAINT "zuschlaege_zuschlag_art_id_zuschlag_arten_id_fk" FOREIGN KEY ("zuschlag_art_id") REFERENCES "public"."zuschlag_arten"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -311,7 +362,12 @@ CREATE INDEX "idx_deputat_aenderungen_gehaltsrelevant" ON "deputat_aenderungen" 
 CREATE INDEX "idx_deputat_monatlich_lehrer" ON "deputat_monatlich" USING btree ("lehrer_id");--> statement-breakpoint
 CREATE INDEX "idx_deputat_monatlich_hj_monat" ON "deputat_monatlich" USING btree ("haushaltsjahr_id","monat");--> statement-breakpoint
 CREATE INDEX "idx_lehrer_stammschule" ON "lehrer" USING btree ("stammschule_id");--> statement-breakpoint
+CREATE INDEX "idx_lehrer_quelle" ON "lehrer" USING btree ("quelle");--> statement-breakpoint
 CREATE INDEX "idx_schuelerzahlen_stichtag" ON "schuelerzahlen" USING btree ("stichtag");--> statement-breakpoint
 CREATE INDEX "idx_schuelerzahlen_schule" ON "schuelerzahlen" USING btree ("schule_id");--> statement-breakpoint
 CREATE INDEX "idx_slr_historie_slr_wert" ON "slr_historie" USING btree ("slr_wert_id");--> statement-breakpoint
-CREATE INDEX "idx_slr_historie_schuljahr" ON "slr_historie" USING btree ("schuljahr_id");
+CREATE INDEX "idx_slr_historie_schuljahr" ON "slr_historie" USING btree ("schuljahr_id");--> statement-breakpoint
+CREATE INDEX "idx_stellenanteile_schule_hj" ON "stellenanteile" USING btree ("schule_id","haushaltsjahr_id");--> statement-breakpoint
+CREATE INDEX "idx_stellenanteile_lehrer" ON "stellenanteile" USING btree ("lehrer_id");--> statement-breakpoint
+CREATE INDEX "idx_stellenanteile_befristung" ON "stellenanteile" USING btree ("befristet_bis");--> statement-breakpoint
+CREATE INDEX "idx_stellenanteile_status" ON "stellenanteile" USING btree ("status");
