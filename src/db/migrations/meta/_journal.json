@@ -8,6 +8,34 @@
       "when": 1776089588664,
       "tag": "0000_white_thunderbolt_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776148472136,
+      "tag": "0001_n8n_webhook_verwaltung",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776149326819,
+      "tag": "0002_webhook_fixes",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776169403270,
+      "tag": "0003_mehrarbeit_schule",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776175563152,
+      "tag": "0004_mehrarbeit_check",
+      "breakpoints": true
     }
   ]
 }

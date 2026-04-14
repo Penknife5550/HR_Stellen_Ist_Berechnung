@@ -87,6 +87,14 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
       );
       const korrekturByMonat = new Map(korrekturen.map((k) => [k.monat, k.differenzSchulspezifisch]));
 
+      // Mehrarbeit aufteilen: Lehrer-bezogene (Stunden) vs. schulweite (Stellenanteile)
+      const mehrarbeitStunden = mehrarbeitRows
+        .filter((m) => m.lehrerId !== null)
+        .map((m) => ({ monat: m.monat, stunden: Number(m.stunden) }));
+      const mehrarbeitStellen = mehrarbeitRows
+        .filter((m) => m.lehrerId === null && m.stellenanteil !== null)
+        .map((m) => ({ monat: m.monat, stellen: Number(m.stellenanteil) }));
+
       // Schulspezifische Stunden + tagesgenaue Korrektur
       const libResult = berechneStellenist({
         monatlicheStunden: monatsSummen.map((m) => ({
@@ -94,10 +102,8 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
           stunden: Number(m.summeSchulspezifisch ?? 0) + (korrekturByMonat.get(m.monat) ?? 0),
         })),
         regeldeputat,
-        mehrarbeitStunden: mehrarbeitRows.map((m) => ({
-          monat: m.monat,
-          stunden: Number(m.stunden),
-        })),
+        mehrarbeitStunden,
+        mehrarbeitStellen,
       });
 
       // Per-Zeitraum Details fuer DB-Speicherung aufbereiten
@@ -128,10 +134,12 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
         const mehrarbeitImZr = mehrarbeitRows.filter((m) =>
           zd.monate.includes(m.monat)
         );
-        const mehrarbeitStunden = mehrarbeitImZr.reduce(
-          (acc, m) => acc + Number(m.stunden),
-          0
-        );
+        const mehrarbeitStundenSumme = mehrarbeitImZr
+          .filter((m) => m.lehrerId !== null)
+          .reduce((acc, m) => acc + Number(m.stunden), 0);
+        const mehrarbeitStellenSumme = mehrarbeitImZr
+          .filter((m) => m.lehrerId === null && m.stellenanteil !== null)
+          .reduce((acc, m) => acc + Number(m.stellenanteil), 0);
 
         // Gerundete Werte fuer DB-Speicherung
         const stellenistGerundet = Math.round(zd.zr.stellen * 10) / 10;
@@ -175,7 +183,8 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
                   anzahlLehrer: m.anzahlLehrer,
                 };
               }),
-              mehrarbeitStunden,
+              mehrarbeitStunden: mehrarbeitStundenSumme,
+              mehrarbeitStellenanteile: mehrarbeitStellenSumme,
               hatTagesgenauKorrekturen: korrekturen.length > 0,
             },
             berechnetVon: session.name,

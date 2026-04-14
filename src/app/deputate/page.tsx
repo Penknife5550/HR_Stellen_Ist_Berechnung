@@ -11,6 +11,7 @@ import {
 import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
 import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { DeputateClient } from "./DeputateClient";
+import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
 
 export default async function DeputatePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
@@ -49,9 +50,13 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
   // Aenderungs-Flags pro Lehrer aufbauen
   const lehrerMitGehaltsaenderung = new Set<number>();
   const lehrerMitVerteilungsaenderung = new Set<number>();
+  const aenderungenByLehrer = new Map<number, typeof alleAenderungen>();
   for (const a of alleAenderungen) {
     if (a.istGehaltsrelevant) lehrerMitGehaltsaenderung.add(a.lehrerId);
     else lehrerMitVerteilungsaenderung.add(a.lehrerId);
+    const arr = aenderungenByLehrer.get(a.lehrerId) ?? [];
+    arr.push(a);
+    aenderungenByLehrer.set(a.lehrerId, arr);
   }
 
   // Daten zu Lehrer-Objekten gruppieren (inkl. schulspezifischer Deputate)
@@ -92,6 +97,36 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
       gym: Number(row.deputatGym ?? 0),
       bk: Number(row.deputatBk ?? 0),
     };
+  }
+
+  // Taggenaue Korrektur pro Lehrer anwenden
+  const lehrerKorrekturFlags = new Map<number, boolean[]>(); // lehrerId -> Array[12] bool
+  for (const l of lehrerMap.values()) {
+    const monatsDaten = l.monatsDetails
+      .map((d, i) => d ? ({
+        monat: i + 1,
+        deputatGesamt: d.gesamt,
+        deputatGes: d.ges,
+        deputatGym: d.gym,
+        deputatBk: d.bk,
+      }) : null)
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const aen = aenderungenByLehrer.get(l.lehrerId) ?? [];
+    const eff = berechneLehrerDeputatEffektiv(monatsDaten, aen, hj.jahr);
+    const korrFlags: boolean[] = Array(12).fill(false);
+    for (const [monat, r] of eff) {
+      if (!r.hatKorrektur) continue;
+      const idx = monat - 1;
+      korrFlags[idx] = true;
+      l.stunden[idx] = r.effektiv.gesamt;
+      l.monatsDetails[idx] = {
+        gesamt: r.effektiv.gesamt,
+        ges: r.effektiv.ges,
+        gym: r.effektiv.gym,
+        bk: r.effektiv.bk,
+      };
+    }
+    lehrerKorrekturFlags.set(l.lehrerId, korrFlags);
   }
 
   const lehrerListe = Array.from(lehrerMap.values()).sort((a, b) =>
@@ -157,6 +192,7 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
               monatsDetails: l.monatsDetails,
               hatGehaltsaenderung: lehrerMitGehaltsaenderung.has(l.lehrerId),
               hatVerteilungsaenderung: lehrerMitVerteilungsaenderung.has(l.lehrerId),
+              taggenauKorrektur: lehrerKorrekturFlags.get(l.lehrerId) ?? Array(12).fill(false),
             }))}
             schulen={schulen.map((s) => ({
               id: s.id,

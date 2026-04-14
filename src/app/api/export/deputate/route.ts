@@ -8,7 +8,13 @@
 
 import { NextRequest } from "next/server";
 import { getOptionalSession } from "@/lib/auth/permissions";
-import { getLehrerMitDeputaten, getSchulen } from "@/lib/db/queries";
+import {
+  getLehrerMitDeputaten,
+  getSchulen,
+  getDeputatAenderungen,
+  getHaushaltsjahrById,
+} from "@/lib/db/queries";
+import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
 import {
   createWorkbook,
   addHeaderRow,
@@ -50,11 +56,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const rawData = await getLehrerMitDeputaten(haushaltsjahrId, schuleId);
-    const schulen = await getSchulen();
+    const [rawData, schulen, aenderungen, hj] = await Promise.all([
+      getLehrerMitDeputaten(haushaltsjahrId, schuleId),
+      getSchulen(),
+      getDeputatAenderungen(haushaltsjahrId),
+      getHaushaltsjahrById(haushaltsjahrId),
+    ]);
+
+    if (!hj) {
+      return new Response("Haushaltsjahr nicht gefunden.", { status: 404 });
+    }
 
     // Schulen-Lookup fuer Farben/Namen
     const schulenMap = new Map(schulen.map((s) => [s.kurzname, s]));
+
+    // Aenderungen pro Lehrer indizieren
+    const aenderungenByLehrer = new Map<number, typeof aenderungen>();
+    for (const a of aenderungen) {
+      const arr = aenderungenByLehrer.get(a.lehrerId) ?? [];
+      arr.push(a);
+      aenderungenByLehrer.set(a.lehrerId, arr);
+    }
 
     // Daten zu Lehrer-Grid aggregieren
     const lehrerMap = new Map<number, LehrerRow>();
@@ -67,10 +89,10 @@ export async function GET(request: NextRequest) {
           stammschule: row.stammschuleCode ?? "-",
           stammschuleId: row.stammschuleId ?? 0,
           monate: new Map(),
-          // Schulspezifische Monate
           monateGes: new Map(),
           monateGym: new Map(),
           monateBk: new Map(),
+          korrigierteMonate: new Set(),
         });
       }
       const l = lehrerMap.get(row.lehrerId)!;
@@ -78,6 +100,30 @@ export async function GET(request: NextRequest) {
       l.monateGes.set(row.monat, Number(row.deputatGes) || 0);
       l.monateGym.set(row.monat, Number(row.deputatGym) || 0);
       l.monateBk.set(row.monat, Number(row.deputatBk) || 0);
+    }
+
+    // Taggenaue Korrekturen anwenden
+    for (const l of lehrerMap.values()) {
+      const monatsDaten = Array.from(l.monate.entries()).map(([monat, gesamt]) => ({
+        monat,
+        deputatGesamt: gesamt,
+        deputatGes: l.monateGes.get(monat) ?? 0,
+        deputatGym: l.monateGym.get(monat) ?? 0,
+        deputatBk: l.monateBk.get(monat) ?? 0,
+      }));
+      const eff = berechneLehrerDeputatEffektiv(
+        monatsDaten,
+        aenderungenByLehrer.get(l.id) ?? [],
+        hj.jahr,
+      );
+      for (const [monat, r] of eff) {
+        if (!r.hatKorrektur) continue;
+        l.monate.set(monat, r.effektiv.gesamt);
+        l.monateGes.set(monat, r.effektiv.ges);
+        l.monateGym.set(monat, r.effektiv.gym);
+        l.monateBk.set(monat, r.effektiv.bk);
+        l.korrigierteMonate.add(monat);
+      }
     }
 
     const lehrerListe = Array.from(lehrerMap.values());
@@ -102,10 +148,12 @@ export async function GET(request: NextRequest) {
       ? schulen.find((s) => s.id === schuleId)?.kurzname ?? "Schule"
       : "Alle";
 
+    const hatTaggenaueKorrekturen = lehrerListe.some((l) => l.korrigierteMonate.size > 0);
+
     if (format === "pdf") {
-      return generatePdf(gruppen, schulenMap, lehrerListe.length, haushaltsjahrId, schuleName);
+      return generatePdf(gruppen, schulenMap, lehrerListe.length, haushaltsjahrId, schuleName, hatTaggenaueKorrekturen);
     }
-    return generateExcel(gruppen, schulenMap, lehrerListe.length, haushaltsjahrId, schuleName);
+    return generateExcel(gruppen, schulenMap, lehrerListe.length, haushaltsjahrId, schuleName, hatTaggenaueKorrekturen);
   } catch (err) {
     console.error("Export-Fehler:", err);
     return new Response("Fehler beim Erstellen des Exports.", { status: 500 });
@@ -125,6 +173,8 @@ interface LehrerRow {
   monateGes: Map<number, number>;
   monateGym: Map<number, number>;
   monateBk: Map<number, number>;
+  /** Monate mit taggenauer Korrektur (fuer visuelle Markierung im Export) */
+  korrigierteMonate: Set<number>;
 }
 
 /** Prueft ob ein Lehrer an mehreren Schulen unterrichtet */
@@ -186,6 +236,7 @@ async function generateExcel(
   gesamtAnzahl: number,
   haushaltsjahrId: number,
   schuleName: string,
+  hatTaggenaueKorrekturen: boolean,
 ) {
   const wb = createWorkbook();
   const ws = wb.addWorksheet("Deputate");
@@ -288,6 +339,15 @@ async function generateExcel(
     rund2(gesamtDurchschnitt),
   ]);
 
+  if (hatTaggenaueKorrekturen) {
+    addEmptyRow(ws);
+    const note = ws.addRow([
+      "",
+      "Hinweis: Fuer einzelne Lehrkraefte wurden Monatswerte taggenau gewichtet (tatsaechliches Aenderungsdatum gesetzt). Herleitung siehe Detailseite.",
+    ]);
+    note.eachCell((c) => { c.font = { italic: true, size: 9, color: { argb: "FF575756" } }; });
+  }
+
   const buffer = await workbookToBuffer(wb);
   return excelResponse(buffer, `Deputate_${schuleName}_HJ${haushaltsjahrId}.xlsx`);
 }
@@ -302,6 +362,7 @@ function generatePdf(
   gesamtAnzahl: number,
   haushaltsjahrId: number,
   schuleName: string,
+  hatTaggenaueKorrekturen: boolean,
 ) {
   const doc = createPdf(true); // Landscape
   let y = addPdfHeader(
@@ -429,6 +490,16 @@ function generatePdf(
       2: { cellWidth: 10 },
     },
   });
+
+  if (hatTaggenaueKorrekturen) {
+    doc.setFontSize(7);
+    doc.setTextColor(107, 114, 128);
+    doc.text(
+      "Hinweis: Einzelne Monatswerte sind taggenau gewichtet (tatsaechliches Aenderungsdatum gesetzt). Herleitung siehe Detailseite.",
+      14,
+      doc.internal.pageSize.getHeight() - 8,
+    );
+  }
 
   addPdfPageNumbers(doc);
   const buffer = pdfToBuffer(doc);

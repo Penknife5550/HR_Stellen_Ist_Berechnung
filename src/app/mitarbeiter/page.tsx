@@ -1,10 +1,14 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
-import { getAlleLehrerMitDetails, getSchulen, getAktuellesHaushaltsjahr } from "@/lib/db/queries";
-import { db } from "@/db";
-import { deputatMonatlich } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import {
+  getAlleLehrerMitDetails,
+  getSchulen,
+  getAktuellesHaushaltsjahr,
+  getLehrerMitDeputaten,
+  getDeputatAenderungen,
+} from "@/lib/db/queries";
 import { MitarbeiterClient } from "./MitarbeiterClient";
+import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
 
 export const dynamic = "force-dynamic";
 
@@ -15,19 +19,49 @@ export default async function MitarbeiterPage() {
     getAktuellesHaushaltsjahr(),
   ]);
 
-  // Aktuelles Deputat pro Lehrer laden (Durchschnitt ueber alle Monate mit Daten)
+  // Taggenauer Durchschnitt pro Lehrer (Monatswerte effektiv, dann gemittelt)
   const deputatByLehrer: Record<number, number> = {};
   if (hj) {
-    const depRows = await db
-      .select({
-        lehrerId: deputatMonatlich.lehrerId,
-        avg: sql<string>`ROUND(AVG(NULLIF(${deputatMonatlich.deputatGesamt}::numeric, 0)), 1)`,
-      })
-      .from(deputatMonatlich)
-      .where(eq(deputatMonatlich.haushaltsjahrId, hj.id))
-      .groupBy(deputatMonatlich.lehrerId);
-    for (const row of depRows) {
-      if (row.avg) deputatByLehrer[row.lehrerId] = Number(row.avg);
+    const [deputate, aenderungen] = await Promise.all([
+      getLehrerMitDeputaten(hj.id),
+      getDeputatAenderungen(hj.id),
+    ]);
+
+    const aenderungenByLehrer = new Map<number, typeof aenderungen>();
+    for (const a of aenderungen) {
+      const arr = aenderungenByLehrer.get(a.lehrerId) ?? [];
+      arr.push(a);
+      aenderungenByLehrer.set(a.lehrerId, arr);
+    }
+
+    const depByLehrer = new Map<number, Array<{ monat: number; deputatGesamt: number; deputatGes: number; deputatGym: number; deputatBk: number }>>();
+    for (const d of deputate) {
+      const arr = depByLehrer.get(d.lehrerId) ?? [];
+      arr.push({
+        monat: d.monat,
+        deputatGesamt: Number(d.deputatGesamt ?? 0),
+        deputatGes: Number(d.deputatGes ?? 0),
+        deputatGym: Number(d.deputatGym ?? 0),
+        deputatBk: Number(d.deputatBk ?? 0),
+      });
+      depByLehrer.set(d.lehrerId, arr);
+    }
+
+    for (const [lehrerId, monate] of depByLehrer) {
+      const eff = berechneLehrerDeputatEffektiv(
+        monate,
+        aenderungenByLehrer.get(lehrerId) ?? [],
+        hj.jahr,
+      );
+      const werte: number[] = [];
+      for (const r of eff.values()) {
+        const v = r.hatKorrektur ? r.effektiv.gesamt : r.pauschal.gesamt;
+        if (v > 0) werte.push(v);
+      }
+      if (werte.length > 0) {
+        const avg = werte.reduce((s, v) => s + v, 0) / werte.length;
+        deputatByLehrer[lehrerId] = Math.round(avg * 10) / 10;
+      }
     }
   }
 

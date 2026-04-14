@@ -24,19 +24,18 @@ import * as schema from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { syncPayloadSchema } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
+import { authenticateWebhook } from "@/lib/webhookAuth";
+import { notify } from "@/lib/notifications";
 
-/**
- * Timing-safe Vergleich von API-Keys.
- * Verhindert Timing-Attacks bei der Authentifizierung.
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    // Trotzdem konstante Zeit fuer Laengenunterschied
-    const dummy = Buffer.alloc(a.length, 0);
-    crypto.timingSafeEqual(dummy, dummy);
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) {
+    // Konstante Zeit erzwingen
+    crypto.timingSafeEqual(ab, ab);
     return false;
   }
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  return crypto.timingSafeEqual(ab, bb);
 }
 
 /**
@@ -103,13 +102,35 @@ export async function POST(request: NextRequest) {
 
     const payload = parsed.data;
 
-    // 3. API-Key validieren (timing-safe)
-    const expectedKey = process.env.API_SYNC_KEY;
-    if (!expectedKey || !timingSafeEqual(payload.api_key, expectedKey)) {
-      return NextResponse.json(
-        { error: "Ungueltiger API-Schluessel." },
-        { status: 401 }
-      );
+    // 3. API-Key validieren (gegen webhook_configs in DB)
+    // Bootstrap-Fallback auf ENV-Key NUR solange noch nie ein webhook_configs-
+    // Eintrag angelegt wurde (auch inaktive/geloeschte zaehlen via audit_log).
+    // Sobald einmal ein Key in der UI angelegt wurde, ist der ENV-Fallback
+    // dauerhaft deaktiviert — auch wenn der Admin den Key wieder loescht.
+    const webhookConfig = await authenticateWebhook(payload.api_key, "sync");
+    if (!webhookConfig) {
+      const envKey = process.env.API_SYNC_KEY;
+      const priorConfigs = await db
+        .select({ id: schema.auditLog.id })
+        .from(schema.auditLog)
+        .where(
+          and(
+            eq(schema.auditLog.tabelle, "webhook_configs"),
+            eq(schema.auditLog.aktion, "INSERT")
+          )
+        )
+        .limit(1);
+      const bootstrapAllowed = priorConfigs.length === 0;
+      const envMatch =
+        bootstrapAllowed &&
+        !!envKey &&
+        timingSafeStringEqual(payload.api_key, envKey);
+      if (!envMatch) {
+        return NextResponse.json(
+          { error: "Ungueltiger API-Schluessel." },
+          { status: 401 }
+        );
+      }
     }
 
     // 4. Schulen-Mapping laden (untis_code → id)
@@ -195,7 +216,7 @@ export async function POST(request: NextRequest) {
 
     // 9b. Bestehende Deputate vorladen — pro Haushaltsjahr
     const alleLehrerIds = existingLehrer.map((l) => l.id);
-    const deputatMap = new Map<string, typeof existingLehrer[0] extends never ? never : (typeof schema.deputatMonatlich.$inferSelect)>();
+    const deputatMap = new Map<string, typeof schema.deputatMonatlich.$inferSelect>();
 
     if (alleLehrerIds.length > 0) {
       for (const [hjId, hjMonate] of monateByHjId) {
@@ -223,6 +244,12 @@ export async function POST(request: NextRequest) {
     let aenderungenGesamt = 0;
     let gehaltsrelevant = 0;
     const fehlgeschlageneLehrer: Array<{ teacherId: number; fehler: string }> = [];
+    const neueLehrerEvents: Array<{ teacherId: number; name: string; vollname: string; stammschule: string | null }> = [];
+    const hauptdeputatEvents: Array<{
+      lehrerId: number; teacherId: number; vollname: string;
+      jahr: number; monat: number;
+      alt: number; neu: number;
+    }> = [];
 
     // Batch-Groesse: 50 Lehrer pro Transaktion
     const BATCH_SIZE = 50;
@@ -270,6 +297,12 @@ export async function POST(request: NextRequest) {
                   .returning();
                 lehrerId = inserted.id;
                 lehrerMap.set(lehrerData.teacher_id, { ...inserted });
+                neueLehrerEvents.push({
+                  teacherId: lehrerData.teacher_id,
+                  name: lehrerData.name,
+                  vollname: lehrerData.vollname,
+                  stammschule: lehrerData.stammschule ?? null,
+                });
               }
 
               // Deputat fuer jeden Monat: Upsert + Aenderungserkennung
@@ -322,6 +355,17 @@ export async function POST(request: NextRequest) {
 
                     batchAenderungen++;
                     if (istGehaltsrelevant) batchGehaltsrelevant++;
+                    if (gesamtGeaendert) {
+                      hauptdeputatEvents.push({
+                        lehrerId,
+                        teacherId: lehrerData.teacher_id,
+                        vollname: lehrerData.vollname,
+                        jahr: m.jahr,
+                        monat: m.monat,
+                        alt: altGesamt,
+                        neu: neuGesamt,
+                      });
+                    }
                   }
                 }
 
@@ -406,6 +450,30 @@ export async function POST(request: NextRequest) {
       haushaltsjahre: hjLabels,
     }, "n8n");
 
+    // 13. Events ausloesen — aggregiert (ein Event pro Typ, Liste im Payload)
+    if (neueLehrerEvents.length > 0) {
+      void notify("lehrer.created", {
+        count: neueLehrerEvents.length,
+        lehrer: neueLehrerEvents,
+      });
+    }
+    if (hauptdeputatEvents.length > 0) {
+      void notify("hauptdeputat.changed", {
+        count: hauptdeputatEvents.length,
+        aenderungen: hauptdeputatEvents,
+      });
+    }
+    void notify(fehler > 0 ? "sync.failed" : "sync.completed", {
+      schuljahr: payload.schuljahr_text ?? null,
+      termId: payload.term_id ?? null,
+      verarbeitet,
+      fehler,
+      aenderungen: aenderungenGesamt,
+      gehaltsrelevant,
+      monate: monate.length,
+      haushaltsjahre: hjLabels,
+    });
+
     return NextResponse.json({
       success: true,
       verarbeitet,
@@ -431,6 +499,10 @@ export async function POST(request: NextRequest) {
     } catch {
       // Ignorieren wenn auch Log fehlschlaegt
     }
+
+    void notify("sync.failed", {
+      error: err instanceof Error ? err.message : "Unbekannter Fehler",
+    });
 
     return NextResponse.json(
       { error: "Interner Serverfehler." },

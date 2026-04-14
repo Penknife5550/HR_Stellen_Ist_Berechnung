@@ -1,0 +1,3040 @@
+{
+  "id": "7ee271b4-40c1-4211-b9df-f1e9d90f5841",
+  "prevId": "8a5a81ed-98a1-4c19-b595-7eb2e316be9a",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.audit_log": {
+      "name": "audit_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tabelle": {
+          "name": "tabelle",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "datensatz_id": {
+          "name": "datensatz_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aktion": {
+          "name": "aktion",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alte_werte": {
+          "name": "alte_werte",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "neue_werte": {
+          "name": "neue_werte",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "benutzer": {
+          "name": "benutzer",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "zeitpunkt": {
+          "name": "zeitpunkt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_audit_log_tabelle": {
+          "name": "idx_audit_log_tabelle",
+          "columns": [
+            {
+              "expression": "tabelle",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "datensatz_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.benutzer": {
+      "name": "benutzer",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "passwort_hash": {
+          "name": "passwort_hash",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rolle": {
+          "name": "rolle",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'betrachter'"
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "letzter_login": {
+          "name": "letzter_login",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "benutzer_email_unique": {
+          "name": "benutzer_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.berechnung_stellenist": {
+      "name": "berechnung_stellenist",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zeitraum": {
+          "name": "zeitraum",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monats_durchschnitt_stunden": {
+          "name": "monats_durchschnitt_stunden",
+          "type": "numeric(10, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "regelstundendeputat": {
+          "name": "regelstundendeputat",
+          "type": "numeric(6, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stellenist": {
+          "name": "stellenist",
+          "type": "numeric(8, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stellenist_gerundet": {
+          "name": "stellenist_gerundet",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mehrarbeit_stellen": {
+          "name": "mehrarbeit_stellen",
+          "type": "numeric(8, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "stellenist_gesamt": {
+          "name": "stellenist_gesamt",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "details": {
+          "name": "details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "berechnet_am": {
+          "name": "berechnet_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "berechnet_von": {
+          "name": "berechnet_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ist_aktuell": {
+          "name": "ist_aktuell",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_berechnung_stellenist_aktuell": {
+          "name": "idx_berechnung_stellenist_aktuell",
+          "columns": [
+            {
+              "expression": "schule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "haushaltsjahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "ist_aktuell = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "berechnung_stellenist_schule_id_schulen_id_fk": {
+          "name": "berechnung_stellenist_schule_id_schulen_id_fk",
+          "tableFrom": "berechnung_stellenist",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "berechnung_stellenist_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "berechnung_stellenist_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "berechnung_stellenist",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.berechnung_stellensoll": {
+      "name": "berechnung_stellensoll",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zeitraum": {
+          "name": "zeitraum",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grundstellen_details": {
+          "name": "grundstellen_details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grundstellen_summe": {
+          "name": "grundstellen_summe",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grundstellen_gerundet": {
+          "name": "grundstellen_gerundet",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zuschlaege_summe": {
+          "name": "zuschlaege_summe",
+          "type": "numeric(8, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "zuschlaege_details": {
+          "name": "zuschlaege_details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stellensoll": {
+          "name": "stellensoll",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "berechnet_am": {
+          "name": "berechnet_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "berechnet_von": {
+          "name": "berechnet_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ist_aktuell": {
+          "name": "ist_aktuell",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_berechnung_stellensoll_aktuell": {
+          "name": "idx_berechnung_stellensoll_aktuell",
+          "columns": [
+            {
+              "expression": "schule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "haushaltsjahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "ist_aktuell = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "berechnung_stellensoll_schule_id_schulen_id_fk": {
+          "name": "berechnung_stellensoll_schule_id_schulen_id_fk",
+          "tableFrom": "berechnung_stellensoll",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "berechnung_stellensoll_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "berechnung_stellensoll_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "berechnung_stellensoll",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.berechnung_vergleich": {
+      "name": "berechnung_vergleich",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stellensoll_id": {
+          "name": "stellensoll_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stellenist_id": {
+          "name": "stellenist_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stellensoll": {
+          "name": "stellensoll",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stellenist": {
+          "name": "stellenist",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "differenz": {
+          "name": "differenz",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refinanzierung": {
+          "name": "refinanzierung",
+          "type": "numeric(8, 1)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "berechnet_am": {
+          "name": "berechnet_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "berechnung_vergleich_schule_id_schulen_id_fk": {
+          "name": "berechnung_vergleich_schule_id_schulen_id_fk",
+          "tableFrom": "berechnung_vergleich",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "berechnung_vergleich_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "berechnung_vergleich_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "berechnung_vergleich",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "berechnung_vergleich_stellensoll_id_berechnung_stellensoll_id_fk": {
+          "name": "berechnung_vergleich_stellensoll_id_berechnung_stellensoll_id_fk",
+          "tableFrom": "berechnung_vergleich",
+          "tableTo": "berechnung_stellensoll",
+          "columnsFrom": [
+            "stellensoll_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "berechnung_vergleich_stellenist_id_berechnung_stellenist_id_fk": {
+          "name": "berechnung_vergleich_stellenist_id_berechnung_stellenist_id_fk",
+          "tableFrom": "berechnung_vergleich",
+          "tableTo": "berechnung_stellenist",
+          "columnsFrom": [
+            "stellenist_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.deputat_aenderungen": {
+      "name": "deputat_aenderungen",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "lehrer_id": {
+          "name": "lehrer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monat": {
+          "name": "monat",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deputat_gesamt_alt": {
+          "name": "deputat_gesamt_alt",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_ges_alt": {
+          "name": "deputat_ges_alt",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_gym_alt": {
+          "name": "deputat_gym_alt",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_bk_alt": {
+          "name": "deputat_bk_alt",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_gesamt_neu": {
+          "name": "deputat_gesamt_neu",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_ges_neu": {
+          "name": "deputat_ges_neu",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_gym_neu": {
+          "name": "deputat_gym_neu",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_bk_neu": {
+          "name": "deputat_bk_neu",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aenderungstyp": {
+          "name": "aenderungstyp",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ist_gehaltsrelevant": {
+          "name": "ist_gehaltsrelevant",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "term_id_alt": {
+          "name": "term_id_alt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "term_id_neu": {
+          "name": "term_id_neu",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geaendert_am": {
+          "name": "geaendert_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "tatsaechliches_datum": {
+          "name": "tatsaechliches_datum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "datum_korrigiert_von": {
+          "name": "datum_korrigiert_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "datum_korrigiert_am": {
+          "name": "datum_korrigiert_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nachtrag_status": {
+          "name": "nachtrag_status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nachtrag_erstellt_am": {
+          "name": "nachtrag_erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nachtrag_erstellt_von": {
+          "name": "nachtrag_erstellt_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_deputat_aenderungen_lehrer": {
+          "name": "idx_deputat_aenderungen_lehrer",
+          "columns": [
+            {
+              "expression": "lehrer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "haushaltsjahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_deputat_aenderungen_gehaltsrelevant": {
+          "name": "idx_deputat_aenderungen_gehaltsrelevant",
+          "columns": [
+            {
+              "expression": "haushaltsjahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ist_gehaltsrelevant",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "ist_gehaltsrelevant = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "deputat_aenderungen_lehrer_id_lehrer_id_fk": {
+          "name": "deputat_aenderungen_lehrer_id_lehrer_id_fk",
+          "tableFrom": "deputat_aenderungen",
+          "tableTo": "lehrer",
+          "columnsFrom": [
+            "lehrer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deputat_aenderungen_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "deputat_aenderungen_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "deputat_aenderungen",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.deputat_monatlich": {
+      "name": "deputat_monatlich",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "lehrer_id": {
+          "name": "lehrer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monat": {
+          "name": "monat",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deputat_gesamt": {
+          "name": "deputat_gesamt",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deputat_ges": {
+          "name": "deputat_ges",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0'"
+        },
+        "deputat_gym": {
+          "name": "deputat_gym",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0'"
+        },
+        "deputat_bk": {
+          "name": "deputat_bk",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0'"
+        },
+        "quelle": {
+          "name": "quelle",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'untis'"
+        },
+        "untis_schoolyear_id": {
+          "name": "untis_schoolyear_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "untis_term_id": {
+          "name": "untis_term_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sync_datum": {
+          "name": "sync_datum",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_deputat_monatlich_lehrer": {
+          "name": "idx_deputat_monatlich_lehrer",
+          "columns": [
+            {
+              "expression": "lehrer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_deputat_monatlich_hj_monat": {
+          "name": "idx_deputat_monatlich_hj_monat",
+          "columns": [
+            {
+              "expression": "haushaltsjahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "monat",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "deputat_monatlich_lehrer_id_lehrer_id_fk": {
+          "name": "deputat_monatlich_lehrer_id_lehrer_id_fk",
+          "tableFrom": "deputat_monatlich",
+          "tableTo": "lehrer",
+          "columnsFrom": [
+            "lehrer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deputat_monatlich_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "deputat_monatlich_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "deputat_monatlich",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "deputat_monatlich_unique": {
+          "name": "deputat_monatlich_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "lehrer_id",
+            "haushaltsjahr_id",
+            "monat"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.deputat_sync_log": {
+      "name": "deputat_sync_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "sync_datum": {
+          "name": "sync_datum",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "schuljahr_text": {
+          "name": "schuljahr_text",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "term_id": {
+          "name": "term_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anzahl_lehrer": {
+          "name": "anzahl_lehrer",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anzahl_aenderungen": {
+          "name": "anzahl_aenderungen",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'success'"
+        },
+        "fehler_details": {
+          "name": "fehler_details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rohdaten": {
+          "name": "rohdaten",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.haushaltsjahre": {
+      "name": "haushaltsjahre",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "jahr": {
+          "name": "jahr",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stichtag_vorjahr": {
+          "name": "stichtag_vorjahr",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stichtag_laufend": {
+          "name": "stichtag_laufend",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gesperrt": {
+          "name": "gesperrt",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "haushaltsjahre_jahr_unique": {
+          "name": "haushaltsjahre_jahr_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "jahr"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.lehrer": {
+      "name": "lehrer",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "untis_teacher_id": {
+          "name": "untis_teacher_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "personalnummer": {
+          "name": "personalnummer",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vollname": {
+          "name": "vollname",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vorname": {
+          "name": "vorname",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nachname": {
+          "name": "nachname",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stammschule_id": {
+          "name": "stammschule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stammschule_code": {
+          "name": "stammschule_code",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quelle": {
+          "name": "quelle",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'untis'"
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_lehrer_stammschule": {
+          "name": "idx_lehrer_stammschule",
+          "columns": [
+            {
+              "expression": "stammschule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_lehrer_quelle": {
+          "name": "idx_lehrer_quelle",
+          "columns": [
+            {
+              "expression": "quelle",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "lehrer_stammschule_id_schulen_id_fk": {
+          "name": "lehrer_stammschule_id_schulen_id_fk",
+          "tableFrom": "lehrer",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "stammschule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "lehrer_untis_teacher_id_unique": {
+          "name": "lehrer_untis_teacher_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "untis_teacher_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.mehrarbeit": {
+      "name": "mehrarbeit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "lehrer_id": {
+          "name": "lehrer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monat": {
+          "name": "monat",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stunden": {
+          "name": "stunden",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "mehrarbeit_lehrer_id_lehrer_id_fk": {
+          "name": "mehrarbeit_lehrer_id_lehrer_id_fk",
+          "tableFrom": "mehrarbeit",
+          "tableTo": "lehrer",
+          "columnsFrom": [
+            "lehrer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "mehrarbeit_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "mehrarbeit_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "mehrarbeit",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "mehrarbeit_schule_id_schulen_id_fk": {
+          "name": "mehrarbeit_schule_id_schulen_id_fk",
+          "tableFrom": "mehrarbeit",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "mehrarbeit_unique": {
+          "name": "mehrarbeit_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "lehrer_id",
+            "haushaltsjahr_id",
+            "monat",
+            "schule_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.notification_log": {
+      "name": "notification_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_retry_at": {
+          "name": "next_retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_notification_log_status": {
+          "name": "idx_notification_log_status",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "next_retry_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_notification_log_target": {
+          "name": "idx_notification_log_target",
+          "columns": [
+            {
+              "expression": "target_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_notification_log_created": {
+          "name": "idx_notification_log_created",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "notification_log_target_id_notification_targets_id_fk": {
+          "name": "notification_log_target_id_notification_targets_id_fk",
+          "tableFrom": "notification_log",
+          "tableTo": "notification_targets",
+          "columnsFrom": [
+            "target_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.notification_targets": {
+      "name": "notification_targets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secret": {
+          "name": "secret",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "event_types": {
+          "name": "event_types",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "headers": {
+          "name": "headers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "beschreibung": {
+          "name": "beschreibung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_von": {
+          "name": "erstellt_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_notification_targets_aktiv": {
+          "name": "idx_notification_targets_aktiv",
+          "columns": [
+            {
+              "expression": "aktiv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.regeldeputate": {
+      "name": "regeldeputate",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schulform_code": {
+          "name": "schulform_code",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schulform_name": {
+          "name": "schulform_name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "regeldeputat": {
+          "name": "regeldeputat",
+          "type": "numeric(4, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rechtsgrundlage": {
+          "name": "rechtsgrundlage",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bass_fundstelle": {
+          "name": "bass_fundstelle",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gueltig_ab": {
+          "name": "gueltig_ab",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "regeldeputate_unique": {
+          "name": "regeldeputate_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "schulform_code"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.schuelerzahlen": {
+      "name": "schuelerzahlen",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schul_stufe_id": {
+          "name": "schul_stufe_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stichtag": {
+          "name": "stichtag",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "anzahl": {
+          "name": "anzahl",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erfasst_von": {
+          "name": "erfasst_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_schuelerzahlen_stichtag": {
+          "name": "idx_schuelerzahlen_stichtag",
+          "columns": [
+            {
+              "expression": "stichtag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_schuelerzahlen_schule": {
+          "name": "idx_schuelerzahlen_schule",
+          "columns": [
+            {
+              "expression": "schule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "schuelerzahlen_schule_id_schulen_id_fk": {
+          "name": "schuelerzahlen_schule_id_schulen_id_fk",
+          "tableFrom": "schuelerzahlen",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "schuelerzahlen_schul_stufe_id_schul_stufen_id_fk": {
+          "name": "schuelerzahlen_schul_stufe_id_schul_stufen_id_fk",
+          "tableFrom": "schuelerzahlen",
+          "tableTo": "schul_stufen",
+          "columnsFrom": [
+            "schul_stufe_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "schuelerzahlen_unique": {
+          "name": "schuelerzahlen_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "schule_id",
+            "schul_stufe_id",
+            "stichtag"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.schul_stufen": {
+      "name": "schul_stufen",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stufe": {
+          "name": "stufe",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schulform_typ": {
+          "name": "schulform_typ",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "schul_stufen_schule_id_schulen_id_fk": {
+          "name": "schul_stufen_schule_id_schulen_id_fk",
+          "tableFrom": "schul_stufen",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "schul_stufen_unique": {
+          "name": "schul_stufen_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "schule_id",
+            "stufe"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.schulen": {
+      "name": "schulen",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schulnummer": {
+          "name": "schulnummer",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kurzname": {
+          "name": "kurzname",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "untis_code": {
+          "name": "untis_code",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "schulform": {
+          "name": "schulform",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adresse": {
+          "name": "adresse",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "plz": {
+          "name": "plz",
+          "type": "varchar(5)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ort": {
+          "name": "ort",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "farbe": {
+          "name": "farbe",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'#575756'"
+        },
+        "ist_im_aufbau": {
+          "name": "ist_im_aufbau",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "schulen_schulnummer_unique": {
+          "name": "schulen_schulnummer_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "schulnummer"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.schuljahre": {
+      "name": "schuljahre",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bezeichnung": {
+          "name": "bezeichnung",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_datum": {
+          "name": "start_datum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_datum": {
+          "name": "end_datum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "untis_schoolyear_id": {
+          "name": "untis_schoolyear_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "schuljahre_bezeichnung_unique": {
+          "name": "schuljahre_bezeichnung_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "bezeichnung"
+          ]
+        },
+        "schuljahre_untis_schoolyear_id_unique": {
+          "name": "schuljahre_untis_schoolyear_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "untis_schoolyear_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slr_historie": {
+      "name": "slr_historie",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "slr_wert_id": {
+          "name": "slr_wert_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schuljahr_id": {
+          "name": "schuljahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schulform_typ": {
+          "name": "schulform_typ",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "relation_alt": {
+          "name": "relation_alt",
+          "type": "numeric(6, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "relation_neu": {
+          "name": "relation_neu",
+          "type": "numeric(6, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quelle_alt": {
+          "name": "quelle_alt",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quelle_neu": {
+          "name": "quelle_neu",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "grund": {
+          "name": "grund",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geaendert_von": {
+          "name": "geaendert_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "geaendert_am": {
+          "name": "geaendert_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_slr_historie_slr_wert": {
+          "name": "idx_slr_historie_slr_wert",
+          "columns": [
+            {
+              "expression": "slr_wert_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_slr_historie_schuljahr": {
+          "name": "idx_slr_historie_schuljahr",
+          "columns": [
+            {
+              "expression": "schuljahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "slr_historie_slr_wert_id_slr_werte_id_fk": {
+          "name": "slr_historie_slr_wert_id_slr_werte_id_fk",
+          "tableFrom": "slr_historie",
+          "tableTo": "slr_werte",
+          "columnsFrom": [
+            "slr_wert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "slr_historie_schuljahr_id_schuljahre_id_fk": {
+          "name": "slr_historie_schuljahr_id_schuljahre_id_fk",
+          "tableFrom": "slr_historie",
+          "tableTo": "schuljahre",
+          "columnsFrom": [
+            "schuljahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slr_werte": {
+      "name": "slr_werte",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schuljahr_id": {
+          "name": "schuljahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schulform_typ": {
+          "name": "schulform_typ",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "relation": {
+          "name": "relation",
+          "type": "numeric(6, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quelle": {
+          "name": "quelle",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geaendert_von": {
+          "name": "geaendert_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slr_werte_schuljahr_id_schuljahre_id_fk": {
+          "name": "slr_werte_schuljahr_id_schuljahre_id_fk",
+          "tableFrom": "slr_werte",
+          "tableTo": "schuljahre",
+          "columnsFrom": [
+            "schuljahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "slr_werte_unique": {
+          "name": "slr_werte_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "schuljahr_id",
+            "schulform_typ"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.stellenanteile": {
+      "name": "stellenanteile",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stellenart_typ_id": {
+          "name": "stellenart_typ_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lehrer_id": {
+          "name": "lehrer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wert": {
+          "name": "wert",
+          "type": "numeric(8, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "eur_betrag": {
+          "name": "eur_betrag",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wahlrecht": {
+          "name": "wahlrecht",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "zeitraum": {
+          "name": "zeitraum",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ganzjahr'"
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'beantragt'"
+        },
+        "befristet_bis": {
+          "name": "befristet_bis",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "antragsdatum": {
+          "name": "antragsdatum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aktenzeichen": {
+          "name": "aktenzeichen",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dms_dokumentennummer": {
+          "name": "dms_dokumentennummer",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_von": {
+          "name": "erstellt_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geaendert_von": {
+          "name": "geaendert_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_stellenanteile_schule_hj": {
+          "name": "idx_stellenanteile_schule_hj",
+          "columns": [
+            {
+              "expression": "schule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "haushaltsjahr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_stellenanteile_lehrer": {
+          "name": "idx_stellenanteile_lehrer",
+          "columns": [
+            {
+              "expression": "lehrer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_stellenanteile_befristung": {
+          "name": "idx_stellenanteile_befristung",
+          "columns": [
+            {
+              "expression": "befristet_bis",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_stellenanteile_status": {
+          "name": "idx_stellenanteile_status",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "stellenanteile_schule_id_schulen_id_fk": {
+          "name": "stellenanteile_schule_id_schulen_id_fk",
+          "tableFrom": "stellenanteile",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stellenanteile_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "stellenanteile_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "stellenanteile",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stellenanteile_stellenart_typ_id_stellenart_typen_id_fk": {
+          "name": "stellenanteile_stellenart_typ_id_stellenart_typen_id_fk",
+          "tableFrom": "stellenanteile",
+          "tableTo": "stellenart_typen",
+          "columnsFrom": [
+            "stellenart_typ_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "stellenanteile_lehrer_id_lehrer_id_fk": {
+          "name": "stellenanteile_lehrer_id_lehrer_id_fk",
+          "tableFrom": "stellenanteile",
+          "tableTo": "lehrer",
+          "columnsFrom": [
+            "lehrer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.stellenart_typen": {
+      "name": "stellenart_typen",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bezeichnung": {
+          "name": "bezeichnung",
+          "type": "varchar(150)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kurzbezeichnung": {
+          "name": "kurzbezeichnung",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kuerzel": {
+          "name": "kuerzel",
+          "type": "varchar(15)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "beschreibung": {
+          "name": "beschreibung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rechtsgrundlage": {
+          "name": "rechtsgrundlage",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "typ": {
+          "name": "typ",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'A'"
+        },
+        "bindungstyp": {
+          "name": "bindungstyp",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'schule'"
+        },
+        "ist_isoliert": {
+          "name": "ist_isoliert",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "anlage2a": {
+          "name": "anlage2a",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "erhoeht_pauschale": {
+          "name": "erhoeht_pauschale",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "parametrisierbar": {
+          "name": "parametrisierbar",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "schulform_filter": {
+          "name": "schulform_filter",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ist_standard": {
+          "name": "ist_standard",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "sortierung": {
+          "name": "sortierung",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "stellenart_typen_bezeichnung_unique": {
+          "name": "stellenart_typen_bezeichnung_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "bezeichnung"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.webhook_configs": {
+      "name": "webhook_configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "endpoint_typ": {
+          "name": "endpoint_typ",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'sync'"
+        },
+        "api_key_hash": {
+          "name": "api_key_hash",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_key_prefix": {
+          "name": "api_key_prefix",
+          "type": "varchar(12)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aktiv": {
+          "name": "aktiv",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "beschreibung": {
+          "name": "beschreibung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_von": {
+          "name": "erstellt_von",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_webhook_configs_aktiv": {
+          "name": "idx_webhook_configs_aktiv",
+          "columns": [
+            {
+              "expression": "aktiv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_webhook_configs_prefix": {
+          "name": "idx_webhook_configs_prefix",
+          "columns": [
+            {
+              "expression": "api_key_prefix",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zuschlaege": {
+      "name": "zuschlaege",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "schule_id": {
+          "name": "schule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "haushaltsjahr_id": {
+          "name": "haushaltsjahr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zuschlag_art_id": {
+          "name": "zuschlag_art_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wert": {
+          "name": "wert",
+          "type": "numeric(8, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zeitraum": {
+          "name": "zeitraum",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ganzjahr'"
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "zuschlaege_schule_id_schulen_id_fk": {
+          "name": "zuschlaege_schule_id_schulen_id_fk",
+          "tableFrom": "zuschlaege",
+          "tableTo": "schulen",
+          "columnsFrom": [
+            "schule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zuschlaege_haushaltsjahr_id_haushaltsjahre_id_fk": {
+          "name": "zuschlaege_haushaltsjahr_id_haushaltsjahre_id_fk",
+          "tableFrom": "zuschlaege",
+          "tableTo": "haushaltsjahre",
+          "columnsFrom": [
+            "haushaltsjahr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zuschlaege_zuschlag_art_id_zuschlag_arten_id_fk": {
+          "name": "zuschlaege_zuschlag_art_id_zuschlag_arten_id_fk",
+          "tableFrom": "zuschlaege",
+          "tableTo": "zuschlag_arten",
+          "columnsFrom": [
+            "zuschlag_art_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "zuschlaege_unique": {
+          "name": "zuschlaege_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "schule_id",
+            "haushaltsjahr_id",
+            "zuschlag_art_id",
+            "zeitraum"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zuschlag_arten": {
+      "name": "zuschlag_arten",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bezeichnung": {
+          "name": "bezeichnung",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "beschreibung": {
+          "name": "beschreibung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ist_standard": {
+          "name": "ist_standard",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "sortierung": {
+          "name": "sortierung",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "zuschlag_arten_bezeichnung_unique": {
+          "name": "zuschlag_arten_bezeichnung_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "bezeichnung"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

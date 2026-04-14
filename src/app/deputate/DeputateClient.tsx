@@ -21,6 +21,8 @@ type LehrerDeputat = {
   monatsDetails: (MonatDetail | null)[];
   hatGehaltsaenderung?: boolean;
   hatVerteilungsaenderung?: boolean;
+  /** Array[12]: true wenn Monat i taggenau korrigiert wurde */
+  taggenauKorrektur?: boolean[];
 };
 
 type Schule = {
@@ -252,11 +254,17 @@ export function DeputateClient({
                     </td>
                     {lehrer.stunden.map((std, j) => {
                       const abw = getDeputatAbweichung(lehrer.monatsDetails[j]);
+                      const korr = lehrer.taggenauKorrektur?.[j] ?? false;
                       return (
-                        <td key={j} className={`py-2.5 px-3 text-right tabular-nums ${abw !== null ? "bg-amber-50" : ""}`}>
+                        <td
+                          key={j}
+                          className={`py-2.5 px-3 text-right tabular-nums ${abw !== null ? "bg-amber-50" : ""} ${korr ? "text-[#E2001A] font-semibold" : ""}`}
+                          title={korr ? "Taggenau korrigiert (siehe Detailseite fuer Herleitung)" : undefined}
+                        >
                           {std !== null && std > 0 ? (
                             <span className="inline-flex items-center gap-0.5 justify-end">
                               {std.toFixed(1)}
+                              {korr && <sup className="text-[10px] text-[#E2001A]">*</sup>}
                               {abw !== null && (
                                 <span
                                   className="text-amber-600 cursor-help text-xs"

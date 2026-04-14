@@ -18,6 +18,7 @@ import {
   deputatMonatlich,
   deputatAenderungen,
   mehrarbeit,
+  mehrarbeitSchuleBemerkung,
   deputatSyncLog,
   berechnungStellensoll,
   berechnungStellenist,
@@ -27,7 +28,7 @@ import {
   stellenartTypen,
   stellenanteile,
 } from "@/db/schema";
-import { eq, and, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, gte, lte, isNull } from "drizzle-orm";
 
 // ============================================================
 // SCHULEN
@@ -847,6 +848,11 @@ export async function getBerechnungsHistorie(limit = 50) {
 // MEHRARBEIT
 // ============================================================
 
+/**
+ * Mehrarbeit fuer die Stellenist-Berechnung.
+ * Liefert beide Varianten (Lehrer-bezogen in Stunden + schulweit in Stellenanteilen).
+ * Filter nach Schule (bei schuleId) — NULL-lehrerId-Rows werden mit der Schul-Spalte gematcht.
+ */
 export async function getMehrarbeitByHaushaltsjahr(
   haushaltsjahrId: number,
   schuleId?: number
@@ -860,6 +866,7 @@ export async function getMehrarbeitByHaushaltsjahr(
       lehrerId: mehrarbeit.lehrerId,
       monat: mehrarbeit.monat,
       stunden: mehrarbeit.stunden,
+      stellenanteil: mehrarbeit.stellenanteil,
       schuleId: mehrarbeit.schuleId,
       bemerkung: mehrarbeit.bemerkung,
       lehrerName: lehrer.vollname,
@@ -867,42 +874,190 @@ export async function getMehrarbeitByHaushaltsjahr(
       schulFarbe: schulen.farbe,
     })
     .from(mehrarbeit)
-    .innerJoin(lehrer, eq(mehrarbeit.lehrerId, lehrer.id))
+    .leftJoin(lehrer, eq(mehrarbeit.lehrerId, lehrer.id))
     .leftJoin(schulen, eq(mehrarbeit.schuleId, schulen.id))
     .where(and(...conditions))
-    .orderBy(asc(lehrer.vollname), asc(mehrarbeit.monat));
+    .orderBy(asc(mehrarbeit.monat));
 }
 
+/**
+ * Upsert Lehrer-Mehrarbeit (Stunden).
+ *
+ * Manuelles Upsert in Transaktion — der frueher genutzte UNIQUE-Constraint
+ * wurde in Migration 0003 durch partielle Unique-Indizes ersetzt, auf die
+ * Drizzle's onConflictDoUpdate nicht direkt zielt.
+ */
 export async function upsertMehrarbeit(data: {
   lehrerId: number;
   haushaltsjahrId: number;
   monat: number;
   stunden: string;
-  schuleId?: number;
+  schuleId: number;
   bemerkung?: string;
+}): Promise<typeof mehrarbeit.$inferSelect> {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: mehrarbeit.id })
+      .from(mehrarbeit)
+      .where(
+        and(
+          eq(mehrarbeit.lehrerId, data.lehrerId),
+          eq(mehrarbeit.haushaltsjahrId, data.haushaltsjahrId),
+          eq(mehrarbeit.monat, data.monat),
+          eq(mehrarbeit.schuleId, data.schuleId),
+        )
+      )
+      .for("update")
+      .limit(1);
+
+    if (existing) {
+      const [updated] = await tx
+        .update(mehrarbeit)
+        .set({
+          stunden: data.stunden,
+          bemerkung: data.bemerkung ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(mehrarbeit.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [inserted] = await tx
+      .insert(mehrarbeit)
+      .values({
+        lehrerId: data.lehrerId,
+        haushaltsjahrId: data.haushaltsjahrId,
+        monat: data.monat,
+        schuleId: data.schuleId,
+        stunden: data.stunden,
+        bemerkung: data.bemerkung ?? null,
+      })
+      .returning();
+    return inserted;
+  });
+}
+
+export async function deleteMehrarbeit(id: number) {
+  await db.delete(mehrarbeit).where(eq(mehrarbeit.id, id));
+}
+
+// ------------------------------------------------------------
+// Schul-Mehrarbeit (lehrerId IS NULL, Stellenanteile)
+// ------------------------------------------------------------
+
+/** Alle schulweiten Mehrarbeit-Eintraege eines Haushaltsjahres */
+export async function getMehrarbeitSchuleByHj(haushaltsjahrId: number) {
+  return db
+    .select({
+      id: mehrarbeit.id,
+      schuleId: mehrarbeit.schuleId,
+      monat: mehrarbeit.monat,
+      stellenanteil: mehrarbeit.stellenanteil,
+      schulKurzname: schulen.kurzname,
+      schulFarbe: schulen.farbe,
+    })
+    .from(mehrarbeit)
+    .innerJoin(schulen, eq(mehrarbeit.schuleId, schulen.id))
+    .where(
+      and(
+        eq(mehrarbeit.haushaltsjahrId, haushaltsjahrId),
+        isNull(mehrarbeit.lehrerId)
+      )
+    )
+    .orderBy(asc(schulen.kurzname), asc(mehrarbeit.monat));
+}
+
+/**
+ * Upsert/Loeschen eines schulweiten Mehrarbeit-Eintrags (Stellenanteil).
+ * Liefert das verwendete Action-Label fuer korrektes Audit-Logging.
+ */
+export async function upsertMehrarbeitSchule(data: {
+  schuleId: number;
+  haushaltsjahrId: number;
+  monat: number;
+  stellenanteil: string;
+}): Promise<{ action: "insert" | "update" | "delete" | "noop"; id: number | null }> {
+  const wert = Number(data.stellenanteil);
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: mehrarbeit.id })
+      .from(mehrarbeit)
+      .where(
+        and(
+          eq(mehrarbeit.schuleId, data.schuleId),
+          eq(mehrarbeit.haushaltsjahrId, data.haushaltsjahrId),
+          eq(mehrarbeit.monat, data.monat),
+          isNull(mehrarbeit.lehrerId)
+        )
+      )
+      .for("update")
+      .limit(1);
+
+    // Wert 0 oder leer → Eintrag loeschen (falls vorhanden)
+    if (!Number.isFinite(wert) || Math.abs(wert) < 0.00001) {
+      if (existing) {
+        await tx.delete(mehrarbeit).where(eq(mehrarbeit.id, existing.id));
+        return { action: "delete", id: existing.id };
+      }
+      return { action: "noop", id: null };
+    }
+
+    if (existing) {
+      const [updated] = await tx
+        .update(mehrarbeit)
+        .set({
+          stellenanteil: data.stellenanteil,
+          stunden: "0",
+          updatedAt: new Date(),
+        })
+        .where(eq(mehrarbeit.id, existing.id))
+        .returning({ id: mehrarbeit.id });
+      return { action: "update", id: updated.id };
+    }
+
+    const [inserted] = await tx
+      .insert(mehrarbeit)
+      .values({
+        lehrerId: null,
+        haushaltsjahrId: data.haushaltsjahrId,
+        monat: data.monat,
+        schuleId: data.schuleId,
+        stellenanteil: data.stellenanteil,
+        stunden: "0",
+      })
+      .returning({ id: mehrarbeit.id });
+    return { action: "insert", id: inserted.id };
+  });
+}
+
+/** Freitext-Bemerkung pro Schule + HJ */
+export async function getMehrarbeitSchuleBemerkungen(haushaltsjahrId: number) {
+  return db
+    .select()
+    .from(mehrarbeitSchuleBemerkung)
+    .where(eq(mehrarbeitSchuleBemerkung.haushaltsjahrId, haushaltsjahrId));
+}
+
+export async function upsertMehrarbeitSchuleBemerkung(data: {
+  schuleId: number;
+  haushaltsjahrId: number;
+  bemerkung: string;
+  geaendertVon: string | null;
 }) {
   const [result] = await db
-    .insert(mehrarbeit)
+    .insert(mehrarbeitSchuleBemerkung)
     .values(data)
     .onConflictDoUpdate({
-      target: [
-        mehrarbeit.lehrerId,
-        mehrarbeit.haushaltsjahrId,
-        mehrarbeit.monat,
-        mehrarbeit.schuleId,
-      ],
+      target: [mehrarbeitSchuleBemerkung.schuleId, mehrarbeitSchuleBemerkung.haushaltsjahrId],
       set: {
-        stunden: sql`excluded.stunden`,
         bemerkung: sql`excluded.bemerkung`,
+        geaendertVon: sql`excluded.geaendert_von`,
         updatedAt: sql`now()`,
       },
     })
     .returning();
   return result;
-}
-
-export async function deleteMehrarbeit(id: number) {
-  await db.delete(mehrarbeit).where(eq(mehrarbeit.id, id));
 }
 
 // ============================================================
@@ -1088,6 +1243,7 @@ export async function getDeputatAenderungen(haushaltsjahrId: number, nurGehaltsr
       termIdAlt: deputatAenderungen.termIdAlt,
       termIdNeu: deputatAenderungen.termIdNeu,
       geaendertAm: deputatAenderungen.geaendertAm,
+      tatsaechlichesDatum: deputatAenderungen.tatsaechlichesDatum,
     })
     .from(deputatAenderungen)
     .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))

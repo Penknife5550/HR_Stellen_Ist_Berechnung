@@ -6,8 +6,12 @@ import {
   getAktuellesHaushaltsjahr,
   getAktiveLehrer,
   getMehrarbeitByHaushaltsjahr,
+  getMehrarbeitSchuleByHj,
+  getMehrarbeitSchuleBemerkungen,
 } from "@/lib/db/queries";
-import { MehrarbeitClient } from "./MehrarbeitClient";
+import { MehrarbeitTabsClient } from "./MehrarbeitTabsClient";
+
+export const dynamic = "force-dynamic";
 
 export default async function MehrarbeitPage() {
   const [schulen, aktuellesHj, aktiveLehrerRaw] = await Promise.all([
@@ -36,24 +40,32 @@ export default async function MehrarbeitPage() {
     );
   }
 
-  const mehrarbeitRows = await getMehrarbeitByHaushaltsjahr(aktuellesHj.id);
+  const [mehrarbeitRows, schulRows, schulBemerkungen] = await Promise.all([
+    getMehrarbeitByHaushaltsjahr(aktuellesHj.id),
+    getMehrarbeitSchuleByHj(aktuellesHj.id),
+    getMehrarbeitSchuleBemerkungen(aktuellesHj.id),
+  ]);
+
+  // Nur Lehrer-Variante in den "pro Lehrer"-Tab
+  const lehrerRows = mehrarbeitRows.filter((m) => m.lehrerId !== null);
 
   return (
     <PageContainer>
       <Header
         title="Mehrarbeit"
-        subtitle={`Mehrarbeitsstunden pro Lehrkraft und Monat — Haushaltsjahr ${aktuellesHj.jahr}`}
+        subtitle={`Mehrarbeit pro Schule (Stellenanteile) oder pro Lehrkraft (Stunden) — Haushaltsjahr ${aktuellesHj.jahr}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Mehrarbeit" },
         ]}
       />
 
-      <MehrarbeitClient
+      <MehrarbeitTabsClient
         schulen={schulen.map((s) => ({
           id: s.id,
           kurzname: s.kurzname,
           farbe: s.farbe,
+          name: s.name,
         }))}
         lehrerListe={aktiveLehrerRaw.map((l) => ({
           id: l.id,
@@ -61,16 +73,25 @@ export default async function MehrarbeitPage() {
           stammschuleId: l.stammschuleId,
           stammschuleCode: l.stammschuleCode,
         }))}
-        mehrarbeitEintraege={mehrarbeitRows.map((m) => ({
+        mehrarbeitEintraege={lehrerRows.map((m) => ({
           id: m.id,
-          lehrerId: m.lehrerId,
+          lehrerId: m.lehrerId!,
           monat: m.monat,
           stunden: m.stunden,
           schuleId: m.schuleId,
           bemerkung: m.bemerkung,
-          lehrerName: m.lehrerName,
+          lehrerName: m.lehrerName ?? "",
           schulKurzname: m.schulKurzname,
           schulFarbe: m.schulFarbe,
+        }))}
+        schulEintraege={schulRows.map((s) => ({
+          schuleId: s.schuleId!,
+          monat: s.monat,
+          stellenanteil: s.stellenanteil ?? "0",
+        }))}
+        schulBemerkungen={schulBemerkungen.map((b) => ({
+          schuleId: b.schuleId,
+          bemerkung: b.bemerkung,
         }))}
         haushaltsjahrId={aktuellesHj.id}
         haushaltsjahrJahr={aktuellesHj.jahr}

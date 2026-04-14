@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/queries";
 import { notFound } from "next/navigation";
 import { AenderungsHistorie } from "./AenderungsHistorie";
+import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,56 @@ export default async function LehrerDetailPage({
   }
 
   const hatGehaltsrelevante = aenderungen.some((a) => a.istGehaltsrelevant);
+
+  // Taggenaue Deputate berechnen (pauschal + Korrektur aus tatsaechlichesDatum)
+  const effektivByMonat = berechneLehrerDeputatEffektiv(
+    monatsDaten.map((m) => ({
+      monat: m.monat,
+      deputatGesamt: m.deputatGesamt,
+      deputatGes: m.deputatGes,
+      deputatGym: m.deputatGym,
+      deputatBk: m.deputatBk,
+    })),
+    aenderungen.map((a) => ({
+      monat: a.monat,
+      deputatGesamtAlt: a.deputatGesamtAlt,
+      deputatGesAlt: a.deputatGesAlt,
+      deputatGymAlt: a.deputatGymAlt,
+      deputatBkAlt: a.deputatBkAlt,
+      deputatGesamtNeu: a.deputatGesamtNeu,
+      deputatGesNeu: a.deputatGesNeu,
+      deputatGymNeu: a.deputatGymNeu,
+      deputatBkNeu: a.deputatBkNeu,
+      tatsaechlichesDatum: a.tatsaechlichesDatum,
+    })),
+    aktuellesHj.jahr,
+  );
+
+  const korrigierteMonate = Array.from(effektivByMonat.values()).filter((e) => e.hatKorrektur);
+
+  // Format-Helfer fuer Tooltip: zeigt Pauschal- und Effektiv-Wert + Herleitung
+  const formatTooltip = (col: "gesamt" | "ges" | "gym" | "bk", monat: number): string => {
+    const e = effektivByMonat.get(monat);
+    if (!e || !e.hatKorrektur) return "";
+    const parts: string[] = [];
+    parts.push(`Pauschal (Untis): ${e.pauschal[col].toFixed(3)}`);
+    parts.push(`Effektiv (taggenau): ${e.effektiv[col].toFixed(3)}`);
+    for (const a of e.aenderungen) {
+      if (Math.abs(a.alt[col] - a.neu[col]) < 0.001) continue;
+      parts.push(
+        `Aenderung am ${a.datum}: ${a.alt[col]} x ${a.tageVor}T + ${a.neu[col]} x ${a.tageNach}T / ${e.monatsTage}T = ${(a.anteilAlt[col] + a.anteilNeu[col]).toFixed(3)}`
+      );
+    }
+    return parts.join("\n");
+  };
+
+  // Formatierte Monatszelle (mit "*" wenn taggenau korrigiert)
+  const cell = (col: "gesamt" | "ges" | "gym" | "bk", monat: number, fallback: number): string => {
+    const e = effektivByMonat.get(monat);
+    if (!e || fallback === 0) return fallback === 0 ? "—" : fallback.toFixed(1);
+    const val = e.hatKorrektur ? e.effektiv[col] : e.pauschal[col];
+    return val.toFixed(1);
+  };
 
   return (
     <PageContainer>
@@ -125,16 +176,34 @@ export default async function LehrerDetailPage({
               {/* Gesamt-Zeile */}
               <tr className="border-b border-[#E5E7EB] font-bold">
                 <td className="py-3 px-3 text-[15px]">Gesamt</td>
-                {monateArr.map((m, i) => (
-                  <td key={i} className="py-3 px-3 text-right tabular-nums text-[15px]">
-                    {m ? Number(m.deputatGesamt).toFixed(1) : <span className="text-[#D1D5DB]">—</span>}
-                  </td>
-                ))}
+                {monateArr.map((m, i) => {
+                  const monat = i + 1;
+                  const e = effektivByMonat.get(monat);
+                  const korr = e?.hatKorrektur ?? false;
+                  return (
+                    <td
+                      key={i}
+                      className={`py-3 px-3 text-right tabular-nums text-[15px] ${korr ? "text-[#E2001A]" : ""}`}
+                      title={korr ? formatTooltip("gesamt", monat) : undefined}
+                    >
+                      {m
+                        ? cell("gesamt", monat, Number(m.deputatGesamt))
+                        : <span className="text-[#D1D5DB]">—</span>}
+                      {korr && <sup className="text-[10px] text-[#E2001A] ml-0.5">*</sup>}
+                    </td>
+                  );
+                })}
                 <td className="py-3 px-3 text-right tabular-nums text-[15px] bg-[#F3F4F6]">
                   {(() => {
-                    const vals = monateArr.filter((m) => m && Number(m.deputatGesamt) > 0);
+                    const vals: number[] = [];
+                    for (const m of monateArr) {
+                      if (!m) continue;
+                      const e = effektivByMonat.get(m.monat);
+                      const v = e?.hatKorrektur ? e.effektiv.gesamt : Number(m.deputatGesamt);
+                      if (v > 0) vals.push(v);
+                    }
                     return vals.length > 0
-                      ? (vals.reduce((s, m) => s + Number(m!.deputatGesamt), 0) / vals.length).toFixed(1)
+                      ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1)
                       : "—";
                   })()}
                 </td>
@@ -147,11 +216,19 @@ export default async function LehrerDetailPage({
                     GES
                   </span>
                 </td>
-                {monateArr.map((m, i) => (
-                  <td key={i} className="py-2.5 px-3 text-right tabular-nums">
-                    {m && Number(m.deputatGes) > 0 ? Number(m.deputatGes).toFixed(1) : <span className="text-[#D1D5DB]">—</span>}
-                  </td>
-                ))}
+                {monateArr.map((m, i) => {
+                  const monat = i + 1;
+                  const e = effektivByMonat.get(monat);
+                  const korr = e?.hatKorrektur && Math.abs(e.korrektur.ges) > 0.001;
+                  const raw = m ? Number(m.deputatGes) : 0;
+                  if (raw === 0 && !korr) return <td key={i} className="py-2.5 px-3 text-right tabular-nums"><span className="text-[#D1D5DB]">—</span></td>;
+                  return (
+                    <td key={i} className={`py-2.5 px-3 text-right tabular-nums ${korr ? "text-[#E2001A]" : ""}`} title={korr ? formatTooltip("ges", monat) : undefined}>
+                      {cell("ges", monat, raw)}
+                      {korr && <sup className="text-[10px] text-[#E2001A] ml-0.5">*</sup>}
+                    </td>
+                  );
+                })}
                 <td className="py-2.5 px-3 text-right tabular-nums bg-[#F3F4F6]">—</td>
               </tr>
 
@@ -162,11 +239,19 @@ export default async function LehrerDetailPage({
                     GYM
                   </span>
                 </td>
-                {monateArr.map((m, i) => (
-                  <td key={i} className="py-2.5 px-3 text-right tabular-nums">
-                    {m && Number(m.deputatGym) > 0 ? Number(m.deputatGym).toFixed(1) : <span className="text-[#D1D5DB]">—</span>}
-                  </td>
-                ))}
+                {monateArr.map((m, i) => {
+                  const monat = i + 1;
+                  const e = effektivByMonat.get(monat);
+                  const korr = e?.hatKorrektur && Math.abs(e.korrektur.gym) > 0.001;
+                  const raw = m ? Number(m.deputatGym) : 0;
+                  if (raw === 0 && !korr) return <td key={i} className="py-2.5 px-3 text-right tabular-nums"><span className="text-[#D1D5DB]">—</span></td>;
+                  return (
+                    <td key={i} className={`py-2.5 px-3 text-right tabular-nums ${korr ? "text-[#E2001A]" : ""}`} title={korr ? formatTooltip("gym", monat) : undefined}>
+                      {cell("gym", monat, raw)}
+                      {korr && <sup className="text-[10px] text-[#E2001A] ml-0.5">*</sup>}
+                    </td>
+                  );
+                })}
                 <td className="py-2.5 px-3 text-right tabular-nums bg-[#F3F4F6]">—</td>
               </tr>
 
@@ -177,11 +262,19 @@ export default async function LehrerDetailPage({
                     BK
                   </span>
                 </td>
-                {monateArr.map((m, i) => (
-                  <td key={i} className="py-2.5 px-3 text-right tabular-nums">
-                    {m && Number(m.deputatBk) > 0 ? Number(m.deputatBk).toFixed(1) : <span className="text-[#D1D5DB]">—</span>}
-                  </td>
-                ))}
+                {monateArr.map((m, i) => {
+                  const monat = i + 1;
+                  const e = effektivByMonat.get(monat);
+                  const korr = e?.hatKorrektur && Math.abs(e.korrektur.bk) > 0.001;
+                  const raw = m ? Number(m.deputatBk) : 0;
+                  if (raw === 0 && !korr) return <td key={i} className="py-2.5 px-3 text-right tabular-nums"><span className="text-[#D1D5DB]">—</span></td>;
+                  return (
+                    <td key={i} className={`py-2.5 px-3 text-right tabular-nums ${korr ? "text-[#E2001A]" : ""}`} title={korr ? formatTooltip("bk", monat) : undefined}>
+                      {cell("bk", monat, raw)}
+                      {korr && <sup className="text-[10px] text-[#E2001A] ml-0.5">*</sup>}
+                    </td>
+                  );
+                })}
                 <td className="py-2.5 px-3 text-right tabular-nums bg-[#F3F4F6]">—</td>
               </tr>
 
@@ -211,8 +304,82 @@ export default async function LehrerDetailPage({
               <span className="text-[#E2001A] font-bold">*</span> = Aenderung in diesem Monat
             </span>
           )}
+          {korrigierteMonate.length > 0 && (
+            <span>
+              <span className="text-[#E2001A] font-bold">*</span> neben Wert = taggenaue Korrektur
+              (siehe Herleitung unten)
+            </span>
+          )}
         </div>
       </Card>
+
+      {/* Taggenaue Herleitung — nachvollziehbar pro Monat */}
+      {korrigierteMonate.length > 0 && (
+        <Card className="mb-6 border-l-4 border-[#E2001A]">
+          <h3 className="text-lg font-bold text-[#1A1A1A] mb-2">
+            Taggenaue Deputatsberechnung (§ 3 Abs. 1 FESchVO)
+          </h3>
+          <p className="text-sm text-[#6B7280] mb-4">
+            Fuer folgende Monate wurde ein tatsaechliches Aenderungsdatum erfasst. Die Deputate werden
+            nicht pauschal, sondern tagesgewichtet berechnet:
+            <br />
+            <span className="font-mono text-xs">
+              effektiv = (alt / Monatstage &times; Tage vor Aenderung) + (neu / Monatstage &times; Tage ab Aenderung)
+            </span>
+          </p>
+          <div className="space-y-4">
+            {korrigierteMonate
+              .sort((a, b) => a.monat - b.monat)
+              .map((e) => (
+                <div key={e.monat} className="border border-[#E5E7EB] rounded-lg p-4 bg-[#FAFAFA]">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h4 className="font-bold text-[15px] text-[#1A1A1A]">
+                      {MONATE_KURZ[e.monat - 1]} {aktuellesHj.jahr} ({e.monatsTage} Tage)
+                    </h4>
+                    <div className="text-sm">
+                      <span className="text-[#6B7280]">Pauschal:</span>{" "}
+                      <span className="font-mono">{e.pauschal.gesamt.toFixed(2)}</span>
+                      <span className="mx-2 text-[#D1D5DB]">→</span>
+                      <span className="text-[#6B7280]">Effektiv:</span>{" "}
+                      <span className="font-mono font-bold text-[#E2001A]">{e.effektiv.gesamt.toFixed(2)}</span>
+                      <span className="ml-2 text-xs text-[#6B7280]">
+                        (Korrektur: {e.korrektur.gesamt >= 0 ? "+" : ""}{e.korrektur.gesamt.toFixed(3)})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 mt-3">
+                    {e.aenderungen.map((a, idx) => (
+                      <div key={idx} className="text-sm font-mono bg-white p-3 rounded border border-[#E5E7EB]">
+                        <div className="text-[#6B7280] text-xs mb-1.5 font-sans">
+                          Aenderung am <strong>{new Date(a.datum).toLocaleDateString("de-DE")}</strong>{" "}
+                          (Tag {a.tag}/{e.monatsTage}):
+                        </div>
+                        <div className="text-[13px] space-y-0.5">
+                          <div>
+                            <span className="text-[#6B7280]">Vor Aenderung:</span>{" "}
+                            {a.alt.gesamt.toFixed(1)} × {a.tageVor} Tage / {e.monatsTage} ={" "}
+                            <strong>{a.anteilAlt.gesamt.toFixed(3)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[#6B7280]">Ab Aenderung:</span>{" "}
+                            {a.neu.gesamt.toFixed(1)} × {a.tageNach} Tage / {e.monatsTage} ={" "}
+                            <strong>{a.anteilNeu.gesamt.toFixed(3)}</strong>
+                          </div>
+                          <div className="pt-1 border-t border-[#E5E7EB] mt-1">
+                            <span className="text-[#6B7280]">Summe:</span>{" "}
+                            <strong className="text-[#E2001A]">
+                              {(a.anteilAlt.gesamt + a.anteilNeu.gesamt).toFixed(3)}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </Card>
+      )}
 
       {/* Aenderungshistorie (Client Component mit Inline-Datumsbearbeitung) */}
       <AenderungsHistorie

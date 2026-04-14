@@ -7,6 +7,17 @@ import { berechneStellenisteAction } from "./actions";
 
 type Schule = { id: number; kurzname: string; farbe: string };
 
+type MonatDetail = {
+  monat: number;
+  summeWochenstunden: number;
+  summeWochenstundenPauschal?: number;
+  tagesgenauKorrektur?: number;
+  anzahlLehrer: number;
+};
+type MehrarbeitQuellen = {
+  stunden?: number;         // Summe Lehrer-Mehrarbeit (Stunden)
+  stellenanteile?: number;  // Summe schulweite Mehrarbeit (Stellen)
+};
 type SchulStellenist = {
   schuleId: number;
   schulKurzname: string;
@@ -19,8 +30,13 @@ type SchulStellenist = {
     monatsDurchschnittStunden: string | null;
     regelstundendeputat: string | null;
     berechnetAm: Date;
+    monatsDetails?: MonatDetail[];
+    hatTagesgenauKorrekturen?: boolean;
+    mehrarbeitQuellen?: MehrarbeitQuellen;
   }>;
 };
+
+const MONATE_KURZ = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 
 type SollKontext = { zeitraum: string; stellensoll: number; grundstellen: number; zuschlaege: number };
 type SaKontext = { stellenGenehmigt: number; eurGenehmigt: number; anzahl: number };
@@ -65,6 +81,24 @@ export function StellenistClient({
   }
 
   const aktuelleSchulDaten = schulStelleniste.find((s) => s.schuleId === activeSchule);
+
+  // Korrekturen aus den details JSONB der aktuellen Schule sammeln
+  const korrigierteMonateAktuelleSchule: Array<{ monat: number; pauschal: number; effektiv: number; korrektur: number }> = [];
+  if (aktuelleSchulDaten) {
+    for (const zr of aktuelleSchulDaten.zeitraeume) {
+      if (!zr.hatTagesgenauKorrekturen || !zr.monatsDetails) continue;
+      for (const md of zr.monatsDetails) {
+        const k = md.tagesgenauKorrektur ?? 0;
+        if (Math.abs(k) < 0.001) continue;
+        korrigierteMonateAktuelleSchule.push({
+          monat: md.monat,
+          pauschal: md.summeWochenstundenPauschal ?? md.summeWochenstunden,
+          effektiv: md.summeWochenstunden,
+          korrektur: k,
+        });
+      }
+    }
+  }
 
   return (
     <>
@@ -117,6 +151,39 @@ export function StellenistClient({
             </button>
           ))}
         </div>
+      )}
+
+      {/* Tagesgenaue Korrekturen — Hinweis-Card */}
+      {korrigierteMonateAktuelleSchule.length > 0 && (
+        <Card className="mb-6 border-l-4 border-[#E2001A]">
+          <h3 className="text-base font-bold text-[#1A1A1A] mb-1">
+            Tagesgenaue Korrekturen aktiv (§ 3 Abs. 1 FESchVO)
+          </h3>
+          <p className="text-xs text-[#6B7280] mb-3">
+            In folgenden Monaten wurde das Schulsummen-Deputat tagesgewichtet (statt pauschal):
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+            {korrigierteMonateAktuelleSchule
+              .sort((a, b) => a.monat - b.monat)
+              .map((k) => (
+                <div key={k.monat} className="bg-[#FAFAFA] border border-[#E5E7EB] rounded p-2">
+                  <div className="text-xs font-bold text-[#1A1A1A]">{MONATE_KURZ[k.monat - 1]}</div>
+                  <div className="text-xs text-[#6B7280]">
+                    Pauschal: <span className="font-mono">{k.pauschal.toFixed(2)}</span>
+                  </div>
+                  <div className="text-xs text-[#E2001A] font-semibold">
+                    Effektiv: <span className="font-mono">{k.effektiv.toFixed(2)}</span>
+                    <span className="ml-1 text-[10px] font-normal">
+                      ({k.korrektur >= 0 ? "+" : ""}{k.korrektur.toFixed(3)})
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+          <p className="text-xs text-[#6B7280] mt-3">
+            Die Aufschluesselung pro Lehrkraft ist auf der jeweiligen Detailseite (Deputate &rarr; Lehrer) sichtbar.
+          </p>
+        </Card>
       )}
 
       {/* KPI-Karten (wenn Ergebnisse vorhanden) */}
@@ -305,14 +372,36 @@ export function StellenistClient({
                     })}
                   </span>
                 </div>
-                <div className="flex justify-between p-3 bg-[#F9FAFB] rounded">
-                  <span>Mehrarbeit-Stellen</span>
-                  <span className="font-bold tabular-nums">
-                    {Number(zr.mehrarbeitStellen).toLocaleString("de-DE", {
-                      minimumFractionDigits: 1,
-                      maximumFractionDigits: 4,
-                    })}
-                  </span>
+                <div className="p-3 bg-[#F9FAFB] rounded">
+                  <div className="flex justify-between">
+                    <span>Mehrarbeit-Stellen (gesamt)</span>
+                    <span className="font-bold tabular-nums">
+                      {Number(zr.mehrarbeitStellen).toLocaleString("de-DE", {
+                        minimumFractionDigits: 1,
+                        maximumFractionDigits: 4,
+                      })}
+                    </span>
+                  </div>
+                  {zr.mehrarbeitQuellen && (
+                    <div className="mt-2 pl-3 border-l-2 border-[#D1D5DB] text-xs text-[#6B7280] space-y-1">
+                      <div className="flex justify-between">
+                        <span>davon aus Lehrer-Stunden:</span>
+                        <span className="tabular-nums">
+                          {(zr.mehrarbeitQuellen.stunden ?? 0).toLocaleString("de-DE", {
+                            minimumFractionDigits: 2, maximumFractionDigits: 2,
+                          })} h
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>davon aus Schul-Stellenanteilen:</span>
+                        <span className="tabular-nums">
+                          {(zr.mehrarbeitQuellen.stellenanteile ?? 0).toLocaleString("de-DE", {
+                            minimumFractionDigits: 4, maximumFractionDigits: 4,
+                          })} Stellen
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-between p-3 bg-[#E8F5D6] rounded border border-[#6BAA24]">
                   <span className="font-bold">Stellenist Gesamt</span>

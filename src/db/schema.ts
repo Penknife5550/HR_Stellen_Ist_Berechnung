@@ -10,6 +10,7 @@ import {
   timestamp,
   jsonb,
   unique,
+  uniqueIndex,
   index,
   check,
 } from "drizzle-orm/pg-core";
@@ -305,19 +306,58 @@ export const deputatMonatlich = pgTable("deputat_monatlich", {
   index("idx_deputat_monatlich_hj_monat").on(table.haushaltsjahrId, table.monat),
 ]);
 
-/** Mehrarbeit */
+/**
+ * Mehrarbeit — zwei Modi koexistieren:
+ *   1) Lehrer-bezogen (lehrerId NOT NULL): Eingabe in Stunden, wird bei Stellenist
+ *      via Regeldeputat zu Stellen umgerechnet (jan-jul: /(7*RegDep), aug-dez: /(5*RegDep)).
+ *   2) Schul-bezogen (lehrerId IS NULL, stellenanteil gesetzt): direkter Stellenanteil
+ *      als pauschale schulweite Mehrarbeit, fliesst 1:1 in die Stellen-Berechnung.
+ *
+ * Per Eintrag wird genau EINES der Felder stunden/stellenanteil gesetzt.
+ */
 export const mehrarbeit = pgTable("mehrarbeit", {
   id: serial("id").primaryKey(),
-  lehrerId: integer("lehrer_id").notNull().references(() => lehrer.id),
+  /** NULL = schulweiter Eintrag (ohne Personenbezug) */
+  lehrerId: integer("lehrer_id").references(() => lehrer.id),
   haushaltsjahrId: integer("haushaltsjahr_id").notNull().references(() => haushaltsjahre.id),
   monat: integer("monat").notNull(),
+  /** Mehrarbeit in Stunden (Lehrer-Variante). 0 wenn stellenanteil genutzt. */
   stunden: numeric("stunden", { precision: 8, scale: 2 }).notNull().default("0"),
+  /** Mehrarbeit direkt in Stellenanteilen (Schul-Variante). NULL in Lehrer-Variante. */
+  stellenanteil: numeric("stellenanteil", { precision: 8, scale: 4 }),
   schuleId: integer("schule_id").references(() => schulen.id),
   bemerkung: text("bemerkung"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  unique("mehrarbeit_unique").on(table.lehrerId, table.haushaltsjahrId, table.monat, table.schuleId),
+  // Lehrer-Variante: max 1 pro (lehrerId, hj, monat, schuleId)
+  uniqueIndex("mehrarbeit_lehrer_unique")
+    .on(table.lehrerId, table.haushaltsjahrId, table.monat, table.schuleId)
+    .where(sql`lehrer_id IS NOT NULL`),
+  // Schul-Variante: max 1 pro (schuleId, hj, monat) wenn lehrerId NULL
+  uniqueIndex("mehrarbeit_schule_unique")
+    .on(table.schuleId, table.haushaltsjahrId, table.monat)
+    .where(sql`lehrer_id IS NULL`),
+  // Integritaet:
+  //   Lehrer-Variante: lehrerId + schuleId gesetzt, stellenanteil NULL
+  //   Schul-Variante:  lehrerId NULL, schuleId + stellenanteil gesetzt
+  check("mehrarbeit_variante_check", sql`(
+    (lehrer_id IS NOT NULL AND schule_id IS NOT NULL AND stellenanteil IS NULL)
+    OR
+    (lehrer_id IS NULL AND schule_id IS NOT NULL AND stellenanteil IS NOT NULL AND stunden = 0)
+  )`),
+]);
+
+/** Freitext-Bemerkung pro Schule + Haushaltsjahr fuer schulweite Mehrarbeit */
+export const mehrarbeitSchuleBemerkung = pgTable("mehrarbeit_schule_bemerkung", {
+  id: serial("id").primaryKey(),
+  schuleId: integer("schule_id").notNull().references(() => schulen.id),
+  haushaltsjahrId: integer("haushaltsjahr_id").notNull().references(() => haushaltsjahre.id),
+  bemerkung: text("bemerkung").notNull().default(""),
+  geaendertVon: varchar("geaendert_von", { length: 100 }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("mehrarbeit_schule_bemerkung_unique").on(table.schuleId, table.haushaltsjahrId),
 ]);
 
 // ============================================================
@@ -469,6 +509,82 @@ export const auditLog = pgTable("audit_log", {
   zeitpunkt: timestamp("zeitpunkt", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_audit_log_tabelle").on(table.tabelle, table.datensatzId),
+]);
+
+// ============================================================
+// N8N / WEBHOOK-VERWALTUNG
+// ============================================================
+
+/**
+ * Eingehende Webhooks (N8N -> Anwendung).
+ * Jeder Eintrag repraesentiert einen Sync-Endpoint mit eigenem API-Key.
+ * Der Key wird nur als Hash gespeichert (einmalig bei Erstellung angezeigt).
+ */
+export const webhookConfigs = pgTable("webhook_configs", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  /** Endpoint-Typ: "sync" | zukuenftige Typen */
+  endpointTyp: varchar("endpoint_typ", { length: 30 }).notNull().default("sync"),
+  /** bcrypt-Hash des API-Keys */
+  apiKeyHash: varchar("api_key_hash", { length: 200 }).notNull(),
+  /** Key-Praefix (erste 12 Zeichen, inkl. "whk_") fuer UI-Anzeige + Index-Lookup */
+  apiKeyPrefix: varchar("api_key_prefix", { length: 12 }).notNull(),
+  aktiv: boolean("aktiv").notNull().default(true),
+  beschreibung: text("beschreibung"),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  erstelltVon: varchar("erstellt_von", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_webhook_configs_aktiv").on(table.aktiv),
+  index("idx_webhook_configs_prefix").on(table.apiKeyPrefix),
+]);
+
+/**
+ * Ausgehende Webhooks (Anwendung -> N8N / externe Systeme).
+ * Erhalten Event-Notifications wie "lehrer.created", "hauptdeputat.changed".
+ */
+export const notificationTargets = pgTable("notification_targets", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  url: text("url").notNull(),
+  /** Optionales Shared-Secret fuer HMAC-Signatur */
+  secret: varchar("secret", { length: 200 }),
+  /** Abonnierte Events (z.B. ["sync.completed", "lehrer.created"]) */
+  eventTypes: jsonb("event_types").notNull().default(sql`'[]'::jsonb`),
+  /** Zusaetzliche HTTP-Header (z.B. Auth-Token) */
+  headers: jsonb("headers"),
+  aktiv: boolean("aktiv").notNull().default(true),
+  beschreibung: text("beschreibung"),
+  erstelltVon: varchar("erstellt_von", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_notification_targets_aktiv").on(table.aktiv),
+]);
+
+/**
+ * Log aller ausgehenden Notification-Versuche.
+ * Bis zu 3 Versuche pro Notification (exponential backoff: 1min, 5min, 15min).
+ */
+export const notificationLog = pgTable("notification_log", {
+  id: serial("id").primaryKey(),
+  targetId: integer("target_id").references(() => notificationTargets.id, { onDelete: "set null" }),
+  eventType: varchar("event_type", { length: 50 }).notNull(),
+  payload: jsonb("payload").notNull(),
+  /** "pending" | "success" | "failed" */
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  /** Naechster Retry-Zeitpunkt (null wenn abgeschlossen) */
+  nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+  httpStatus: integer("http_status"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_notification_log_status").on(table.status, table.nextRetryAt),
+  index("idx_notification_log_target").on(table.targetId),
+  index("idx_notification_log_created").on(table.createdAt),
 ]);
 
 // ============================================================

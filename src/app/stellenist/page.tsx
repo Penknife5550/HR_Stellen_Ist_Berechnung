@@ -44,6 +44,8 @@ export default async function StellenistPage({ searchParams }: { searchParams: P
   const stellenisteRaw = await getAktuelleStellenisteAlleSchulen(hj.id);
 
   // Pro Schule gruppieren
+  type MonatDetail = { monat: number; summeWochenstunden: number; summeWochenstundenPauschal?: number; tagesgenauKorrektur?: number; anzahlLehrer: number };
+  type MehrarbeitQuellen = { stunden?: number; stellenanteile?: number };
   type SchulStellenist = {
     schuleId: number;
     schulKurzname: string;
@@ -56,6 +58,9 @@ export default async function StellenistPage({ searchParams }: { searchParams: P
       monatsDurchschnittStunden: string | null;
       regelstundendeputat: string | null;
       berechnetAm: Date;
+      monatsDetails?: MonatDetail[];
+      hatTagesgenauKorrekturen?: boolean;
+      mehrarbeitQuellen?: MehrarbeitQuellen;
     }>;
   };
 
@@ -69,6 +74,12 @@ export default async function StellenistPage({ searchParams }: { searchParams: P
         zeitraeume: [],
       });
     }
+    const det = (row.details ?? null) as {
+      monateImZeitraum?: MonatDetail[];
+      hatTagesgenauKorrekturen?: boolean;
+      mehrarbeitStunden?: number;
+      mehrarbeitStellenanteile?: number;
+    } | null;
     schulMap.get(row.schuleId)!.zeitraeume.push({
       zeitraum: row.zeitraum,
       stellenistGesamt: row.stellenistGesamt,
@@ -77,6 +88,11 @@ export default async function StellenistPage({ searchParams }: { searchParams: P
       monatsDurchschnittStunden: row.monatsDurchschnittStunden,
       regelstundendeputat: row.regelstundendeputat,
       berechnetAm: row.berechnetAm,
+      monatsDetails: det?.monateImZeitraum,
+      hatTagesgenauKorrekturen: det?.hatTagesgenauKorrekturen ?? false,
+      mehrarbeitQuellen: (det && (det.mehrarbeitStunden !== undefined || det.mehrarbeitStellenanteile !== undefined))
+        ? { stunden: det.mehrarbeitStunden, stellenanteile: det.mehrarbeitStellenanteile }
+        : undefined,
     });
   }
 

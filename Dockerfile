@@ -73,6 +73,11 @@ COPY --from=builder /app/migrate.mjs ./migrate.mjs
 COPY --from=builder /app/seed.mjs ./seed.mjs
 COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
 
+# Abhaengigkeiten fuer migrate.mjs + seed.mjs (Next.js Standalone Output-Tracing
+# bezieht diese Skripte nicht ein — daher direkt aus deps-Stage nachreichen).
+COPY --from=deps /app/node_modules/postgres ./node_modules/postgres
+COPY --from=deps /app/node_modules/bcryptjs ./node_modules/bcryptjs
+
 # Non-root User verwenden
 USER nextjs
 

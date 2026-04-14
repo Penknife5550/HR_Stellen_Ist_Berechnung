@@ -20,6 +20,7 @@ import {
   User,
   LogOut,
   Eye,
+  Webhook,
   type LucideIcon,
 } from "lucide-react";
 import { logoutAction } from "@/app/login/actions";
@@ -41,6 +42,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Settings,
   Shield,
   User,
+  Webhook,
 };
 
 interface NavItem {
@@ -57,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/slr-konfiguration", label: "SLR-Konfiguration", icon: "Settings2" },
   { href: "/regeldeputate", label: "Regeldeputate", icon: "BookOpen" },
   { href: "/deputate", label: "Deputate", icon: "Clock" },
+  { href: "/mehrarbeit", label: "Mehrarbeit", icon: "PlusCircle" },
   { href: "/nachtraege", label: "Nachtraege", icon: "FileText" },
   { href: "/mitarbeiter", label: "Mitarbeiter", icon: "Users" },
   { href: "/stellensoll", label: "Stellensoll", icon: "Target" },
@@ -70,6 +73,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: "/admin/benutzer", label: "Benutzerverwaltung", icon: "Shield", minRolle: "admin" },
+  { href: "/admin/n8n-webhooks", label: "N8N-Webhooks", icon: "Webhook", minRolle: "admin" },
 ];
 
 interface SidebarProps {
