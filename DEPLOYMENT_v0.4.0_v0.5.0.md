@@ -1,0 +1,276 @@
+# Deployment-Checkliste — v0.4.0 + v0.5.0
+
+**Ziel:** Sync-Flip-Flop-Fix und Taggenau-Berechnungs-Fix auf `deputat.fes-credo.de` ausrollen.
+**Geplant:** 2026-04-23
+**Stand bei Erstellung:** 2026-04-22, 18:00 Uhr
+
+---
+
+## 🎯 Was wird deployed
+
+| Release | Commit | Inhalt |
+|---|---|---|
+| **v0.4.0** | `5e356c0` | Coverage-basierte Monat→Periode-Zuordnung im Sync-Endpoint. Migration 0005 (2 neue Spalten in `deputat_monatlich`). Cleanup-Skript für Flip-Flop-History. |
+| **v0.5.0** | `707e606` | Taggenaue Berechnung nutzt pauschalen Lehrer-Wert statt `neu`-Wert. Segmentierte Mehrfachänderungen. HJ-Selektor auf Lehrer-Detailseite. |
+| **UI** | `90d7fc8` | Menüpunkt „Stellenanteile" → „Zusätzliche Stellenanteile". |
+
+Alle drei Commits sind auf `origin/main` gepusht. Lokale Tests: 113/113 grün, Typecheck sauber.
+
+---
+
+## 🧰 Umgebung / Zugriff
+
+- **Produktions-Server:** `deputat.fes-credo.de` (wie Kassenbuch-Pattern)
+- **Container-Namen:** `stellenist-app`, `stellenist-db`
+- **Compose-File:** `docker-compose.prod.yml`
+- **Reverse Proxy:** Caddy (extern, mit Security-Headern)
+- **DB:** Postgres 16-alpine, Name `stellenistberechnung`, User `stellenist`
+
+**Zugang bereit halten:**
+- [ ] SSH-Zugang zum Produktions-Server
+- [ ] `.env` auf dem Server ist aktuell (keine Änderungen nötig — keine neuen Env-Variablen)
+- [ ] n8n-Admin-Zugang (für Schritt 4)
+- [ ] Zugang zum Web-UI als Admin (für Smoke-Tests)
+
+---
+
+## 🔒 Schritt 0 — Sicherung vor Deployment
+
+**Auf dem Server:**
+
+```bash
+# Postgres-Dump als Backup vor Migration 0005
+docker exec stellenist-db pg_dump -U stellenist stellenistberechnung \
+  > ~/backups/stellenist_$(date +%Y%m%d_%H%M).sql
+
+# Verifizieren: Dump-Größe > 0
+ls -lh ~/backups/stellenist_*.sql | tail -1
+```
+
+- [ ] Dump erstellt und > 0 Bytes
+
+---
+
+## 📦 Schritt 1 — Code-Deploy
+
+**Auf dem Server im Projekt-Verzeichnis:**
+
+```bash
+git fetch origin
+git log origin/main -3 --oneline     # Erwartet: 90d7fc8, 707e606, 5e356c0
+git pull origin main
+```
+
+- [ ] `git log` zeigt die drei neuen Commits
+- [ ] `git status` ist clean
+
+**Container neu bauen und starten:**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build app
+```
+
+Der Container startet, `migrate.mjs` läuft automatisch vor dem Next.js-Server. Erwartete Log-Ausgabe:
+
+```
+[done] 0005_sync_period_coverage
+Database is up to date.
+```
+
+**Verifizieren:**
+
+```bash
+# Logs verfolgen bis "ready in ..."
+docker logs -f stellenist-app
+
+# In anderem Terminal: Migration-Status
+docker exec stellenist-db psql -U stellenist -d stellenistberechnung \
+  -c "SELECT hash FROM __drizzle_migrations ORDER BY id;"
+# Muss 0005_sync_period_coverage enthalten
+```
+
+- [ ] Container läuft (Status `healthy`)
+- [ ] Migration 0005 angewendet
+- [ ] Web-UI erreichbar: `https://deputat.fes-credo.de` → Login funktioniert
+
+---
+
+## 🧪 Schritt 2 — App-Smoke-Tests (vor n8n-Update)
+
+Die App akzeptiert Payloads mit und ohne `school_year_id` (backwards-compatible). Also kann man vor dem n8n-Update schon manuell testen:
+
+**2.1 Lehrer-Detailseite + HJ-Selektor**
+
+- [ ] `/deputate` aufrufen → Liste lädt
+- [ ] Einen Lehrer anklicken → Detailseite lädt
+- [ ] Oben rechts: HJ-Selektor sichtbar (nur wenn >1 HJ vorhanden)
+- [ ] URL-Parameter `?hj=2025` funktioniert
+- [ ] Bergen Eduard (Personalnr. 600064) aufrufen:
+  - Januar-Zelle zeigt jetzt **24.9** (statt 19.9) — als rote Zahl mit `*`
+  - Taggenau-Karte unten zeigt weiterhin Summe 24.855
+  - Kasten-Header „Effektiv" zeigt jetzt **24.85** statt 19.85
+
+**2.2 Menüpunkt umbenannt**
+
+- [ ] Sidebar zeigt „Zusätzliche Stellenanteile" statt „Stellenanteile"
+
+**2.3 Stellenist-Berechnung neu laufen lassen**
+
+- [ ] `/stellenist` → „Neu berechnen" klicken
+- [ ] Keine Fehler
+- [ ] Soll-Ist-Vergleich passt zu den neuen effektiven Monatswerten
+
+---
+
+## 🔄 Schritt 3 — n8n-Workflow aktualisieren
+
+**WICHTIG:** Ohne diesen Schritt kann der `samePeriode`-Check in `route.ts` nicht greifen — Wertänderungen innerhalb einer Periode würden verpasst. Der Workflow liegt **nicht im Git** (`/03_n8n/` ist in `.gitignore`).
+
+**Die Änderung:** Im Code-Node „Daten fuer Stellenist aufbereiten" wird eine Zeile ergänzt — direkt vor `term_id:`:
+
+```js
+school_year_id: periode.schuljahrId ? parseInt(periode.schuljahrId, 10) : undefined,
+```
+
+**Zu aktualisieren:**
+- [ ] Workflow **#223 „Stellenist Deputat-Sync (Untis → Stellenist-App)"**
+- [ ] Workflow **„Backfill HJ 2025 + 2026 (Stellenist-App)"**
+
+**Option A — manuell im n8n-UI (schnell):**
+1. Workflow öffnen → Code-Node „Daten fuer Stellenist aufbereiten" anklicken
+2. Im JS-Code die Zeile einfügen (nach `schuljahr_text:`, vor `term_id:`)
+3. Save → Workflow „Active" lassen
+4. Gleiches für Backfill-Workflow
+
+**Option B — Import der lokalen JSON (sicherer):**
+1. JSONs liegen bei Dimitri lokal unter:
+   - `03_n8n/#223 - Stellenist Deputat-Sync (Untis → Stellenist-App) (1).json`
+   - `03_n8n/Backfill_HJ2025_HJ2026_Stellenist.json`
+2. In n8n: Workflow öffnen → „⋮ → Download" zur Sicherheit des alten Stands
+3. Dann „Import from File" → aktualisierte JSON wählen
+4. Änderungen prüfen, Save, aktivieren
+
+- [ ] Workflow #223 aktualisiert
+- [ ] Backfill-Workflow aktualisiert
+
+**Smoke-Test n8n:**
+- [ ] Workflow #223 manuell einmal ausführen („Execute Workflow")
+- [ ] Response von App: `success: true`
+- [ ] In Postgres prüfen: neue Spalten sind befüllt
+
+```sql
+SELECT monat, untis_school_year_id, untis_term_id,
+       untis_term_date_from, untis_term_date_to, deputat_gesamt
+FROM deputat_monatlich dm
+JOIN lehrer l ON l.id = dm.lehrer_id
+WHERE l.vollname ILIKE '%Bergen Eduard%'
+ORDER BY monat;
+```
+
+- [ ] `untis_school_year_id` ist nicht NULL nach Sync
+- [ ] `untis_term_date_from/to` sind gesetzt
+
+---
+
+## 🧹 Schritt 4 — Cleanup alter Flip-Flop-History
+
+Das Skript entfernt exakte Inverse-Paare in `deputat_aenderungen` (gleiche Sync-Minute, alt↔neu vertauscht). **Konservativ** — echte Wertänderungen bleiben.
+
+```bash
+# Zuerst Dry-Run
+docker exec stellenist-app node cleanup-flipflop-history.mjs
+
+# Anzahl Flip-Flop-Paare anschauen. Wenn plausibel → echte Löschung
+docker exec stellenist-app node cleanup-flipflop-history.mjs --apply
+```
+
+- [ ] Dry-Run zeigt erwartete Anzahl (bei Bergen: 32 alte Zeilen ± je nach Zeitraum)
+- [ ] `--apply` gelöscht
+
+**Verifizieren:**
+
+```sql
+SELECT monat, deputat_gesamt_alt, deputat_gesamt_neu, term_id_alt, term_id_neu, geaendert_am
+FROM deputat_aenderungen da
+JOIN lehrer l ON l.id = da.lehrer_id
+WHERE l.vollname ILIKE '%Bergen Eduard%'
+ORDER BY geaendert_am DESC
+LIMIT 10;
+```
+
+- [ ] Nur noch echte Wertänderungen in der History
+- [ ] Keine zwei Einträge mehr pro Sync-Minute
+
+---
+
+## ✅ Schritt 5 — Post-Deployment-Tests
+
+**5.1 Täglicher Sync läuft sauber**
+
+Am nächsten Tag (24.04.2026 06:01 Uhr) sollte der geplante Sync laufen.
+
+```sql
+-- Neue History-Einträge seit dem Deployment
+SELECT COUNT(*) FROM deputat_aenderungen WHERE geaendert_am > NOW() - INTERVAL '1 day';
+
+-- Pro Lehrer/Monat max 1 Eintrag pro Sync-Minute erwartet
+```
+
+- [ ] Nach nächstem Sync: keine neuen Flip-Flop-Paare
+
+**5.2 Werte konsistent**
+
+- [ ] Bergens Januar: Liste zeigt effektiv ~24.9, Stellenist-Berechnung nutzt 24.855
+- [ ] Taggenau-Herleitungs-Karte stimmt mit Liste überein (nicht mehr 19.85 im Header)
+
+**5.3 Export**
+
+- [ ] Deputat-Export (`/deputate` → Export) enthält taggenaue Werte
+
+---
+
+## 🚨 Rollback-Plan (falls was schief geht)
+
+**Rollback App-Code:**
+
+```bash
+git revert 90d7fc8 707e606 5e356c0
+git push origin main
+docker compose -f docker-compose.prod.yml up -d --build app
+```
+
+Migration **0005** ist additiv (nullable Spalten) — kein DB-Rollback nötig, die Spalten bleiben einfach leer. Kein Datenverlust.
+
+**Rollback n8n:**
+- Alten Workflow-Stand importieren (Download-Kopie aus Schritt 3) oder die eine Zeile manuell wieder entfernen.
+
+**Bei akutem Problem mit Migration:**
+Backup aus Schritt 0 zurückspielen:
+```bash
+docker exec -i stellenist-db psql -U stellenist -d stellenistberechnung < ~/backups/stellenist_YYYYMMDD_HHMM.sql
+```
+
+---
+
+## 📝 Bekannte Einschränkungen / Follow-ups
+
+Nichts davon ist blockierend, nur zum Nachziehen:
+
+- **03_n8n/ ist in .gitignore:** Die JSON-Workflows sind nicht versioniert. Wenn mehrere Entwickler daran arbeiten, sollte das später geändert werden — Secrets müssen dafür aber rausgezogen werden (der API-Key steht derzeit im Plaintext).
+- **Handbuch:** `Handbuch_Stellenistberechnung_v1.0.docx` muss nach v0.5.0 an einigen Stellen aktualisiert werden (Taggenaue Berechnung, HJ-Selektor auf Lehrer-Detailseite, Menü-Umbenennung).
+- **e2e-Test:** `tests/e2e-berechnung.ts` läuft nicht automatisch in der CI und ist nicht geprüft worden.
+
+---
+
+## 📚 Referenz-Dateien
+
+- `CHANGELOG.md` — Volle Release-Notes v0.4.0 + v0.5.0
+- `DOKUMENTATION.md` Abschnitt 2.4 + 3.1 — Neue Formeln und Coverage-Regel erklärt
+- `src/lib/periodCoverage.ts` — Coverage-Algorithmus (v0.4.0)
+- `src/lib/berechnungen/deputatEffektiv.ts` — Segmentierte Taggenau-Berechnung (v0.5.0)
+- `src/lib/berechnungen/tagesgenau.ts` — Korrektur für Stellenist (v0.5.0)
+- `cleanup-flipflop-history.mjs` — Einmal-Cleanup
+
+## 🔙 Wenn wir morgen hier weitermachen
+
+Kontext für Claude (oder Dimitri): **Das Deployment steht noch aus.** Code + Tests sind fertig und gepusht, aber auf dem Produktions-Server läuft noch v0.3.0. Die n8n-Workflows sind noch nicht aktualisiert. Dieses Dokument Schritt für Schritt durchgehen.
