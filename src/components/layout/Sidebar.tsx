@@ -65,7 +65,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/stellensoll", label: "Stellensoll", icon: "Target" },
   { href: "/stellenist", label: "Stellenist", icon: "UserCheck" },
   { href: "/vergleich", label: "Soll-Ist-Vergleich", icon: "Scale" },
-  { href: "/stellenanteile", label: "Stellenanteile", icon: "PlusCircle" },
+  { href: "/stellenanteile", label: "Zusätzliche Stellenanteile", icon: "PlusCircle" },
   { href: "/historie", label: "Historie", icon: "History" },
   { href: "/export", label: "Export", icon: "FileDown" },
   { href: "/einstellungen", label: "Einstellungen", icon: "Settings" },
