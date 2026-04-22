@@ -65,6 +65,10 @@ export const syncPayloadSchema = z.object({
   api_key: z.string().min(1),
   sync_datum: z.string().min(1, "sync_datum fehlt."),
   schuljahr_text: z.string().optional(),
+  // Untis-Schuljahr als Int (z.B. 20252026). Optional fuer Backwards-Compat
+  // mit aelteren n8n-Workflows. Wird fuer den Coverage-Tie-Breaker bei
+  // gleichem term_id-Zahlenwert ueber Schuljahre hinweg genutzt.
+  school_year_id: z.number().int().positive().optional(),
   term_id: z.number().int().positive().optional(),
   date_from: z.string().optional(),
   date_to: z.string().optional(),

@@ -36,6 +36,13 @@
       "when": 1776175563152,
       "tag": "0004_mehrarbeit_check",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777032000000,
+      "tag": "0005_sync_period_coverage",
+      "breakpoints": true
     }
   ]
 }

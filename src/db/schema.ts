@@ -297,6 +297,11 @@ export const deputatMonatlich = pgTable("deputat_monatlich", {
   quelle: varchar("quelle", { length: 20 }).default("untis"),
   untisSchoolyearId: integer("untis_schoolyear_id"),
   untisTermId: integer("untis_term_id"),
+  // Coverage-Metadaten: welchen Datumsbereich deckt die Periode ab, die
+  // aktuell gespeicherten Wert geschrieben hat. Wird beim Sync als
+  // Tie-Breaker genutzt — Periode mit den meisten Tagen im Monat gewinnt.
+  untisTermDateFrom: date("untis_term_date_from"),
+  untisTermDateTo: date("untis_term_date_to"),
   syncDatum: timestamp("sync_datum", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

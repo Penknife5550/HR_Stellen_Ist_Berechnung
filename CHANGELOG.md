@@ -1,5 +1,57 @@
 # Changelog — Stellenistberechnung
 
+## [0.4.0] — 2026-04-22
+
+### Sync-Fix: Coverage-basierte Monat→Periode-Zuordnung
+
+Beseitigt den taeglich wiederkehrenden Flip-Flop in der Aenderungshistorie
+(`deputat_aenderungen`), der bei Lehrern mit Untis-Perioden, die denselben
+Kalendermonat beruehren, sichtbar wurde.
+
+**Problem (vor 0.4.0)**
+Der Sync-Endpoint mappte jeden Untis-Periodenbereich auf *alle* Monate, die
+er auch nur einen Tag beruehrte. Kamen pro Sync-Lauf mehrere Calls fuer
+denselben Monat an (ein Call pro Periode), schrieb jeder Call den Monat
+neu — last-write-wins, aber jede Aenderung landete in der History.
+Konsequenz: pro Tag 2-3 invertierte History-Zeilen je betroffenem Monat
+(z. B. Bergen Eduard: 4 unnoetige Zeilen/Tag).
+
+**Loesung**
+Neue Coverage-Regel: Pro Kalendermonat gewinnt die Periode mit den meisten
+Tagen im Monat. Bei Gleichstand die chronologisch spaetere Periode. Gleiche
+Periode (schoolyear+term) wird immer durchgelassen, damit Wertaenderungen
+innerhalb einer Periode weiterhin erkannt werden.
+
+**Migration** `0005_sync_period_coverage.sql`
+Zwei neue Spalten in `deputat_monatlich`:
+- `untis_term_date_from DATE`
+- `untis_term_date_to DATE`
+
+Zusammen mit der bereits vorhandenen (aber bisher nicht befuellten!)
+`untis_schoolyear_id`-Spalte weiss jeder Monatseintrag jetzt, welche Periode
+genau ihn geschrieben hat. Der Tie-Breaker vergleicht die Coverage der
+eingehenden Periode gegen die gespeicherte.
+
+**Neue Dateien**
+- `src/lib/periodCoverage.ts` — `tageImMonat()`, `neuePeriodeGewinnt()`, `germanDateToIso()`
+- `tests/lib/periodCoverage.test.ts` — 21 Unit-Tests
+- `tests/lib/periodCoverageScenarios.test.ts` — 9 Regression-Szenarien (Bergens Maerz/April, HJ-Wechsel Januar)
+- `cleanup-flipflop-history.mjs` — einmaliges Cleanup exakter Inverse-Paare (Dry-Run per Default, `--apply` fuer Loeschung)
+
+**Geaenderte Dateien**
+- `src/app/api/deputate/sync/route.ts` — Coverage-Check vor Wert-Vergleich; neue Spalten beim Upsert
+- `src/lib/validation.ts` — `school_year_id` ins `syncPayloadSchema` (optional, Backwards-Compat)
+- `src/db/schema.ts` — neue Drizzle-Spalten
+- `03_n8n/#223 Stellenist Deputat-Sync.json` — sendet `school_year_id` im Payload
+- `03_n8n/Backfill_HJ2025_HJ2026_Stellenist.json` — ebenfalls
+
+**Deployment**
+1. Migration `0005_sync_period_coverage.sql` laeuft automatisch beim Container-Start.
+2. Naechster n8n-Sync befuellt Coverage-Felder korrekt und ersetzt fehlerhafte Term-Zuordnungen; bei gleichen Werten ohne History.
+3. `cleanup-flipflop-history.mjs` einmalig ausfuehren (erst Dry-Run, dann `--apply`), um Altlasten in `deputat_aenderungen` zu entfernen.
+
+---
+
 ## [0.3.0] — 2026-04-14
 
 ### N8N-Webhook-Verwaltung, Taggenaue Deputate, Schul-Mehrarbeit, Go-Live-Fix

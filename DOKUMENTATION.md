@@ -133,7 +133,19 @@ Das Haushaltsjahr wird **pro Monat** aus dem Kalenderjahr der Term-Periode besti
 
 Ein Term der Jahresgrenzen ueberschreitet (z.B. "30.12.2024-19.01.2025") schreibt Dez nach HJ 2024 und Jan nach HJ 2025.
 
-**Upsert-Logik:** Innerhalb eines Monats gewinnt der letzte gesynchte Term. Bei Monaten mit mehreren Perioden (z.B. Feb mit Term 10 und 11) steht der Wert des letzten Terms. Die tagesgenaue Korrektur erfolgt nur wenn HR ein tatsaechliches Datum eintraegt (siehe 2.4).
+**Upsert-Logik (Coverage-basiert, seit v0.4.0):**
+Beruehren mehrere Untis-Perioden denselben Kalendermonat, gewinnt die Periode mit den meisten Kalendertagen im Monat. Bei Gleichstand gewinnt die chronologisch spaetere Periode (`date_from`). Gleiche Periode (`school_year_id` + `term_id`) wird immer durchgelassen, damit Wertaenderungen innerhalb einer Periode erkannt werden.
+
+Beispiel (Bergens Maerz 2026):
+- TERM 11 (09.02.–01.03.): 1 Maerz-Tag → verliert
+- TERM 12 (02.03.–15.03.): 14 Maerz-Tage → verliert
+- TERM 13 (16.03.–12.04.): **16 Maerz-Tage → gewinnt**, sein Wert gilt fuer den ganzen Monat
+
+Begruendung: Die alte "last-write-wins"-Logik erzeugte pro Sync-Lauf mehrere invertierte History-Zeilen, wenn Perioden unterschiedliche Deputatswerte hatten. Die Coverage-Regel eliminiert diesen Flip-Flop.
+
+Die Zuordnung wird in drei Spalten persistiert (`untis_schoolyear_id`, `untis_term_date_from`, `untis_term_date_to`) und dient auch der Audit-Nachvollziehbarkeit: jeder Monatseintrag zeigt, welche Periode ihn geschrieben hat.
+
+Die tagesgenaue Korrektur durch HR (siehe 2.4) funktioniert unveraendert.
 
 ### 3.2 Deputat-Abweichungserkennung
 

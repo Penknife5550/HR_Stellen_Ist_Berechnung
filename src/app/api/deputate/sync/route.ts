@@ -26,6 +26,7 @@ import { syncPayloadSchema } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
 import { notify } from "@/lib/notifications";
+import { germanDateToIso, neuePeriodeGewinnt } from "@/lib/periodCoverage";
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -188,6 +189,12 @@ export async function POST(request: NextRequest) {
       monateByHjId.set(hj.id, arr);
     }
 
+    // 7d. Coverage-Info der eingehenden Periode (ISO-Format fuer DB + Vergleich)
+    const incomingDateFromIso = payload.date_from ? germanDateToIso(payload.date_from) : null;
+    const incomingDateToIso = payload.date_to ? germanDateToIso(payload.date_to) : null;
+    const incomingSchoolyearId = payload.school_year_id ?? null;
+    const incomingTermId = payload.term_id ?? null;
+
     // 8. Lehrer ohne gueltige Stammschule filtern (z.B. Code "Z")
     const gueltigeSchulen = new Set(alleSchulen.map((s) => s.untisCode?.toUpperCase()));
     payload.lehrer = payload.lehrer.filter((l) => {
@@ -312,6 +319,32 @@ export async function POST(request: NextRequest) {
                 const key = `${lehrerId}_${hj.id}_${m.monat}`;
                 const alt = deputatMap.get(key);
 
+                // Coverage-Tie-Breaker: Wenn bereits Werte einer anderen
+                // Periode gespeichert sind, darf die eingehende Periode
+                // nur ueberschreiben, wenn sie mehr Tage des Monats abdeckt
+                // (oder gleich viele mit spaeterem date_from). Bei gleicher
+                // Periode (schoolyear+term) immer durchlassen, damit
+                // Wertaenderungen innerhalb einer Periode erkannt werden.
+                if (alt && incomingDateFromIso && incomingDateToIso) {
+                  const samePeriode =
+                    alt.untisSchoolyearId != null &&
+                    alt.untisTermId != null &&
+                    alt.untisSchoolyearId === incomingSchoolyearId &&
+                    alt.untisTermId === incomingTermId;
+
+                  if (!samePeriode) {
+                    const gewinnt = neuePeriodeGewinnt({
+                      jahr: m.jahr,
+                      monat: m.monat,
+                      neueDateFrom: incomingDateFromIso,
+                      neueDateTo: incomingDateToIso,
+                      bestehendeDateFrom: alt.untisTermDateFrom,
+                      bestehendeDateTo: alt.untisTermDateTo,
+                    });
+                    if (!gewinnt) continue;
+                  }
+                }
+
                 // Aenderung erkennen (nur wenn bereits Daten vorhanden)
                 if (alt) {
                   const altGesamt = Number(alt.deputatGesamt ?? 0);
@@ -381,7 +414,10 @@ export async function POST(request: NextRequest) {
                     deputatGym: String(lehrerData.deputat_gym),
                     deputatBk: String(lehrerData.deputat_bk),
                     quelle: "untis",
-                    untisTermId: payload.term_id ?? null,
+                    untisSchoolyearId: incomingSchoolyearId,
+                    untisTermId: incomingTermId,
+                    untisTermDateFrom: incomingDateFromIso,
+                    untisTermDateTo: incomingDateToIso,
                     syncDatum: new Date(),
                   })
                   .onConflictDoUpdate({
@@ -395,7 +431,10 @@ export async function POST(request: NextRequest) {
                       deputatGes: String(lehrerData.deputat_ges),
                       deputatGym: String(lehrerData.deputat_gym),
                       deputatBk: String(lehrerData.deputat_bk),
-                      untisTermId: payload.term_id ?? null,
+                      untisSchoolyearId: incomingSchoolyearId,
+                      untisTermId: incomingTermId,
+                      untisTermDateFrom: incomingDateFromIso,
+                      untisTermDateTo: incomingDateToIso,
                       syncDatum: new Date(),
                       updatedAt: new Date(),
                     },
