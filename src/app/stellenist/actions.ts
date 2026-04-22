@@ -11,10 +11,15 @@ import {
   getMehrarbeitByHaushaltsjahr,
   getRegeldeputateMap,
   getAenderungenMitDatum,
+  getPauschaleDeputateByLehrer,
 } from "@/lib/db/queries";
 import { berechneStellenist } from "@/lib/berechnungen/stellenist";
 import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
-import { berechneTagesgenauKorrekturen, type TagesgenauAenderung } from "@/lib/berechnungen/tagesgenau";
+import {
+  berechneTagesgenauKorrekturen,
+  type TagesgenauAenderung,
+  type PauschalLehrerMonat,
+} from "@/lib/berechnungen/tagesgenau";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
@@ -57,6 +62,24 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
       };
     });
 
+    // Pauschale Lehrer-Monat-Werte fuer die Korrekturformel laden
+    // (gewichtet - pauschal). Nur fuer Lehrer mit einer Aenderung mit Datum.
+    const betroffeneLehrerIds = [...new Set(tagesgenauInput.map((t) => t.lehrerId))];
+    const pauschaleRows = await getPauschaleDeputateByLehrer(aktuellesHj.id, betroffeneLehrerIds);
+    const pauschaleLehrerWerte = new Map<string, PauschalLehrerMonat>(
+      pauschaleRows.map((p) => [
+        `${p.lehrerId}_${p.monat}`,
+        {
+          lehrerId: p.lehrerId,
+          monat: p.monat,
+          deputatGesamt: Number(p.deputatGesamt ?? 0),
+          deputatGes: Number(p.deputatGes ?? 0),
+          deputatGym: Number(p.deputatGym ?? 0),
+          deputatBk: Number(p.deputatBk ?? 0),
+        },
+      ])
+    );
+
     const ergebnisse: Array<{
       schule: string;
       zeitraum: string;
@@ -84,6 +107,7 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
         tagesgenauInput,
         schule.kurzname,
         aktuellesHj.jahr,
+        pauschaleLehrerWerte,
       );
       const korrekturByMonat = new Map(korrekturen.map((k) => [k.monat, k.differenzSchulspezifisch]));
 

@@ -4,9 +4,10 @@ import { Card } from "@/components/ui/Card";
 import { MONATE_KURZ } from "@/lib/constants";
 import {
   getLehrerDetail,
-  getAktuellesHaushaltsjahr,
   getSchulen,
 } from "@/lib/db/queries";
+import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
+import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { notFound } from "next/navigation";
 import { AenderungsHistorie } from "./AenderungsHistorie";
 import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
@@ -15,14 +16,16 @@ export const dynamic = "force-dynamic";
 
 export default async function LehrerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
   const lehrerId = parseInt(id, 10);
   if (isNaN(lehrerId)) notFound();
 
-  const aktuellesHj = await getAktuellesHaushaltsjahr();
+  const { hj: aktuellesHj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
   if (!aktuellesHj) notFound();
 
   const [detail, schulen] = await Promise.all([
@@ -115,6 +118,12 @@ export default async function LehrerDetailPage({
           { label: l.vollname },
         ]}
       />
+
+      {hjOptions.length > 1 && (
+        <div className="flex justify-end mb-4">
+          <HaushaltsjahrSelector options={hjOptions} selectedJahr={aktuellesHj.jahr} />
+        </div>
+      )}
 
       {/* Gehaltsrelevante Warnung */}
       {hatGehaltsrelevante && (

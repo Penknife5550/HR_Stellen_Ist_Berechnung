@@ -1,5 +1,75 @@
 # Changelog — Stellenistberechnung
 
+## [0.5.0] — 2026-04-22
+
+### Taggenau-Fix + HJ-Selektor auf Lehrer-Detailseite
+
+Korrigiert zwei Probleme auf der Lehrer-Detailseite (`/deputate/[id]`):
+
+**1. Taggenaue Formel verwendete falschen Vergleichswert**
+
+Der „Effektiv"-Wert eines Monats wurde zuvor als `pauschal + (gewichtet − neu)`
+berechnet — unter der Annahme, dass der pauschale DB-Wert immer gleich dem
+`neu`-Wert der letzten Aenderungszeile ist. Diese Annahme stimmt seit dem
+Coverage-Fix (v0.4.0) nicht mehr zuverlaessig: die Coverage-Regel kann
+dazu fuehren, dass der pauschale Wert dem **alten** Wert entspricht (z.B.
+wenn die dominante Untis-Periode den alten Stand schreibt).
+
+Beispiel Bergen Eduard, Januar 2026: pauschal 20.5 (nicht 25.5), Aenderung
+20.5 → 25.5 am 05.01.:
+- **alt:** `effektiv = 20.5 + (24.855 − 25.5) = 19.855` ❌
+- **neu:** `effektiv = (20.5 × 4 + 25.5 × 27) / 31 = 24.855` ✓
+
+Der Fehler traf nicht nur die Detailseite, sondern auch die **Stellenist-
+Berechnung** (`src/lib/berechnungen/tagesgenau.ts`), die die gleiche falsche
+Annahme `korrektur = gewichtet − neu` enthielt.
+
+**Loesung — Formel direkt aus Aenderungen rekonstruieren:**
+- `effektiv` ergibt sich aus Zeitsegmenten (Tag 1 bis Aenderung_1, dann
+  Aenderung_i bis Aenderung_{i+1}, usw.). Jedes Segment traegt seinen
+  Wert × Tage / Monatstage bei.
+- Die Korrekturformel fuer die Stellenist-Berechnung lautet jetzt
+  `gewichtet − pauschal_des_Lehrers` (nicht mehr `− neu`).
+- `berechneTagesgenauKorrekturen()` erhaelt dafuer einen neuen Parameter
+  `pauschaleLehrerWerte: Map<string, PauschalLehrerMonat>` mit den
+  pauschalen Werten aus `deputat_monatlich` pro Lehrer und Monat.
+- Die Action `src/app/stellenist/actions.ts` laedt diese Werte einmal
+  pro Lauf (neuer Query `getPauschaleDeputateByLehrer`) und reicht sie
+  durch.
+
+**Mehrfachaenderungen im selben Monat** (z.B. zwei Periodenwechsel im April)
+werden jetzt korrekt als Zeitsegmente modelliert. Die frueher benutzte
+Summation von „Korrekturen pro Aenderung" war dafuer nicht sauber.
+
+**Auswirkungen auf alle Ausgaben:**
+- Detailseite-Liste „Monatliche Deputatsverteilung"
+- Stellenist-Berechnung aller Schulen
+- Deputat-Export
+- Taggenau-Herleitungs-Karte (zeigt jetzt korrekt den effektiven Wert)
+
+**2. Haushaltsjahr-Wechsel auf Lehrer-Detailseite**
+
+Die Lehrer-Detailseite zeigte bisher nur das aktuelle Haushaltsjahr. Jetzt
+mit `HaushaltsjahrSelector` und `?hj=`-URL-Parameter, wie auf allen
+Listen-Seiten.
+
+**Dateien**
+- `src/lib/berechnungen/deputatEffektiv.ts` — Segmentierte Berechnung
+- `src/lib/berechnungen/tagesgenau.ts` — Neuer Parameter, korrekte Korrekturformel
+- `src/lib/db/queries.ts` — Neuer Query `getPauschaleDeputateByLehrer`
+- `src/app/stellenist/actions.ts` — Pauschale Werte durchreichen
+- `src/app/deputate/[id]/page.tsx` — HJ-Selektor + `getSelectedHaushaltsjahr`
+- `tests/lib/berechnungen/deputatEffektiv.test.ts` — 8 neue Tests
+- `tests/lib/berechnungen/tagesgenau.test.ts` — 6 neue Tests
+
+**Nach Deployment**
+- Sobald eine Stellenist-Neuberechnung laeuft, sind alle abgeleiteten
+  Werte (Stellenist pro Schule/Zeitraum, Soll-Ist-Vergleich) korrekt.
+- UI-Liste zeigt sofort den korrekten effektiven Monatswert.
+- Export zieht ebenfalls die neue Berechnung.
+
+---
+
 ## [0.4.0] — 2026-04-22
 
 ### Sync-Fix: Coverage-basierte Monat→Periode-Zuordnung

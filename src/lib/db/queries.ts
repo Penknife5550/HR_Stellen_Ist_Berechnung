@@ -1807,6 +1807,35 @@ export async function getAenderungenMitDatum(haushaltsjahrId: number) {
     .orderBy(asc(deputatAenderungen.lehrerId), asc(deputatAenderungen.monat));
 }
 
+/**
+ * Pauschale Monats-Deputate fuer eine Teilmenge von Lehrern — noetig fuer
+ * die taggenaue Korrekturformel (`gewichtet - pauschal`). Wird von der
+ * Stellenist-Berechnung genutzt wenn Aenderungen mit tatsaechlichemDatum
+ * vorliegen.
+ */
+export async function getPauschaleDeputateByLehrer(
+  haushaltsjahrId: number,
+  lehrerIds: number[]
+) {
+  if (lehrerIds.length === 0) return [];
+  return db
+    .select({
+      lehrerId: deputatMonatlich.lehrerId,
+      monat: deputatMonatlich.monat,
+      deputatGesamt: deputatMonatlich.deputatGesamt,
+      deputatGes: deputatMonatlich.deputatGes,
+      deputatGym: deputatMonatlich.deputatGym,
+      deputatBk: deputatMonatlich.deputatBk,
+    })
+    .from(deputatMonatlich)
+    .where(
+      and(
+        eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId),
+        inArray(deputatMonatlich.lehrerId, lehrerIds)
+      )
+    );
+}
+
 // ============================================================
 // STELLENANTEILE — KPIs + Befristungs-Monitoring
 // ============================================================

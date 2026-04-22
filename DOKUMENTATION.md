@@ -84,24 +84,37 @@ Stellenist_Jahr = (JanJul × 7 + AugDez × 5) / 12
 
 ### 2.4 Tagesgenaue Berechnung (bei Aenderungen)
 
-**Standard:** Pro Monat gilt der letzte Sync-Wert (ein Wert pro Monat).
+**Standard:** Pro Monat gilt der Wert aus `deputat_monatlich` — geschrieben von der Untis-Periode mit den meisten Kalendertagen im Monat (Coverage-Regel, siehe Abschnitt 3.1).
 
-**Bei eingetragenem tatsaechlichem Datum:** Wenn HR in der Aenderungshistorie (`/deputate/[id]`) ein tatsaechliches Datum eintraegt, wird der Monatswert **tagesgewichtet** berechnet — analog zur Excel-Hilfstabelle (Spalten T/U/V):
+**Bei eingetragenem tatsaechlichem Datum:** Wenn HR in der Aenderungshistorie (`/deputate/[id]`) ein tatsaechliches Datum eintraegt, wird der Monatswert **tagesgewichtet** berechnet — direkt aus den Aenderungen rekonstruiert, unabhaengig vom pauschalen DB-Wert.
 
+**Formel (Einfachfall, eine Aenderung im Monat):**
 ```
-Monats-Deputat = (Std_alt × Tage_vor_Aenderung + Std_neu × Tage_nach_Aenderung) / Monatstage
+effektiv = (alt × Tage_vor + neu × Tage_nach) / Monatstage
 ```
 
-**Beispiel:** Aenderung am 09.02. von 10→17 Std. im Februar (28 Tage):
+**Beispiel Bergen Eduard, Januar 2026 (31 Tage), Aenderung 20.5 → 25.5 am 05.01.:**
 ```
-(10 × 8 + 17 × 20) / 28 = (80 + 340) / 28 = 15,0 Std.
+(20.5 × 4 + 25.5 × 27) / 31 = 24.855 Wochenstunden
 ```
-Statt pauschal 17 (ohne tatsaechliches Datum).
 
-**Implementierung:** `src/lib/berechnungen/tagesgenau.ts`
-- Wird nur aktiv wenn `deputat_aenderungen.tatsaechliches_datum IS NOT NULL`
-- Die Differenz zum pauschalen Wert wird als Korrektur auf die Monatssumme gerechnet
-- Im Detail-JSON der Berechnung: `tagesgenauKorrektur` und `hatTagesgenauKorrekturen`
+**Mehrere Aenderungen im selben Monat:** Der Monat wird in Zeitsegmente zerlegt — Tag 1 bis zum Tag der ersten Aenderung (Wert = `alt` der 1. Aenderung), dann von jeder Aenderung bis zur naechsten (Wert = `neu` der jeweils aktuellen Aenderung), zuletzt bis Monatsende. Jedes Segment traegt `Wert × Tage / Monatstage` bei.
+
+**Anwendung pro Schul-Spalte:** Die Formel wirkt getrennt auf `deputat_ges`, `deputat_gym` und `deputat_bk`. Bei aufgeteilten Lehrern (z.B. 10 Std. GES + 10 Std. GYM) wird jede Spalte einzeln tagesgewichtet — die Summe bleibt mathematisch konsistent mit `deputat_gesamt`.
+
+**Wichtig — gegen welchen Wert wird verglichen (fuer die Stellenist-Korrektur)?**
+
+In der Stellenist-Berechnung wird die Differenz zum pauschalen Lehrer-Monat-Wert berechnet:
+```
+korrektur_lehrer = gewichtet − pauschal_des_Lehrers  (aus deputat_monatlich)
+```
+
+Die Summe der Korrekturen aller betroffenen Lehrer wird auf die Schul-Monatssumme addiert. Der frueher genutzte Vergleich `gewichtet − neu` ist seit v0.5.0 **nicht mehr korrekt**, da die Coverage-Regel (v0.4.0) den pauschalen Wert nicht garantiert auf `neu` setzt.
+
+**Implementierung:**
+- `src/lib/berechnungen/deputatEffektiv.ts` — UI- und Export-Seite, pro Lehrer der effektive Monatswert
+- `src/lib/berechnungen/tagesgenau.ts` — Korrekturdelta fuer die Stellenist-Berechnung, benoetigt pauschale Lehrer-Werte als Parameter
+- Aktiv nur wenn `deputat_aenderungen.tatsaechliches_datum IS NOT NULL`
 
 ### 2.5 Soll-Ist-Vergleich
 

@@ -2,15 +2,26 @@
  * Taggenaue Deputatsberechnung pro Lehrer.
  *
  * Wenn HR fuer eine `deputat_aenderungen`-Zeile ein `tatsaechlichesDatum`
- * eintraegt, wird das Monatsdeputat tagesgewichtet:
+ * eintraegt, wird das Monatsdeputat tagesgewichtet — die pauschale
+ * Angabe in `deputat_monatlich` wird NICHT als Basis verwendet.
+ *
+ * Formel (Einfachfall, eine Aenderung im Monat):
  *
  *   effektiv = (alt / monatsTage * tageVor) + (neu / monatsTage * tageNach)
  *
- * Beispiel Oskar Dyck, Feb 2026 (28 Tage), Aenderung am 09.02. von 23,5 -> 25,5:
- *   (23,5 / 28 * 8) + (25,5 / 28 * 20) = 6,71 + 18,21 = 24,93
+ * Beispiel Bergen Eduard, Jan 2026 (31 Tage), Aenderung am 05.01. von 20.5 -> 25.5:
+ *   (20.5 × 4 / 31) + (25.5 × 27 / 31) = 2.645 + 22.210 = 24.855
  *
- * Diese Funktion liefert pro Monat den pauschalen DB-Wert, den effektiven
- * Wert und eine vollstaendige Herleitung fuer die UI.
+ * Bei mehreren Aenderungen im selben Monat wird der Monat in Zeitsegmente
+ * zerlegt (Tag 1 bis Aenderung_1, Aenderung_1 bis Aenderung_2, …, letzte
+ * Aenderung bis Monatsende). Jedes Segment traegt seinen Wert × Tage /
+ * monatsTage bei.
+ *
+ * Kontextfrei zu `pauschal`: Der pauschale DB-Wert kann der alte ODER
+ * der neue Wert aus der Aenderungszeile sein (abhaengig von der Untis-
+ * Coverage-Regel, siehe v0.4.0 / periodCoverage.ts). Die frueher genutzte
+ * Formel `effektiv = pauschal + (gewichtet - neu)` ist daher nicht mehr
+ * zulaessig und wurde durch die direkte gewichtete Berechnung ersetzt.
  *
  * Rechtsgrundlage: § 3 Abs. 1 FESchVO — tagesgenaue Erfassung.
  */
@@ -60,9 +71,9 @@ export interface KorrekturAnteil {
   tageVor: number;
   /** Tage ab der Aenderung (tag bis monatsEnde) */
   tageNach: number;
-  /** Beitrag der "Alt"-Werte zum effektiven Monatswert (alt / monatsTage * tageVor) */
+  /** Beitrag der "Alt"-Werte zum effektiven Monatswert (alt / monatsTage * tageVor). Nur bei Einzelaenderung mathematisch exakt — bei Mehrfachaenderungen dient es nur der Anzeige. */
   anteilAlt: DeputatWerte;
-  /** Beitrag der "Neu"-Werte zum effektiven Monatswert (neu / monatsTage * tageNach) */
+  /** Beitrag der "Neu"-Werte zum effektiven Monatswert (neu / monatsTage * tageNach). Wie anteilAlt: bei Mehrfachaenderungen nur Anzeige-Helfer. */
   anteilNeu: DeputatWerte;
 }
 
@@ -71,7 +82,7 @@ export interface MonatsDeputatErgebnis {
   monatsTage: number;
   pauschal: DeputatWerte;
   effektiv: DeputatWerte;
-  /** Differenz effektiv - pauschal pro Spalte (negativ wenn effektiv kleiner) */
+  /** Differenz effektiv - pauschal pro Spalte (informativ — Abweichung der DB-Pauschale zum taggenauen Wert). */
   korrektur: DeputatWerte;
   hatKorrektur: boolean;
   /** Einzelne Aenderungen (meist 1, in seltenen Faellen mehrere pro Monat) */
@@ -90,6 +101,82 @@ function tagFromIsoDate(iso: string): number {
   return parseInt(dd, 10);
 }
 
+/** Einzelnes Zeitsegment im Monat mit konstantem Deputat. */
+interface Segment {
+  startTag: number;   // inklusiv
+  endeTag: number;    // inklusiv
+  werte: DeputatWerte;
+}
+
+/**
+ * Zerlegt einen Monat in Zeitsegmente entlang der Aenderungs-Tage.
+ *
+ * - Vor der 1. Aenderung: `alt` der 1. Aenderung
+ * - Zwischen Aenderung i und i+1: `neu` der i-ten Aenderung
+ * - Nach der letzten Aenderung: `neu` der letzten
+ */
+function bildeSegmente(
+  aenderungen: Array<AenderungInput & { tag: number }>,
+  monatsTage: number
+): Segment[] {
+  if (aenderungen.length === 0) return [];
+
+  const sortiert = [...aenderungen].sort((a, b) => a.tag - b.tag);
+  const segmente: Segment[] = [];
+
+  // Segment vor der ersten Aenderung
+  const erste = sortiert[0];
+  if (erste.tag > 1) {
+    segmente.push({
+      startTag: 1,
+      endeTag: Math.min(monatsTage, erste.tag - 1),
+      werte: {
+        gesamt: n(erste.deputatGesamtAlt),
+        ges: n(erste.deputatGesAlt),
+        gym: n(erste.deputatGymAlt),
+        bk: n(erste.deputatBkAlt),
+      },
+    });
+  }
+
+  // Segmente zwischen und nach Aenderungen
+  for (let i = 0; i < sortiert.length; i++) {
+    const a = sortiert[i];
+    const naechste = sortiert[i + 1];
+    const startTag = Math.max(1, Math.min(monatsTage, a.tag));
+    const endeTag = naechste
+      ? Math.min(monatsTage, naechste.tag - 1)
+      : monatsTage;
+    if (endeTag < startTag) continue;
+    segmente.push({
+      startTag,
+      endeTag,
+      werte: {
+        gesamt: n(a.deputatGesamtNeu),
+        ges: n(a.deputatGesNeu),
+        gym: n(a.deputatGymNeu),
+        bk: n(a.deputatBkNeu),
+      },
+    });
+  }
+
+  return segmente;
+}
+
+/** Gewichteter Monatswert aus Segmenten: Σ (wert × tage) / monatsTage */
+function effektivAusSegmenten(segmente: Segment[], monatsTage: number): DeputatWerte {
+  const sum: DeputatWerte = { gesamt: 0, ges: 0, gym: 0, bk: 0 };
+  for (const s of segmente) {
+    const tage = s.endeTag - s.startTag + 1;
+    const w = tage / monatsTage;
+    sum.gesamt += s.werte.gesamt * w;
+    sum.ges += s.werte.ges * w;
+    sum.gym += s.werte.gym * w;
+    sum.bk += s.werte.bk * w;
+  }
+  return sum;
+}
+
 /**
  * Berechnet fuer einen Lehrer pro Monat den effektiven Deputatswert.
  *
@@ -105,7 +192,6 @@ export function berechneLehrerDeputatEffektiv(
 ): Map<number, MonatsDeputatErgebnis> {
   const result = new Map<number, MonatsDeputatErgebnis>();
 
-  // Aenderungen mit tatsaechlichemDatum nach Monat+Tag sortieren
   const relevanteAenderungen = aenderungen
     .filter((a) => !!a.tatsaechlichesDatum)
     .map((a) => ({
@@ -145,17 +231,23 @@ export function berechneLehrerDeputatEffektiv(
       continue;
     }
 
-    // Pro Aenderung: Korrektur berechnen (gewichtet - pauschaler neu-Wert)
-    // Bei mehreren Aenderungen im selben Monat werden Korrekturen summiert.
-    // Das ist mathematisch korrekt solange Aenderungen nicht-ueberlappend sind
-    // (d.h. jeweils eine klare "neu ab Tag X" Semantik haben).
-    let korrGesamt = 0, korrGes = 0, korrGym = 0, korrBk = 0;
-    const anteile: KorrekturAnteil[] = [];
+    // Segmentierter effektiver Wert (direkt aus Aenderungen, NICHT pauschal+Korrektur)
+    const segmente = bildeSegmente(monatsAenderungen, monatsTage);
+    const effektiv = effektivAusSegmenten(segmente, monatsTage);
 
-    for (const a of monatsAenderungen) {
+    // Korrektur = nur noch Anzeige: Abweichung DB-Pauschal vs. taggenauem Wert
+    const korrektur: DeputatWerte = {
+      gesamt: effektiv.gesamt - pauschal.gesamt,
+      ges: effektiv.ges - pauschal.ges,
+      gym: effektiv.gym - pauschal.gym,
+      bk: effektiv.bk - pauschal.bk,
+    };
+
+    // Anteile pro Aenderung fuer UI (Tooltip/Herleitung) — bei Einzeländerung
+    // exakt, bei Mehrfachaenderung nur eine vereinfachte Einzelansicht.
+    const anteile: KorrekturAnteil[] = monatsAenderungen.map((a) => {
       const tageVor = Math.max(0, Math.min(monatsTage, a.tag - 1));
       const tageNach = Math.max(0, monatsTage - tageVor);
-
       const alt: DeputatWerte = {
         gesamt: n(a.deputatGesamtAlt),
         ges: n(a.deputatGesAlt),
@@ -168,55 +260,33 @@ export function berechneLehrerDeputatEffektiv(
         gym: n(a.deputatGymNeu),
         bk: n(a.deputatBkNeu),
       };
-
-      const anteilAlt: DeputatWerte = {
-        gesamt: (alt.gesamt / monatsTage) * tageVor,
-        ges: (alt.ges / monatsTage) * tageVor,
-        gym: (alt.gym / monatsTage) * tageVor,
-        bk: (alt.bk / monatsTage) * tageVor,
-      };
-      const anteilNeu: DeputatWerte = {
-        gesamt: (neu.gesamt / monatsTage) * tageNach,
-        ges: (neu.ges / monatsTage) * tageNach,
-        gym: (neu.gym / monatsTage) * tageNach,
-        bk: (neu.bk / monatsTage) * tageNach,
-      };
-
-      // Gewichteter Gesamt-Monatswert fuer diese Aenderung
-      const gewGesamt = anteilAlt.gesamt + anteilNeu.gesamt;
-      const gewGes = anteilAlt.ges + anteilNeu.ges;
-      const gewGym = anteilAlt.gym + anteilNeu.gym;
-      const gewBk = anteilAlt.bk + anteilNeu.bk;
-
-      // Korrektur = gewichteterWert - pauschal(neu)  (pauschal in DB = letzter neu-Wert)
-      korrGesamt += gewGesamt - neu.gesamt;
-      korrGes += gewGes - neu.ges;
-      korrGym += gewGym - neu.gym;
-      korrBk += gewBk - neu.bk;
-
-      anteile.push({
+      return {
         tag: a.tag,
         datum: a.tatsaechlichesDatum!,
-        alt, neu,
-        tageVor, tageNach,
-        anteilAlt, anteilNeu,
-      });
-    }
+        alt,
+        neu,
+        tageVor,
+        tageNach,
+        anteilAlt: {
+          gesamt: (alt.gesamt / monatsTage) * tageVor,
+          ges: (alt.ges / monatsTage) * tageVor,
+          gym: (alt.gym / monatsTage) * tageVor,
+          bk: (alt.bk / monatsTage) * tageVor,
+        },
+        anteilNeu: {
+          gesamt: (neu.gesamt / monatsTage) * tageNach,
+          ges: (neu.ges / monatsTage) * tageNach,
+          gym: (neu.gym / monatsTage) * tageNach,
+          bk: (neu.bk / monatsTage) * tageNach,
+        },
+      };
+    });
 
-    const korrektur: DeputatWerte = {
-      gesamt: korrGesamt, ges: korrGes, gym: korrGym, bk: korrBk,
-    };
-    const effektiv: DeputatWerte = {
-      gesamt: pauschal.gesamt + korrGesamt,
-      ges: pauschal.ges + korrGes,
-      gym: pauschal.gym + korrGym,
-      bk: pauschal.bk + korrBk,
-    };
     const hatKorrektur =
-      Math.abs(korrGesamt) > 0.001 ||
-      Math.abs(korrGes) > 0.001 ||
-      Math.abs(korrGym) > 0.001 ||
-      Math.abs(korrBk) > 0.001;
+      Math.abs(korrektur.gesamt) > 0.001 ||
+      Math.abs(korrektur.ges) > 0.001 ||
+      Math.abs(korrektur.gym) > 0.001 ||
+      Math.abs(korrektur.bk) > 0.001;
 
     result.set(md.monat, {
       monat: md.monat,
