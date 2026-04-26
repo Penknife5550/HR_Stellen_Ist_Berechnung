@@ -301,14 +301,44 @@ Beim n8n-Sync laeuft der eingehende Code durch eine Whitelist-Pruefung (`normali
 - nur Codes aus der `statistik_codes`-Tabelle werden uebernommen
 - unbekannte Codes werden verworfen (Schutz vor FK-Verletzung)
 - bei Update: bestehender Code bleibt erhalten falls Untis leer/ungueltig liefert (Datenverlust-Schutz)
-- jeder Code-Wechsel wird im Audit-Log protokolliert (relevant fuer arbeitsrechtliche Nachvollziehbarkeit)
+- jeder Code-Wechsel wird im Audit-Log protokolliert (relevant fuer arbeitsrechtliche Nachvollziehbarkeit). Die Audit-Schreibvorgaenge laufen parallel via `Promise.all` und sind durch internes try/catch in `writeAuditLog` gegen Hauptoperations-Abbruch geschuetzt.
 
 ### 10.4 UI-Sichtbarkeit
-- **Mitarbeiterliste** (`/mitarbeiter`): Spalte "Code" mit farblicher Badge (blau = Beamte, gelb = Angestellte). Filter nach Gruppe oder Code via URL-Parameter `?gruppe=` / `?code=` / `?schule=`.
+- **Mitarbeiterliste** (`/mitarbeiter`): Spalte "Code" mit farblicher Badge (blau = Beamte, gelb = Angestellte). Filter nach Gruppe oder Code via URL-Parameter `?gruppe=` / `?code=` / `?schule=`. URL-Parameter werden als lazy useState-Initializer gelesen (kein useEffect).
 - **Lehrer-Detailseite** (`/deputate/[id]`): Code + Bezeichnung im Header.
-- **Dashboard-Karte** "Personalstruktur": Aufsplittung pro Code, mit Schul-Tabs und 30-Tage-Trend (aus Audit-Log).
-- **Deputatsseite** (`/deputate`): Card "Deputatsstruktur" mit Schule-aussen-Gruppe-innen-Verteilung (Wochenstunden + Personenanzahl + Stacked-Bar).
+- **Dashboard-Karte** "Personalstruktur": Aufsplittung pro Code, mit Schul-Tabs (`role="tablist"` / `role="tab"` / `aria-selected`) und 30-Tage-Trend (aus Audit-Log).
+- **Deputatsseite** (`/deputate`): Card "Deputatsstruktur" mit Schule-aussen-Gruppe-innen-Verteilung (Wochenstunden + Personenanzahl + Stacked-Bar mit `role="img"` + `aria-label`).
 - **Stellenplan-Export** (`/api/export/stellenplan`): Excel-Sheet "Personalstruktur" + PDF-Seite mit Beamte/Angestellte-Aufteilung pro Schule.
+- **Statistik-Codes-Admin** (`/einstellungen/statistik-codes`): Inline-CRUD-Tabelle mit Toggle-Switches (`role="switch"` + `aria-checked`), Verwendungs-Counter, ConfirmDialog beim Deaktivieren verwendeter Codes.
 
-### 10.5 Tests
-`tests/lib/statistikCode.test.ts` deckt 18 Faelle ab: Whitelist-Normalisierung (Insert/Update, Datenverlust-Schutz, Trim/Uppercase) und Personalstruktur-Aggregation (Gruppen-Mapping, Ohne-Code-Fallback, Sortierung, leere Schulen).
+### 10.5 Architektur — Pure Helpers
+Alle Aggregations- und Normalisierungs-Logik liegt als reine Funktionen in `src/lib/statistikCode.ts` (Single Source of Truth):
+
+| Helper | Zweck |
+|--------|-------|
+| `normalizeStatistikCode` | Whitelist-Pruefung beim Sync (trim/upper, Datenverlust-Schutz) |
+| `detectStatistikCodeChange` | Erkennt ob Audit-Eintrag fuer Code-Wechsel geschrieben werden muss |
+| `buildPersonalstruktur` | Aggregation Lehrer-Anzahl pro Schule x Gruppe (Dashboard, Export) |
+| `buildDeputatStruktur` | Aggregation Wochenstunden pro Schule x Gruppe (Deputatsseite) |
+| `summePersonalstruktur` / `summeDeputatStruktur` | Gesamtzeilen-Reducer |
+| `isStatistikGruppe` | Type Guard fuer "beamter" / "angestellter" / "sonstiges" |
+| `STATISTIK_GRUPPEN` / `GRUPPE_LABEL` / `GRUPPE_FARBEN` | Zentrale Konstanten |
+| `StatistikCodeInfo` | Geteilter Type fuer Card-, Admin-, Export-Komponenten |
+
+### 10.6 Datenbank
+- Migration 0006: Tabelle `statistik_codes` + FK `lehrer.statistik_code` (`onDelete: restrict`, `onUpdate: cascade`).
+- Migration 0007: Composite-Index `audit_log (tabelle, aktion, zeitpunkt DESC)` fuer den 30-Tage-Trend auf der Dashboard-Karte.
+- Schlanke Query `getLehrerStatistikGruppen()` fuer Aggregations-Use-Cases (lehrerId/stammschuleId/gruppe ohne Schul-Join).
+- `getStatistikCodeUebersicht()` parallelisiert seine 4 Sub-Queries via `Promise.all`.
+
+### 10.7 Sicherheits- und Audit-Verhalten
+- Alle CRUD-Server-Actions sind durch `requireAdmin` geschuetzt; `mitarbeiter/actions.ts` zusaetzlich durch `requireWriteAccess` + FK-Existenzcheck gegen `statistik_codes` (deutsche Fehlermeldung statt FK-Crash).
+- Audit-Log-Vorher-Werte werden bei `update`/`toggle` aus der DB gelesen (nicht aus dem Request-Bool invertiert).
+- PostgreSQL-Errorcodes werden explizit gepruef: `23505` (Unique Violation) → "Code existiert bereits", `23503` (FK Violation) → "Code wird verwendet". Kein String-Matching auf Fehlermeldungen mehr.
+- Confirm-Dialog (`src/components/ui/ConfirmDialog.tsx`) ersetzt natives `window.confirm()` — accessible (`role="dialog"`, Focus, Esc-Handling).
+
+### 10.8 Tests
+175 Tests insgesamt (vorher 131), davon 44 fuer Statistik-Codes:
+- `tests/lib/statistikCode.test.ts` (50): Whitelist-Normalisierung, Code-Wechsel-Detect, Personalstruktur-/Deputatstruktur-Aggregation, Type-Guard.
+- `tests/lib/statistikCodeValidation.test.ts` (16): Zod-Schemas (Code-Format, Bezeichnung, Gruppe, Sortierung mit deutscher NaN-Meldung).
+- `tests/lib/statistikCodeActions.test.ts` (10): Server Actions mit gemocktem `requireAdmin`/`writeAuditLog`/DB — Auth-Block, ValidationFail, HappyPath-mit-Audit, PG-Errorcode-Uebersetzung, Vorher-Wert-aus-DB.
