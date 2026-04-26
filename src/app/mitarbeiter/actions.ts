@@ -2,12 +2,27 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { lehrer } from "@/db/schema";
+import { lehrer, statistikCodes } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { createLehrerManuell, updateLehrerManuell, upsertManuellDeputat, getAktuellesHaushaltsjahr } from "@/lib/db/queries";
 import { createLehrerManualSchema, safeFormNumber } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
+
+/**
+ * Prueft ob ein Statistik-Code existiert und aktiv ist.
+ * Liefert null bei OK oder eine deutsche Fehlermeldung.
+ */
+async function validateStatistikCode(code: string | undefined | null): Promise<string | null> {
+  if (!code) return null;
+  const [row] = await db
+    .select({ aktiv: statistikCodes.aktiv })
+    .from(statistikCodes)
+    .where(eq(statistikCodes.code, code));
+  if (!row) return `Statistik-Code "${code}" existiert nicht.`;
+  if (!row.aktiv) return `Statistik-Code "${code}" ist deaktiviert.`;
+  return null;
+}
 
 export async function createLehrerAction(formData: FormData) {
   const session = await requireWriteAccess();
@@ -26,6 +41,9 @@ export async function createLehrerAction(formData: FormData) {
       const firstError = parsed.error.issues[0]?.message ?? "Validierungsfehler.";
       return { error: firstError };
     }
+
+    const codeError = await validateStatistikCode(parsed.data.statistikCode);
+    if (codeError) return { error: codeError };
 
     const result = await createLehrerManuell(parsed.data);
 
@@ -85,6 +103,9 @@ export async function updateLehrerAction(formData: FormData) {
       const firstError = parsed.error.issues[0]?.message ?? "Validierungsfehler.";
       return { error: firstError };
     }
+
+    const codeError = await validateStatistikCode(parsed.data.statistikCode);
+    if (codeError) return { error: codeError };
 
     const result = await updateLehrerManuell(id, parsed.data);
     if (!result) return { error: "Lehrkraft konnte nicht aktualisiert werden." };

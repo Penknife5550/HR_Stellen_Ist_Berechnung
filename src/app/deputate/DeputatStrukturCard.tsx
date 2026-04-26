@@ -1,24 +1,7 @@
 import { Card } from "@/components/ui/Card";
+import { GRUPPE_FARBEN, summeDeputatStruktur, type DeputatStrukturRow } from "@/lib/statistikCode";
 
-const GRUPPE_FARBEN = {
-  beamter: { bg: "#009AC6", soft: "#E0F2FB", text: "white" },
-  angestellter: { bg: "#FBC900", soft: "#FEF7CC", text: "#1A1A1A" },
-  ohne: { bg: "#9CA3AF", soft: "#F3F4F6", text: "white" },
-} as const;
-
-export interface DeputatStrukturRow {
-  schuleId: number;
-  schulKurzname: string;
-  schulFarbe: string;
-  beamteAnzahl: number;
-  beamteStunden: number;
-  angestellteAnzahl: number;
-  angestellteStunden: number;
-  ohneAnzahl: number;
-  ohneStunden: number;
-  gesamtAnzahl: number;
-  gesamtStunden: number;
-}
+export type { DeputatStrukturRow };
 
 interface Props {
   rows: DeputatStrukturRow[];
@@ -32,34 +15,7 @@ function fmtH(n: number): string {
 export function DeputatStrukturCard({ rows, jahr }: Props) {
   if (rows.length === 0) return null;
 
-  const total: DeputatStrukturRow = rows.reduce(
-    (acc, r) => ({
-      schuleId: 0,
-      schulKurzname: "Gesamt",
-      schulFarbe: "#575756",
-      beamteAnzahl: acc.beamteAnzahl + r.beamteAnzahl,
-      beamteStunden: acc.beamteStunden + r.beamteStunden,
-      angestellteAnzahl: acc.angestellteAnzahl + r.angestellteAnzahl,
-      angestellteStunden: acc.angestellteStunden + r.angestellteStunden,
-      ohneAnzahl: acc.ohneAnzahl + r.ohneAnzahl,
-      ohneStunden: acc.ohneStunden + r.ohneStunden,
-      gesamtAnzahl: acc.gesamtAnzahl + r.gesamtAnzahl,
-      gesamtStunden: acc.gesamtStunden + r.gesamtStunden,
-    }),
-    {
-      schuleId: 0,
-      schulKurzname: "Gesamt",
-      schulFarbe: "#575756",
-      beamteAnzahl: 0,
-      beamteStunden: 0,
-      angestellteAnzahl: 0,
-      angestellteStunden: 0,
-      ohneAnzahl: 0,
-      ohneStunden: 0,
-      gesamtAnzahl: 0,
-      gesamtStunden: 0,
-    },
-  );
+  const total = summeDeputatStruktur(rows);
 
   return (
     <Card className="mb-4">
@@ -176,25 +132,28 @@ function SchulRow({ row }: { row: DeputatStrukturRow }) {
 function Stacked({ row }: { row: DeputatStrukturRow }) {
   const total = row.gesamtStunden;
   if (total <= 0) {
-    return <div className="h-2 rounded-full bg-[#F3F4F6]" />;
+    return <div className="h-2 rounded-full bg-[#F3F4F6]" aria-hidden="true" />;
   }
   const beamtePct = (row.beamteStunden / total) * 100;
   const angPct = (row.angestellteStunden / total) * 100;
   const ohnePct = (row.ohneStunden / total) * 100;
+  const ariaLabel = `Beamte ${beamtePct.toFixed(0)} Prozent, Angestellte ${angPct.toFixed(0)} Prozent, ohne Code ${ohnePct.toFixed(0)} Prozent`;
 
   return (
     <div
+      role="img"
+      aria-label={ariaLabel}
       className="h-2 rounded-full overflow-hidden flex"
       title={`Beamte ${beamtePct.toFixed(1)}% · Angestellte ${angPct.toFixed(1)}% · Ohne ${ohnePct.toFixed(1)}%`}
     >
       {beamtePct > 0 && (
-        <div style={{ width: `${beamtePct}%`, backgroundColor: GRUPPE_FARBEN.beamter.bg }} />
+        <div aria-hidden="true" style={{ width: `${beamtePct}%`, backgroundColor: GRUPPE_FARBEN.beamter.bg }} />
       )}
       {angPct > 0 && (
-        <div style={{ width: `${angPct}%`, backgroundColor: GRUPPE_FARBEN.angestellter.bg }} />
+        <div aria-hidden="true" style={{ width: `${angPct}%`, backgroundColor: GRUPPE_FARBEN.angestellter.bg }} />
       )}
       {ohnePct > 0 && (
-        <div style={{ width: `${ohnePct}%`, backgroundColor: GRUPPE_FARBEN.ohne.bg }} />
+        <div aria-hidden="true" style={{ width: `${ohnePct}%`, backgroundColor: GRUPPE_FARBEN.ohne.bg }} />
       )}
     </div>
   );

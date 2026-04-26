@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeStatistikCode,
+  detectStatistikCodeChange,
   buildPersonalstruktur,
   summePersonalstruktur,
+  buildDeputatStruktur,
+  summeDeputatStruktur,
+  isStatistikGruppe,
+  STATISTIK_GRUPPEN,
 } from "@/lib/statistikCode";
 
 describe("normalizeStatistikCode", () => {
@@ -60,6 +65,43 @@ describe("normalizeStatistikCode", () => {
     // Untis liefert leeres Feld → Lehrer behaelt seinen Code
     const r = normalizeStatistikCode(null, valid, "LT");
     expect(r.valueForUpdate).toBe("LT");
+  });
+});
+
+describe("detectStatistikCodeChange (Sync-Audit-Trigger)", () => {
+  it("erkennt echten Code-Wechsel", () => {
+    expect(detectStatistikCodeChange("L", "LT")).toBe(true);
+  });
+
+  it("erkennt Wechsel von null auf Code (Erstvergabe)", () => {
+    expect(detectStatistikCodeChange(null, "L")).toBe(true);
+  });
+
+  it("erkennt Wechsel von Code auf null (Code wurde entzogen)", () => {
+    expect(detectStatistikCodeChange("L", null)).toBe(true);
+  });
+
+  it("liefert false bei identischem Code", () => {
+    expect(detectStatistikCodeChange("L", "L")).toBe(false);
+  });
+
+  it("behandelt undefined und null gleich", () => {
+    expect(detectStatistikCodeChange(undefined, null)).toBe(false);
+    expect(detectStatistikCodeChange(null, undefined)).toBe(false);
+    expect(detectStatistikCodeChange(undefined, undefined)).toBe(false);
+  });
+
+  it("Sync-Datenverlust-Schutz: existing bleibt, kein Audit", () => {
+    // Sync liefert leer, Whitelist verwirft → resolved fallt auf existing zurueck
+    const valid = new Set(["L", "LT"]);
+    const { valueForUpdate } = normalizeStatistikCode("", valid, "L");
+    expect(detectStatistikCodeChange("L", valueForUpdate)).toBe(false);
+  });
+
+  it("Sync mit gueltigem Wechsel: Audit wird ausgeloest", () => {
+    const valid = new Set(["L", "LT"]);
+    const { valueForUpdate } = normalizeStatistikCode("LT", valid, "L");
+    expect(detectStatistikCodeChange("L", valueForUpdate)).toBe(true);
   });
 });
 
@@ -198,5 +240,121 @@ describe("summePersonalstruktur", () => {
     expect(sum.beamteGesamt).toBe(0);
     expect(sum.angestellteGesamt).toBe(0);
     expect(sum.ohne).toBe(0);
+  });
+});
+
+describe("buildDeputatStruktur", () => {
+  const schulen = [
+    { id: 1, kurzname: "GES", farbe: "#6BAA24" },
+    { id: 2, kurzname: "GYM", farbe: "#FBC900" },
+  ];
+
+  it("aggregiert Stunden pro Schule und Gruppe", () => {
+    const result = buildDeputatStruktur({
+      schulen,
+      lehrer: [
+        { lehrerId: 1, stammschuleId: 1, gruppe: "beamter", avgStunden: 25 },
+        { lehrerId: 2, stammschuleId: 1, gruppe: "beamter", avgStunden: 28 },
+        { lehrerId: 3, stammschuleId: 1, gruppe: "angestellter", avgStunden: 14 },
+        { lehrerId: 4, stammschuleId: 2, gruppe: null, avgStunden: 12 },
+      ],
+    });
+    const ges = result.find((r) => r.schulKurzname === "GES")!;
+    expect(ges.beamteAnzahl).toBe(2);
+    expect(ges.beamteStunden).toBe(53);
+    expect(ges.angestellteAnzahl).toBe(1);
+    expect(ges.angestellteStunden).toBe(14);
+    expect(ges.ohneAnzahl).toBe(0);
+    expect(ges.gesamtAnzahl).toBe(3);
+    expect(ges.gesamtStunden).toBe(67);
+
+    const gym = result.find((r) => r.schulKurzname === "GYM")!;
+    expect(gym.ohneAnzahl).toBe(1);
+    expect(gym.ohneStunden).toBe(12);
+    expect(gym.gesamtAnzahl).toBe(1);
+  });
+
+  it("filtert Schulen ohne Lehrer aus", () => {
+    const result = buildDeputatStruktur({
+      schulen,
+      lehrer: [{ lehrerId: 1, stammschuleId: 1, gruppe: "beamter", avgStunden: 20 }],
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].schulKurzname).toBe("GES");
+  });
+
+  it("ignoriert Lehrer mit avgStunden <= 0", () => {
+    const result = buildDeputatStruktur({
+      schulen: [schulen[0]],
+      lehrer: [
+        { lehrerId: 1, stammschuleId: 1, gruppe: "beamter", avgStunden: 0 },
+        { lehrerId: 2, stammschuleId: 1, gruppe: "beamter", avgStunden: -5 },
+        { lehrerId: 3, stammschuleId: 1, gruppe: "beamter", avgStunden: 10 },
+      ],
+    });
+    expect(result[0].gesamtAnzahl).toBe(1);
+    expect(result[0].gesamtStunden).toBe(10);
+  });
+
+  it("ignoriert Lehrer ohne Stammschule", () => {
+    const result = buildDeputatStruktur({
+      schulen: [schulen[0]],
+      lehrer: [
+        { lehrerId: 1, stammschuleId: null, gruppe: "beamter", avgStunden: 25 },
+        { lehrerId: 2, stammschuleId: 1, gruppe: "beamter", avgStunden: 25 },
+      ],
+    });
+    expect(result[0].gesamtAnzahl).toBe(1);
+  });
+
+  it("sortiert Schulen alphabetisch (de-DE)", () => {
+    const result = buildDeputatStruktur({
+      schulen: [
+        { id: 1, kurzname: "GYM", farbe: "#FBC900" },
+        { id: 2, kurzname: "BK", farbe: "#5C82A5" },
+        { id: 3, kurzname: "GES", farbe: "#6BAA24" },
+      ],
+      lehrer: [
+        { lehrerId: 1, stammschuleId: 1, gruppe: "beamter", avgStunden: 10 },
+        { lehrerId: 2, stammschuleId: 2, gruppe: "beamter", avgStunden: 10 },
+        { lehrerId: 3, stammschuleId: 3, gruppe: "beamter", avgStunden: 10 },
+      ],
+    });
+    expect(result.map((r) => r.schulKurzname)).toEqual(["BK", "GES", "GYM"]);
+  });
+
+  it("rundet Stunden auf 1 Dezimalstelle", () => {
+    const result = buildDeputatStruktur({
+      schulen: [schulen[0]],
+      lehrer: [{ lehrerId: 1, stammschuleId: 1, gruppe: "beamter", avgStunden: 25.456 }],
+    });
+    expect(result[0].beamteStunden).toBe(25.5);
+  });
+});
+
+describe("summeDeputatStruktur", () => {
+  it("liefert Gesamtzeile bei leerer Liste", () => {
+    const sum = summeDeputatStruktur([]);
+    expect(sum.schulKurzname).toBe("Gesamt");
+    expect(sum.gesamtStunden).toBe(0);
+  });
+});
+
+describe("isStatistikGruppe", () => {
+  it("akzeptiert alle definierten Gruppen", () => {
+    for (const g of STATISTIK_GRUPPEN) {
+      expect(isStatistikGruppe(g)).toBe(true);
+    }
+  });
+
+  it("verwirft unbekannte Strings", () => {
+    expect(isStatistikGruppe("honorarkraft")).toBe(false);
+    expect(isStatistikGruppe("")).toBe(false);
+  });
+
+  it("verwirft Nicht-Strings", () => {
+    expect(isStatistikGruppe(null)).toBe(false);
+    expect(isStatistikGruppe(undefined)).toBe(false);
+    expect(isStatistikGruppe(42)).toBe(false);
   });
 });

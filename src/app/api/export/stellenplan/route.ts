@@ -86,21 +86,30 @@ export async function GET(request: NextRequest) {
 
 interface SchulSollDaten {
   schule: { id: number; kurzname: string; name: string; farbe: string };
-  ergebnisse: {
+  ergebnisse: ({
     zeitraum: string;
     grundstellenDetails: unknown;
     grundstellenGerundet: string | null;
     zuschlaegeSumme: string | null;
     stellensoll: string | null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    [key: string]: any;
-  }[];
+  } & Record<string, unknown>)[];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type IstRow = { schuleId: number; schulKurzname: string; zeitraum: string; stellenistGesamt: string | null; [key: string]: any };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type VergleichRow = { schulKurzname: string; stellensoll: string | null; stellenist: string | null; differenz: string | null; status: string | null; refinanzierung: string | null; [key: string]: any };
+type IstRow = {
+  schuleId: number;
+  schulKurzname: string;
+  zeitraum: string;
+  stellenistGesamt: string | null;
+} & Record<string, unknown>;
+
+type VergleichRow = {
+  schulKurzname: string;
+  stellensoll: string | null;
+  stellenist: string | null;
+  differenz: string | null;
+  status: string | null;
+  refinanzierung: string | null;
+} & Record<string, unknown>;
 
 async function generateExcel(
   sollProSchule: SchulSollDaten[],

@@ -278,6 +278,11 @@ export const stellenartTypCreateSchema = z.object({
 // STATISTIK-CODES (NRW Personalstatistik)
 // ============================================================
 
+const sortierungSchema = z
+  .number({ error: "Sortierung muss eine Zahl sein." })
+  .int("Sortierung muss eine ganze Zahl sein.")
+  .min(0, "Sortierung darf nicht negativ sein.");
+
 export const statistikCodeCreateSchema = z.object({
   code: z
     .string()
@@ -287,7 +292,7 @@ export const statistikCodeCreateSchema = z.object({
   bezeichnung: z.string().min(1, "Bezeichnung erforderlich.").max(150),
   gruppe: z.enum(["beamter", "angestellter", "sonstiges"]),
   istTeilzeit: z.boolean().default(false),
-  sortierung: z.number().int().min(0).default(0),
+  sortierung: sortierungSchema.default(0),
   bemerkung: z.string().max(1000).optional(),
 });
 
@@ -295,7 +300,7 @@ export const statistikCodeUpdateSchema = z.object({
   bezeichnung: z.string().min(1, "Bezeichnung erforderlich.").max(150),
   gruppe: z.enum(["beamter", "angestellter", "sonstiges"]),
   istTeilzeit: z.boolean(),
-  sortierung: z.number().int().min(0),
+  sortierung: sortierungSchema,
   bemerkung: z.string().max(1000).optional(),
 });
 

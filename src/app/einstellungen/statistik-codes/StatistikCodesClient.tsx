@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil, X, Check } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   createStatistikCodeAction,
   updateStatistikCodeAction,
@@ -43,6 +44,7 @@ export function StatistikCodesClient({ codes }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [confirmDeactivate, setConfirmDeactivate] = useState<StatistikCode | null>(null);
 
   const [addForm, setAddForm] = useState({
     code: "",
@@ -120,12 +122,7 @@ export function StatistikCodesClient({ codes }: Props) {
     });
   };
 
-  const handleToggleAktiv = (c: StatistikCode) => {
-    if (c.aktiv && c.anzahlLehrer > 0) {
-      if (!confirm(`Code "${c.code}" wird derzeit von ${c.anzahlLehrer} Lehrkraft/Lehrkraeften verwendet. Wirklich deaktivieren?`)) {
-        return;
-      }
-    }
+  const performToggleAktiv = (c: StatistikCode) => {
     const fd = new FormData();
     fd.set("code", c.code);
     fd.set("aktiv", String(!c.aktiv));
@@ -141,10 +138,20 @@ export function StatistikCodesClient({ codes }: Props) {
     });
   };
 
+  const handleToggleAktiv = (c: StatistikCode) => {
+    if (c.aktiv && c.anzahlLehrer > 0) {
+      setConfirmDeactivate(c);
+      return;
+    }
+    performToggleAktiv(c);
+  };
+
   return (
     <div className="space-y-6">
       {message && (
         <div
+          role={message.type === "error" ? "alert" : "status"}
+          aria-live={message.type === "error" ? "assertive" : "polite"}
           className={`px-4 py-3 rounded-lg text-sm font-medium ${
             message.type === "success"
               ? "bg-green-50 text-green-800 border border-green-200"
@@ -318,19 +325,21 @@ export function StatistikCodesClient({ codes }: Props) {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
+                          aria-label={`Code ${c.code} speichern`}
                           onClick={() => handleUpdate(c)}
                           disabled={isPending}
                           className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors cursor-pointer"
                           title="Speichern"
                         >
-                          <Check size={16} />
+                          <Check size={16} aria-hidden="true" />
                         </button>
                         <button
+                          aria-label="Bearbeitung abbrechen"
                           onClick={() => setEditingCode(null)}
                           className="p-1.5 text-[#6B7280] hover:bg-gray-100 rounded transition-colors cursor-pointer"
                           title="Abbrechen"
                         >
-                          <X size={16} />
+                          <X size={16} aria-hidden="true" />
                         </button>
                       </div>
                     </td>
@@ -359,6 +368,9 @@ export function StatistikCodesClient({ codes }: Props) {
                   <td className="px-4 py-3 text-center text-sm font-medium text-[#1A1A1A]">{c.anzahlLehrer}</td>
                   <td className="px-4 py-3 text-center">
                     <button
+                      role="switch"
+                      aria-checked={c.aktiv}
+                      aria-label={`Code ${c.code} ${c.aktiv ? "deaktivieren" : "aktivieren"}`}
                       onClick={() => handleToggleAktiv(c)}
                       disabled={isPending}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
@@ -367,6 +379,7 @@ export function StatistikCodesClient({ codes }: Props) {
                       title={c.aktiv ? "Deaktivieren" : "Aktivieren"}
                     >
                       <span
+                        aria-hidden="true"
                         className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
                           c.aktiv ? "translate-x-4" : "translate-x-1"
                         }`}
@@ -375,12 +388,13 @@ export function StatistikCodesClient({ codes }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
+                      aria-label={`Code ${c.code} bearbeiten`}
                       onClick={() => startEdit(c)}
                       disabled={isPending}
                       className="p-1.5 text-[#6B7280] hover:text-[#1A1A1A] hover:bg-gray-100 rounded transition-colors cursor-pointer"
                       title="Bearbeiten"
                     >
-                      <Pencil size={16} />
+                      <Pencil size={16} aria-hidden="true" />
                     </button>
                   </td>
                 </tr>
@@ -400,6 +414,19 @@ export function StatistikCodesClient({ codes }: Props) {
         <strong>Hinweis:</strong> Der Code selbst kann nach Anlage nicht mehr geaendert werden, da er von Lehrer-Datensaetzen referenziert wird.
         Zum Aendern: neuen Code anlegen, betroffene Lehrkraefte umbuchen, alten Code deaktivieren.
       </div>
+
+      <ConfirmDialog
+        open={confirmDeactivate !== null}
+        title={`Code "${confirmDeactivate?.code}" deaktivieren?`}
+        message={`Dieser Code wird derzeit von ${confirmDeactivate?.anzahlLehrer ?? 0} Lehrkraft/Lehrkraeften verwendet. Beim Deaktivieren steht er nicht mehr fuer neue Lehrkraefte zur Auswahl. Bestehende Zuordnungen bleiben erhalten.`}
+        confirmLabel="Deaktivieren"
+        variant="danger"
+        onConfirm={() => {
+          if (confirmDeactivate) performToggleAktiv(confirmDeactivate);
+          setConfirmDeactivate(null);
+        }}
+        onCancel={() => setConfirmDeactivate(null)}
+      />
     </div>
   );
 }

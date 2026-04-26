@@ -3,13 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
-
-type CodeStamm = {
-  code: string;
-  bezeichnung: string;
-  gruppe: string;
-  istTeilzeit: boolean;
-};
+import { GRUPPE_FARBEN, type StatistikCodeInfo } from "@/lib/statistikCode";
 
 type PerCodeSchule = {
   code: string | null;
@@ -18,17 +12,11 @@ type PerCodeSchule = {
 };
 
 type Props = {
-  codes: CodeStamm[];
+  codes: StatistikCodeInfo[];
   schulen: string[];
   perCodeSchule: PerCodeSchule[];
   codeAenderungen30T: number;
 };
-
-const GRUPPE_FARBEN = {
-  beamter: { bg: "#009AC6", text: "white", soft: "#E0F2FB" },
-  angestellter: { bg: "#FBC900", text: "#1A1A1A", soft: "#FEF7CC" },
-  ohne: { bg: "#9CA3AF", text: "white", soft: "#F3F4F6" },
-} as const;
 
 type Tab = "alle" | string;
 
@@ -86,7 +74,7 @@ export function PersonalstrukturCard({
               className="inline-flex items-center gap-1 rounded-full bg-[#E0F2FB] px-2.5 py-1 text-xs text-[#009AC6] font-medium"
               title={`${codeAenderungen30T} Code-Änderungen via Untis-Sync in den letzten 30 Tagen`}
             >
-              <span>↻</span>
+              <span aria-hidden="true">↻</span>
               <span className="tabular-nums">{codeAenderungen30T} Code-Wechsel · 30T</span>
             </span>
           )}
@@ -98,7 +86,11 @@ export function PersonalstrukturCard({
       </div>
 
       {/* Schul-Tabs */}
-      <div className="mb-4 flex flex-wrap gap-1 rounded-lg border border-[#E5E7EB] p-1 bg-[#F9FAFB] w-fit">
+      <div
+        role="tablist"
+        aria-label="Schul-Filter"
+        className="mb-4 flex flex-wrap gap-1 rounded-lg border border-[#E5E7EB] p-1 bg-[#F9FAFB] w-fit"
+      >
         <TabButton active={tab === "alle"} onClick={() => setTab("alle")}>
           Alle
         </TabButton>
@@ -110,21 +102,28 @@ export function PersonalstrukturCard({
       </div>
 
       {/* Stacked-Bar */}
-      <div className="mb-2 flex h-2.5 overflow-hidden rounded-full bg-[#F3F4F6]">
+      <div
+        role="img"
+        aria-label={`Beamte ${beamteSumme} (${beamteBreite.toFixed(0)} Prozent), Angestellte ${angestellteSumme} (${angestellteBreite.toFixed(0)} Prozent), ohne Code ${ohneCode} (${ohneCodeBreite.toFixed(0)} Prozent)`}
+        className="mb-2 flex h-2.5 overflow-hidden rounded-full bg-[#F3F4F6]"
+      >
         {beamteBreite > 0 && (
           <div
+            aria-hidden="true"
             style={{ width: `${beamteBreite}%`, backgroundColor: GRUPPE_FARBEN.beamter.bg }}
             title={`Beamte: ${beamteSumme} (${beamteBreite.toFixed(0)}%)`}
           />
         )}
         {angestellteBreite > 0 && (
           <div
+            aria-hidden="true"
             style={{ width: `${angestellteBreite}%`, backgroundColor: GRUPPE_FARBEN.angestellter.bg }}
             title={`Angestellte: ${angestellteSumme} (${angestellteBreite.toFixed(0)}%)`}
           />
         )}
         {ohneCodeBreite > 0 && (
           <div
+            aria-hidden="true"
             style={{ width: `${ohneCodeBreite}%`, backgroundColor: GRUPPE_FARBEN.ohne.bg }}
             title={`Ohne Code: ${ohneCode} (${ohneCodeBreite.toFixed(0)}%)`}
           />
@@ -144,7 +143,6 @@ export function PersonalstrukturCard({
           summe={beamteSumme}
           codes={beamte}
           counts={counts}
-          tab={tab}
           schulQuery={schulQuery}
         />
         <Block
@@ -153,7 +151,6 @@ export function PersonalstrukturCard({
           summe={angestellteSumme}
           codes={angestellte}
           counts={counts}
-          tab={tab}
           schulQuery={schulQuery}
         />
       </div>
@@ -164,7 +161,7 @@ export function PersonalstrukturCard({
           href={`/mitarbeiter?gruppe=ohne${schulQuery}`}
           className="mt-5 flex items-center gap-3 rounded-lg border border-[#E2001A]/30 bg-red-50 p-3 hover:bg-red-100 transition-colors"
         >
-          <span className="text-lg">⚠</span>
+          <span className="text-lg" aria-hidden="true">⚠</span>
           <div className="flex-1 text-sm">
             <strong className="text-[#E2001A]">
               {ohneCode} {ohneCode === 1 ? "Lehrkraft" : "Lehrkräfte"} ohne Statistik-Code
@@ -192,6 +189,8 @@ function TabButton({
 }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${
         active ? "bg-[#1A1A1A] text-white" : "text-[#575756] hover:bg-white"
@@ -217,15 +216,13 @@ function Block({
   summe,
   codes,
   counts,
-  tab,
   schulQuery,
 }: {
   titel: string;
   farbe: string;
   summe: number;
-  codes: CodeStamm[];
+  codes: StatistikCodeInfo[];
   counts: Map<string | null, number>;
-  tab: Tab;
   schulQuery: string;
 }) {
   const gruppe = codes[0]?.gruppe ?? "";
@@ -251,7 +248,6 @@ function Block({
             key={c.code}
             stamm={c}
             anzahl={counts.get(c.code) ?? 0}
-            tab={tab}
             schulQuery={schulQuery}
           />
         ))}
@@ -265,9 +261,8 @@ function Tile({
   anzahl,
   schulQuery,
 }: {
-  stamm: CodeStamm;
+  stamm: StatistikCodeInfo;
   anzahl: number;
-  tab: Tab;
   schulQuery: string;
 }) {
   const farben = GRUPPE_FARBEN[stamm.gruppe as keyof typeof GRUPPE_FARBEN] ?? GRUPPE_FARBEN.ohne;

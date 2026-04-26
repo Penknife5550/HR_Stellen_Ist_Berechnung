@@ -1986,51 +1986,48 @@ export async function getStatistikCodesAktiv() {
  * Die Card aggregiert clientseitig je nach gewaehltem Schul-Tab.
  */
 export async function getStatistikCodeUebersicht() {
-  // 1. Stammdaten aller aktiven Codes
-  const codes = await db
-    .select({
-      code: statistikCodes.code,
-      bezeichnung: statistikCodes.bezeichnung,
-      gruppe: statistikCodes.gruppe,
-      istTeilzeit: statistikCodes.istTeilzeit,
-      sortierung: statistikCodes.sortierung,
-    })
-    .from(statistikCodes)
-    .where(eq(statistikCodes.aktiv, true))
-    .orderBy(asc(statistikCodes.sortierung));
-
-  // 2. Anzahl pro (Code, Schule)
-  const perCodeSchule = await db
-    .select({
-      code: lehrer.statistikCode,
-      schuleKurzname: schulen.kurzname,
-      anzahl: sql<number>`count(*)`,
-    })
-    .from(lehrer)
-    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
-    .where(eq(lehrer.aktiv, true))
-    .groupBy(lehrer.statistikCode, schulen.kurzname);
-
-  // 3. Trend: Code-Aenderungen letzte 30 Tage (aus audit_log)
-  const [trendRow] = await db
-    .select({ anzahl: sql<number>`count(*)` })
-    .from(auditLog)
-    .where(
-      and(
-        eq(auditLog.tabelle, "lehrer"),
-        eq(auditLog.aktion, "UPDATE"),
-        sql`${auditLog.alteWerte} ? 'statistikCode'`,
-        sql`${auditLog.zeitpunkt} > now() - interval '30 days'`,
+  // Alle 4 Queries parallel — sie sind unabhaengig.
+  const [codes, perCodeSchule, trendRows, aktiveSchulen] = await Promise.all([
+    db
+      .select({
+        code: statistikCodes.code,
+        bezeichnung: statistikCodes.bezeichnung,
+        gruppe: statistikCodes.gruppe,
+        istTeilzeit: statistikCodes.istTeilzeit,
+        sortierung: statistikCodes.sortierung,
+      })
+      .from(statistikCodes)
+      .where(eq(statistikCodes.aktiv, true))
+      .orderBy(asc(statistikCodes.sortierung)),
+    db
+      .select({
+        code: lehrer.statistikCode,
+        schuleKurzname: schulen.kurzname,
+        anzahl: sql<number>`count(*)`,
+      })
+      .from(lehrer)
+      .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
+      .where(eq(lehrer.aktiv, true))
+      .groupBy(lehrer.statistikCode, schulen.kurzname),
+    db
+      .select({ anzahl: sql<number>`count(*)` })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.tabelle, "lehrer"),
+          eq(auditLog.aktion, "UPDATE"),
+          sql`${auditLog.alteWerte} ? 'statistikCode'`,
+          sql`${auditLog.zeitpunkt} > now() - interval '30 days'`,
+        ),
       ),
-    );
-  const codeAenderungen30T = Number(trendRow?.anzahl ?? 0);
+    db
+      .select({ kurzname: schulen.kurzname })
+      .from(schulen)
+      .where(eq(schulen.aktiv, true))
+      .orderBy(asc(schulen.kurzname)),
+  ]);
 
-  // 4. Schulen-Liste (fuer Tab-Switch)
-  const aktiveSchulen = await db
-    .select({ kurzname: schulen.kurzname })
-    .from(schulen)
-    .where(eq(schulen.aktiv, true))
-    .orderBy(asc(schulen.kurzname));
+  const codeAenderungen30T = Number(trendRows[0]?.anzahl ?? 0);
 
   return {
     codes: codes.map((c) => ({
@@ -2047,6 +2044,22 @@ export async function getStatistikCodeUebersicht() {
     })),
     codeAenderungen30T,
   };
+}
+
+/**
+ * Schlanke Variante von getAlleLehrerMitDetails fuer Aggregations-Use-Cases:
+ * liefert nur lehrerId, stammschuleId, statistikGruppe (kein Schul-Join, keine Stammdaten).
+ */
+export async function getLehrerStatistikGruppen() {
+  return db
+    .select({
+      id: lehrer.id,
+      stammschuleId: lehrer.stammschuleId,
+      statistikGruppe: statistikCodes.gruppe,
+    })
+    .from(lehrer)
+    .leftJoin(statistikCodes, eq(lehrer.statistikCode, statistikCodes.code))
+    .where(eq(lehrer.aktiv, true));
 }
 
 // ============================================================

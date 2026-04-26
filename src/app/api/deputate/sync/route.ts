@@ -27,7 +27,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
 import { notify } from "@/lib/notifications";
 import { germanDateToIso, neuePeriodeGewinnt } from "@/lib/periodCoverage";
-import { normalizeStatistikCode } from "@/lib/statistikCode";
+import { normalizeStatistikCode, detectStatistikCodeChange } from "@/lib/statistikCode";
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -207,12 +207,12 @@ export async function POST(request: NextRequest) {
 
     // 8. Lehrer ohne gueltige Stammschule filtern (z.B. Code "Z")
     const gueltigeSchulen = new Set(alleSchulen.map((s) => s.untisCode?.toUpperCase()));
-    payload.lehrer = payload.lehrer.filter((l) => {
+    const gueltigeLehrer = payload.lehrer.filter((l) => {
       const code = l.stammschule?.toUpperCase();
       return code && gueltigeSchulen.has(code);
     });
 
-    if (payload.lehrer.length === 0) {
+    if (gueltigeLehrer.length === 0) {
       return NextResponse.json({
         success: true, verarbeitet: 0, fehler: 0, monate: monate.length,
         aenderungen: 0, gehaltsrelevant: 0,
@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 9. Bestehende Lehrer vorladen (Batch statt Einzel-Queries)
-    const teacherIds = payload.lehrer.map((l) => l.teacher_id);
+    const teacherIds = gueltigeLehrer.map((l) => l.teacher_id);
     const existingLehrer = await db
       .select()
       .from(schema.lehrer)
@@ -275,8 +275,8 @@ export async function POST(request: NextRequest) {
 
     // Batch-Groesse: 50 Lehrer pro Transaktion
     const BATCH_SIZE = 50;
-    for (let i = 0; i < payload.lehrer.length; i += BATCH_SIZE) {
-      const batch = payload.lehrer.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < gueltigeLehrer.length; i += BATCH_SIZE) {
+      const batch = gueltigeLehrer.slice(i, i + BATCH_SIZE);
 
       try {
         // Batch-lokale Zaehler — werden nur uebernommen wenn Transaktion erfolgreich
@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
                 lehrerId = existing.id;
 
                 // Wechsel des Statistik-Codes ist arbeitsrechtlich relevant — merken fuer Audit
-                if ((existing.statistikCode ?? null) !== statistikCodeForUpdate) {
+                if (detectStatistikCodeChange(existing.statistikCode, statistikCodeForUpdate)) {
                   statistikCodeChanges.push({
                     lehrerId: existing.id,
                     vollname: lehrerData.vollname,
@@ -511,7 +511,7 @@ export async function POST(request: NextRequest) {
     await db.insert(schema.deputatSyncLog).values({
       schuljahrText: payload.schuljahr_text ?? null,
       termId: payload.term_id ?? null,
-      anzahlLehrer: payload.lehrer.length,
+      anzahlLehrer: gueltigeLehrer.length,
       anzahlAenderungen: verarbeitet,
       status: fehler > 0 ? "partial" : "success",
       fehlerDetails: fehler > 0 ? `${fehler} Fehler aufgetreten` : null,
@@ -519,24 +519,27 @@ export async function POST(request: NextRequest) {
 
     // 12. Audit-Log
     await writeAuditLog("deputat_sync", 0, "INSERT", null, {
-      anzahlLehrer: payload.lehrer.length,
+      anzahlLehrer: gueltigeLehrer.length,
       verarbeitet,
       fehler,
       monate: monate.length,
       haushaltsjahre: hjLabels,
     }, "n8n");
 
-    // 12b. Statistik-Code-Wechsel einzeln auditieren (arbeitsrechtlich)
-    for (const change of statistikCodeChanges) {
-      await writeAuditLog(
-        "lehrer",
-        change.lehrerId,
-        "UPDATE",
-        { statistikCode: change.alt },
-        { statistikCode: change.neu, hinweis: "Aenderung via n8n-Sync (Untis StatisticCodes)" },
-        "n8n",
-      );
-    }
+    // 12b. Statistik-Code-Wechsel parallel auditieren (arbeitsrechtlich).
+    // writeAuditLog faengt eigene Fehler ab — die Hauptoperation bleibt erfolgreich.
+    await Promise.all(
+      statistikCodeChanges.map((change) =>
+        writeAuditLog(
+          "lehrer",
+          change.lehrerId,
+          "UPDATE",
+          { statistikCode: change.alt },
+          { statistikCode: change.neu, hinweis: "Aenderung via n8n-Sync (Untis StatisticCodes)" },
+          "n8n",
+        ),
+      ),
+    );
 
     // 13. Events ausloesen — aggregiert (ein Event pro Typ, Liste im Payload)
     if (neueLehrerEvents.length > 0) {

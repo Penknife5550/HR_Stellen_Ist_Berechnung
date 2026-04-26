@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -46,33 +46,62 @@ type Props = {
   statistikCodes: StatistikCodeOption[];
 };
 
+function StatistikCodeSelect({
+  codes,
+  defaultValue = "",
+  className,
+  angestellteLabel = "Angestellte TV-L",
+}: {
+  codes: StatistikCodeOption[];
+  defaultValue?: string;
+  className: string;
+  angestellteLabel?: string;
+}) {
+  const beamte = codes.filter((c) => c.gruppe === "beamter");
+  const angestellte = codes.filter((c) => c.gruppe === "angestellter");
+  return (
+    <select name="statistikCode" defaultValue={defaultValue} className={className}>
+      <option value="">— Kein Code —</option>
+      <optgroup label="Beamte">
+        {beamte.map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.code} — {c.bezeichnung}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label={angestellteLabel}>
+        {angestellte.map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.code} — {c.bezeichnung}
+          </option>
+        ))}
+      </optgroup>
+    </select>
+  );
+}
+
 export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
   const searchParams = useSearchParams();
+  // Initial-Filter aus URL (?gruppe=&code=&schule=) — Deeplink vom Dashboard
+  const initialGruppe = (() => {
+    const g = searchParams.get("gruppe");
+    return g === "beamter" || g === "angestellter" || g === "ohne" || g === "alle" ? g : "alle";
+  })();
+  const initialCode = searchParams.get("code")?.toUpperCase() ?? null;
+  const initialSchuleParam = searchParams.get("schule");
+  const initialSchule: number | "alle" = initialSchuleParam
+    ? schulen.find((sch) => sch.kurzname.toUpperCase() === initialSchuleParam.toUpperCase())?.id ?? "alle"
+    : "alle";
+
   const [search, setSearch] = useState("");
-  const [schoolFilter, setSchoolFilter] = useState<number | "alle">("alle");
+  const [schoolFilter, setSchoolFilter] = useState<number | "alle">(initialSchule);
   const [quelleFilter, setQuelleFilter] = useState<"alle" | "untis" | "manuell">("alle");
-  const [gruppeFilter, setGruppeFilter] = useState<"alle" | "beamter" | "angestellter" | "ohne">("alle");
-  const [codeFilter, setCodeFilter] = useState<string | null>(null);
+  const [gruppeFilter, setGruppeFilter] = useState<"alle" | "beamter" | "angestellter" | "ohne">(initialGruppe);
+  const [codeFilter, setCodeFilter] = useState<string | null>(initialCode);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Initial-Filter aus URL (?gruppe=&code=&schule=) — Deeplink vom Dashboard
-  useEffect(() => {
-    const g = searchParams.get("gruppe");
-    if (g === "beamter" || g === "angestellter" || g === "ohne" || g === "alle") {
-      setGruppeFilter(g);
-    }
-    const c = searchParams.get("code");
-    if (c) setCodeFilter(c.toUpperCase());
-
-    const s = searchParams.get("schule");
-    if (s) {
-      const match = schulen.find((sch) => sch.kurzname.toUpperCase() === s.toUpperCase());
-      if (match) setSchoolFilter(match.id);
-    }
-  }, [searchParams, schulen]);
 
   // Filter logic
   const filtered = lehrer.filter((l) => {
@@ -112,6 +141,8 @@ export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
       {/* Message */}
       {message && (
         <div
+          role={message.type === "error" ? "alert" : "status"}
+          aria-live={message.type === "error" ? "assertive" : "polite"}
           className={`mb-4 p-3 rounded-lg text-sm ${
             message.type === "success"
               ? "bg-green-50 border border-green-200 text-green-800"
@@ -200,14 +231,14 @@ export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
 
         {/* Code filter chip (nur sichtbar bei aktivem Code-Deeplink) */}
         {codeFilter && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#1A1A1A] px-3 py-1.5 text-xs font-medium text-white">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#1A1A1A] pl-3 pr-1 py-1 text-xs font-medium text-white">
             Code: {codeFilter}
             <button
               onClick={() => setCodeFilter(null)}
-              className="text-white/70 hover:text-white"
+              className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white/70 hover:text-white hover:bg-white/10"
               aria-label="Code-Filter entfernen"
             >
-              ×
+              <span aria-hidden="true">×</span>
             </button>
           </span>
         )}
@@ -299,31 +330,10 @@ export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
                 <label className="block text-sm text-[#575756] mb-1">
                   Statistik-Code <span className="text-[#9CA3AF]">(Bezirksregierung)</span>
                 </label>
-                <select
-                  name="statistikCode"
-                  defaultValue=""
+                <StatistikCodeSelect
+                  codes={statistikCodes}
                   className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-[15px] min-h-[44px]"
-                >
-                  <option value="">— Kein Code —</option>
-                  <optgroup label="Beamte">
-                    {statistikCodes
-                      .filter((c) => c.gruppe === "beamter")
-                      .map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.code} — {c.bezeichnung}
-                        </option>
-                      ))}
-                  </optgroup>
-                  <optgroup label="Angestellte TV-L">
-                    {statistikCodes
-                      .filter((c) => c.gruppe === "angestellter")
-                      .map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.code} — {c.bezeichnung}
-                        </option>
-                      ))}
-                  </optgroup>
-                </select>
+                />
                 <span className="text-xs text-[#9CA3AF]">Pflicht für Bezirksregierungs-Export</span>
               </div>
             </div>
@@ -432,31 +442,12 @@ export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
                             </div>
                             <div>
                               <label className="block text-xs text-[#575756] mb-1">Code</label>
-                              <select
-                                name="statistikCode"
+                              <StatistikCodeSelect
+                                codes={statistikCodes}
                                 defaultValue={l.statistikCode ?? ""}
+                                angestellteLabel="Angestellte"
                                 className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2 text-[15px] min-h-[44px]"
-                              >
-                                <option value="">— Kein Code —</option>
-                                <optgroup label="Beamte">
-                                  {statistikCodes
-                                    .filter((c) => c.gruppe === "beamter")
-                                    .map((c) => (
-                                      <option key={c.code} value={c.code}>
-                                        {c.code} — {c.bezeichnung}
-                                      </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Angestellte">
-                                  {statistikCodes
-                                    .filter((c) => c.gruppe === "angestellter")
-                                    .map((c) => (
-                                      <option key={c.code} value={c.code}>
-                                        {c.code} — {c.bezeichnung}
-                                      </option>
-                                    ))}
-                                </optgroup>
-                              </select>
+                              />
                             </div>
                             <div>
                               <label className="block text-xs text-[#575756] mb-1">Deputat (Std.)</label>
