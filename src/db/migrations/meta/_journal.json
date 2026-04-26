@@ -43,6 +43,13 @@
       "when": 1777032000000,
       "tag": "0005_sync_period_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777636800000,
+      "tag": "0006_lehrer_statistik_code",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
 import { notify } from "@/lib/notifications";
 import { germanDateToIso, neuePeriodeGewinnt } from "@/lib/periodCoverage";
+import { normalizeStatistikCode } from "@/lib/statistikCode";
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -138,6 +139,15 @@ export async function POST(request: NextRequest) {
     const alleSchulen = await db.select().from(schema.schulen);
     const schulenMap = new Map(
       alleSchulen.map((s) => [s.untisCode?.toUpperCase(), s.id])
+    );
+
+    // 4b. Whitelist gueltiger Statistik-Codes laden. Untis kann Codes liefern,
+    // die in der App noch nicht angelegt sind (z.B. neuer NRW-Code). Solche
+    // Werte werden ignoriert und der Lehrer behaelt seinen vorherigen Code
+    // — Datenverlust statt FK-Verletzung.
+    const validStatistikCodes = new Set(
+      (await db.select({ code: schema.statistikCodes.code }).from(schema.statistikCodes))
+        .map((r) => r.code)
     );
 
     // 5. Sync-Datum validieren
@@ -257,6 +267,11 @@ export async function POST(request: NextRequest) {
       jahr: number; monat: number;
       alt: number; neu: number;
     }> = [];
+    // Statistik-Code-Wechsel — fuer Audit-Log nach Transaktion (arbeitsrechtlich relevant)
+    const statistikCodeChanges: Array<{
+      lehrerId: number; vollname: string;
+      alt: string | null; neu: string | null;
+    }> = [];
 
     // Batch-Groesse: 50 Lehrer pro Transaktion
     const BATCH_SIZE = 50;
@@ -273,6 +288,16 @@ export async function POST(request: NextRequest) {
               const stammschuleId = schulenMap.get(lehrerData.stammschule?.toUpperCase()) ?? null;
               const existing = lehrerMap.get(lehrerData.teacher_id);
 
+              // Statistik-Code normalisieren + gegen Whitelist pruefen.
+              // Unbekannte Codes (z.B. neuer NRW-Standard) werden verworfen
+              // damit FK nicht bricht; bei Update bleibt der bisherige Code erhalten.
+              const { incomingValid: incomingCodeValid, valueForUpdate: statistikCodeForUpdate } =
+                normalizeStatistikCode(
+                  lehrerData.statistik_code,
+                  validStatistikCodes,
+                  existing?.statistikCode,
+                );
+
               let lehrerId: number;
 
               if (existing) {
@@ -285,10 +310,21 @@ export async function POST(request: NextRequest) {
                     personalnummer: lehrerData.personalnummer ?? null,
                     stammschuleId: stammschuleId,
                     stammschuleCode: lehrerData.stammschule,
+                    statistikCode: statistikCodeForUpdate,
                     updatedAt: new Date(),
                   })
                   .where(eq(schema.lehrer.id, existing.id));
                 lehrerId = existing.id;
+
+                // Wechsel des Statistik-Codes ist arbeitsrechtlich relevant — merken fuer Audit
+                if ((existing.statistikCode ?? null) !== statistikCodeForUpdate) {
+                  statistikCodeChanges.push({
+                    lehrerId: existing.id,
+                    vollname: lehrerData.vollname,
+                    alt: existing.statistikCode ?? null,
+                    neu: statistikCodeForUpdate,
+                  });
+                }
               } else {
                 // Insert
                 const [inserted] = await tx
@@ -300,6 +336,7 @@ export async function POST(request: NextRequest) {
                     personalnummer: lehrerData.personalnummer ?? null,
                     stammschuleId: stammschuleId,
                     stammschuleCode: lehrerData.stammschule,
+                    statistikCode: incomingCodeValid,
                   })
                   .returning();
                 lehrerId = inserted.id;
@@ -488,6 +525,18 @@ export async function POST(request: NextRequest) {
       monate: monate.length,
       haushaltsjahre: hjLabels,
     }, "n8n");
+
+    // 12b. Statistik-Code-Wechsel einzeln auditieren (arbeitsrechtlich)
+    for (const change of statistikCodeChanges) {
+      await writeAuditLog(
+        "lehrer",
+        change.lehrerId,
+        "UPDATE",
+        { statistikCode: change.alt },
+        { statistikCode: change.neu, hinweis: "Aenderung via n8n-Sync (Untis StatisticCodes)" },
+        "n8n",
+      );
+    }
 
     // 13. Events ausloesen — aggregiert (ein Event pro Typ, Liste im Payload)
     if (neueLehrerEvents.length > 0) {

@@ -7,18 +7,21 @@ import {
   getLehrerMitDeputaten,
   getLatestSync,
   getDeputatAenderungen,
+  getAlleLehrerMitDetails,
 } from "@/lib/db/queries";
 import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
 import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { DeputateClient } from "./DeputateClient";
+import { DeputatStrukturCard, type DeputatStrukturRow } from "./DeputatStrukturCard";
 import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
 
 export default async function DeputatePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
 
-  const [schulen, latestSync] = await Promise.all([
+  const [schulen, latestSync, alleLehrerDetails] = await Promise.all([
     getSchulen(),
     getLatestSync(),
+    getAlleLehrerMitDetails(),
   ]);
 
   if (!hj) {
@@ -139,6 +142,64 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
     schulFarben[s.kurzname] = s.farbe;
   }
 
+  // Deputatsstruktur: Aggregation pro (Schule, Statistik-Gruppe)
+  const lehrerInfoMap = new Map<number, { gruppe: string | null; schuleId: number | null }>();
+  for (const ld of alleLehrerDetails) {
+    lehrerInfoMap.set(ld.id, { gruppe: ld.statistikGruppe, schuleId: ld.stammschuleId });
+  }
+
+  const strukturMap = new Map<number, DeputatStrukturRow>();
+  for (const s of schulen) {
+    strukturMap.set(s.id, {
+      schuleId: s.id,
+      schulKurzname: s.kurzname,
+      schulFarbe: s.farbe,
+      beamteAnzahl: 0,
+      beamteStunden: 0,
+      angestellteAnzahl: 0,
+      angestellteStunden: 0,
+      ohneAnzahl: 0,
+      ohneStunden: 0,
+      gesamtAnzahl: 0,
+      gesamtStunden: 0,
+    });
+  }
+
+  for (const l of lehrerListe) {
+    if (l.stammschuleId == null) continue;
+    const target = strukturMap.get(l.stammschuleId);
+    if (!target) continue;
+    const positive = l.stunden.filter((s): s is number => s != null && s > 0);
+    if (positive.length === 0) continue;
+    const avg = positive.reduce((a, b) => a + b, 0) / positive.length;
+    const info = lehrerInfoMap.get(l.lehrerId);
+    const gruppe = info?.gruppe ?? null;
+
+    if (gruppe === "beamter") {
+      target.beamteAnzahl += 1;
+      target.beamteStunden += avg;
+    } else if (gruppe === "angestellter") {
+      target.angestellteAnzahl += 1;
+      target.angestellteStunden += avg;
+    } else {
+      target.ohneAnzahl += 1;
+      target.ohneStunden += avg;
+    }
+    target.gesamtAnzahl += 1;
+    target.gesamtStunden += avg;
+  }
+
+  const strukturRows = Array.from(strukturMap.values())
+    .filter((r) => r.gesamtAnzahl > 0)
+    .map((r) => ({
+      ...r,
+      beamteStunden: Math.round(r.beamteStunden * 10) / 10,
+      angestellteStunden: Math.round(r.angestellteStunden * 10) / 10,
+      ohneStunden: Math.round(r.ohneStunden * 10) / 10,
+      gesamtStunden: Math.round(r.gesamtStunden * 10) / 10,
+    }))
+    .sort((a, b) => a.schulKurzname.localeCompare(b.schulKurzname, "de"));
+
   const syncText = latestSync
     ? `Letzte Synchronisation: ${latestSync.syncDatum.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
     : "Noch keine Synchronisation durchgefuehrt";
@@ -154,6 +215,10 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
         ]}
       />
       {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} /></div>}
+
+      {strukturRows.length > 0 && (
+        <DeputatStrukturCard rows={strukturRows} jahr={hj.jahr} />
+      )}
 
       {lehrerListe.length === 0 ? (
         <Card>

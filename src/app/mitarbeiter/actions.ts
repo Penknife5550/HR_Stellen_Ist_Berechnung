@@ -18,6 +18,7 @@ export async function createLehrerAction(formData: FormData) {
       nachname: formData.get("nachname")?.toString().trim() ?? "",
       personalnummer: formData.get("personalnummer")?.toString().trim() || undefined,
       stammschuleId: safeFormNumber(formData, "stammschuleId"),
+      statistikCode: formData.get("statistikCode")?.toString().trim().toUpperCase() || "",
     };
 
     const parsed = createLehrerManualSchema.safeParse(raw);
@@ -43,6 +44,7 @@ export async function createLehrerAction(formData: FormData) {
       nachname: parsed.data.nachname,
       personalnummer: parsed.data.personalnummer ?? null,
       stammschuleId: parsed.data.stammschuleId,
+      statistikCode: parsed.data.statistikCode || null,
       deputat: deputatStr || null,
     }, session.name);
 
@@ -75,6 +77,7 @@ export async function updateLehrerAction(formData: FormData) {
       nachname: formData.get("nachname")?.toString().trim() ?? "",
       personalnummer: formData.get("personalnummer")?.toString().trim() || undefined,
       stammschuleId: safeFormNumber(formData, "stammschuleId"),
+      statistikCode: formData.get("statistikCode")?.toString().trim().toUpperCase() || "",
     };
 
     const parsed = createLehrerManualSchema.safeParse(raw);
@@ -101,6 +104,7 @@ export async function updateLehrerAction(formData: FormData) {
       nachname: parsed.data.nachname,
       personalnummer: parsed.data.personalnummer ?? null,
       stammschuleId: parsed.data.stammschuleId,
+      statistikCode: parsed.data.statistikCode || null,
       deputat: deputatStr || null,
     }, session.name);
 

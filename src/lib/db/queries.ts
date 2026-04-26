@@ -27,6 +27,8 @@ import {
   regeldeputate,
   stellenartTypen,
   stellenanteile,
+  statistikCodes,
+  auditLog,
 } from "@/db/schema";
 import { eq, and, desc, asc, sql, inArray, gte, lte, isNull } from "drizzle-orm";
 
@@ -1274,6 +1276,29 @@ export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number)
 
   if (!lehrerRow) return null;
 
+  // Statistik-Code-Details (Bezeichnung, Gruppe) per separatem Query laden,
+  // damit lehrerRow weiterhin den nativen schema-Typ behaelt.
+  let statistik: {
+    code: string;
+    bezeichnung: string;
+    gruppe: string;
+    istTeilzeit: boolean;
+  } | null = null;
+  if (lehrerRow.statistikCode) {
+    const [scRow] = await db
+      .select()
+      .from(statistikCodes)
+      .where(eq(statistikCodes.code, lehrerRow.statistikCode));
+    if (scRow) {
+      statistik = {
+        code: scRow.code,
+        bezeichnung: scRow.bezeichnung,
+        gruppe: scRow.gruppe,
+        istTeilzeit: scRow.istTeilzeit,
+      };
+    }
+  }
+
   const monatsDaten = await db
     .select()
     .from(deputatMonatlich)
@@ -1289,6 +1314,7 @@ export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number)
 
   return {
     lehrer: lehrerRow,
+    statistik,
     monatsDaten,
     aenderungen,
   };
@@ -1614,9 +1640,14 @@ export async function getAlleLehrerMitDetails() {
       quelle: lehrer.quelle,
       aktiv: lehrer.aktiv,
       createdAt: lehrer.createdAt,
+      statistikCode: lehrer.statistikCode,
+      statistikBezeichnung: statistikCodes.bezeichnung,
+      statistikGruppe: statistikCodes.gruppe,
+      statistikIstTeilzeit: statistikCodes.istTeilzeit,
     })
     .from(lehrer)
     .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
+    .leftJoin(statistikCodes, eq(lehrer.statistikCode, statistikCodes.code))
     .orderBy(asc(lehrer.vollname));
 }
 
@@ -1637,6 +1668,7 @@ export async function createLehrerManuell(data: {
   nachname: string;
   personalnummer?: string | null;
   stammschuleId: number;
+  statistikCode?: string | null;
 }) {
   const stammschule = await db.select({ kurzname: schulen.kurzname }).from(schulen).where(eq(schulen.id, data.stammschuleId));
   const code = stammschule[0]?.kurzname ?? null;
@@ -1651,6 +1683,7 @@ export async function createLehrerManuell(data: {
       personalnummer: data.personalnummer || null,
       stammschuleId: data.stammschuleId,
       stammschuleCode: code,
+      statistikCode: data.statistikCode || null,
       quelle: "manuell",
     })
     .returning();
@@ -1664,6 +1697,7 @@ export async function updateLehrerManuell(
     nachname?: string;
     personalnummer?: string | null;
     stammschuleId?: number;
+    statistikCode?: string | null;
   }
 ) {
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
@@ -1680,6 +1714,9 @@ export async function updateLehrerManuell(
     updates.stammschuleId = data.stammschuleId;
     const stammschule = await db.select({ kurzname: schulen.kurzname }).from(schulen).where(eq(schulen.id, data.stammschuleId));
     updates.stammschuleCode = stammschule[0]?.kurzname ?? null;
+  }
+  if (data.statistikCode !== undefined) {
+    updates.statistikCode = data.statistikCode || null;
   }
 
   const [result] = await db
@@ -1914,4 +1951,174 @@ export async function getStellenanteileKPIs(haushaltsjahrId: number) {
     genehmigtStellen: Math.round(genehmigtStellen * 10000) / 10000,
     genehmigtEurBetrag: Math.round(genehmigtEurBetrag * 100) / 100,
   };
+}
+
+// ============================================================
+// STATISTIK-CODES (Stammdaten)
+// ============================================================
+
+/** Aktive Codes fuer Dropdown-Auswahl, sortiert nach Sortierung. */
+export async function getStatistikCodesAktiv() {
+  return db
+    .select({
+      code: statistikCodes.code,
+      bezeichnung: statistikCodes.bezeichnung,
+      gruppe: statistikCodes.gruppe,
+      istTeilzeit: statistikCodes.istTeilzeit,
+    })
+    .from(statistikCodes)
+    .where(eq(statistikCodes.aktiv, true))
+    .orderBy(asc(statistikCodes.sortierung));
+}
+
+// ============================================================
+// STATISTIK-CODES UEBERSICHT (Dashboard)
+// ============================================================
+
+/**
+ * Personalstruktur fuer Dashboard-Card.
+ * Liefert:
+ * - Stammdaten aller Codes (Bezeichnung, Gruppe, Teilzeit-Flag)
+ * - Anzahl aktiver Lehrer pro (Code, Schule)
+ * - Anzahl Lehrer ohne Code (auch pro Schule)
+ * - Trend: Code-Aenderungen der letzten 30 Tage aus audit_log
+ *
+ * Die Card aggregiert clientseitig je nach gewaehltem Schul-Tab.
+ */
+export async function getStatistikCodeUebersicht() {
+  // 1. Stammdaten aller aktiven Codes
+  const codes = await db
+    .select({
+      code: statistikCodes.code,
+      bezeichnung: statistikCodes.bezeichnung,
+      gruppe: statistikCodes.gruppe,
+      istTeilzeit: statistikCodes.istTeilzeit,
+      sortierung: statistikCodes.sortierung,
+    })
+    .from(statistikCodes)
+    .where(eq(statistikCodes.aktiv, true))
+    .orderBy(asc(statistikCodes.sortierung));
+
+  // 2. Anzahl pro (Code, Schule)
+  const perCodeSchule = await db
+    .select({
+      code: lehrer.statistikCode,
+      schuleKurzname: schulen.kurzname,
+      anzahl: sql<number>`count(*)`,
+    })
+    .from(lehrer)
+    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
+    .where(eq(lehrer.aktiv, true))
+    .groupBy(lehrer.statistikCode, schulen.kurzname);
+
+  // 3. Trend: Code-Aenderungen letzte 30 Tage (aus audit_log)
+  const [trendRow] = await db
+    .select({ anzahl: sql<number>`count(*)` })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.tabelle, "lehrer"),
+        eq(auditLog.aktion, "UPDATE"),
+        sql`${auditLog.alteWerte} ? 'statistikCode'`,
+        sql`${auditLog.zeitpunkt} > now() - interval '30 days'`,
+      ),
+    );
+  const codeAenderungen30T = Number(trendRow?.anzahl ?? 0);
+
+  // 4. Schulen-Liste (fuer Tab-Switch)
+  const aktiveSchulen = await db
+    .select({ kurzname: schulen.kurzname })
+    .from(schulen)
+    .where(eq(schulen.aktiv, true))
+    .orderBy(asc(schulen.kurzname));
+
+  return {
+    codes: codes.map((c) => ({
+      code: c.code,
+      bezeichnung: c.bezeichnung,
+      gruppe: c.gruppe,
+      istTeilzeit: c.istTeilzeit,
+    })),
+    schulen: aktiveSchulen.map((s) => s.kurzname),
+    perCodeSchule: perCodeSchule.map((r) => ({
+      code: r.code,
+      schule: r.schuleKurzname,
+      anzahl: Number(r.anzahl),
+    })),
+    codeAenderungen30T,
+  };
+}
+
+// ============================================================
+// STATISTIK-CODES VERWALTUNG (Admin)
+// ============================================================
+
+export async function getAlleStatistikCodesAdmin() {
+  // Liefert alle Codes (auch inaktive) plus Anzahl Lehrer pro Code.
+  const codes = await db
+    .select({
+      id: statistikCodes.id,
+      code: statistikCodes.code,
+      bezeichnung: statistikCodes.bezeichnung,
+      gruppe: statistikCodes.gruppe,
+      istTeilzeit: statistikCodes.istTeilzeit,
+      sortierung: statistikCodes.sortierung,
+      aktiv: statistikCodes.aktiv,
+      bemerkung: statistikCodes.bemerkung,
+    })
+    .from(statistikCodes)
+    .orderBy(asc(statistikCodes.sortierung), asc(statistikCodes.code));
+
+  const usage = await db
+    .select({
+      code: lehrer.statistikCode,
+      anzahl: sql<number>`count(*)`,
+    })
+    .from(lehrer)
+    .where(eq(lehrer.aktiv, true))
+    .groupBy(lehrer.statistikCode);
+
+  const usageMap = new Map<string, number>();
+  for (const u of usage) {
+    if (u.code) usageMap.set(u.code, Number(u.anzahl));
+  }
+
+  return codes.map((c) => ({
+    ...c,
+    anzahlLehrer: usageMap.get(c.code) ?? 0,
+  }));
+}
+
+export async function createStatistikCode(data: {
+  code: string;
+  bezeichnung: string;
+  gruppe: string;
+  istTeilzeit: boolean;
+  sortierung: number;
+  bemerkung?: string | null;
+}) {
+  const [result] = await db
+    .insert(statistikCodes)
+    .values(data)
+    .returning();
+  return result;
+}
+
+export async function updateStatistikCode(
+  code: string,
+  data: {
+    bezeichnung?: string;
+    gruppe?: string;
+    istTeilzeit?: boolean;
+    sortierung?: number;
+    bemerkung?: string | null;
+    aktiv?: boolean;
+  },
+) {
+  const [result] = await db
+    .update(statistikCodes)
+    .set({ ...data, updatedAt: sql`now()` })
+    .where(eq(statistikCodes.code, code))
+    .returning();
+  return result;
 }

@@ -35,7 +35,7 @@ export default async function LehrerDetailPage({
 
   if (!detail) notFound();
 
-  const { lehrer: l, monatsDaten, aenderungen } = detail;
+  const { lehrer: l, statistik, monatsDaten, aenderungen } = detail;
   const schulFarben: Record<string, string> = {};
   for (const s of schulen) schulFarben[s.kurzname] = s.farbe;
 
@@ -111,7 +111,9 @@ export default async function LehrerDetailPage({
     <PageContainer>
       <Header
         title={l.vollname}
-        subtitle={`Deputatsverlauf — Haushaltsjahr ${aktuellesHj.jahr} | Personalnr. ${l.personalnummer ?? "—"} | Stammschule: ${l.stammschuleCode ?? "—"}`}
+        subtitle={`Deputatsverlauf — Haushaltsjahr ${aktuellesHj.jahr} | Personalnr. ${l.personalnummer ?? "—"} | Stammschule: ${l.stammschuleCode ?? "—"} | Code: ${
+          statistik ? `${statistik.code} — ${statistik.bezeichnung}` : "—"
+        }`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Deputate", href: "/deputate" },

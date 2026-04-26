@@ -273,3 +273,42 @@ Betroffene Seiten: Dashboard, Deputate, Stellenist, Stellensoll, Vergleich, Stel
 2. **Deputat-Abweichung Untis:** `deputat_gesamt` (PlannedWeek/1000) kann von der Summe der schulspezifischen Spalten abweichen. Die Berechnung verwendet die schulspezifischen Spalten.
 3. **Befoerderungsstellen:** Die Phasenverschiebung (3 Jahre) ist noch nicht implementiert.
 4. **TV-L-Pauschalen:** Personalbedarfs- und Personalnebenkostenpauschale werden noch nicht automatisch berechnet.
+
+---
+
+## 10. NRW-Statistik-Codes (Personalstruktur Beamte/Angestellte)
+
+### 10.1 Zweck
+Die Bezirksregierung verlangt in der Stellenplan-Anlage 2a eine getrennte Ausweisung von **Beamten** und **Angestellten**. Untis liefert dafuer das Feld `StatisticCodes` pro Lehrer. Die App pflegt diese Codes als Stammdaten und mappt sie auf die Gruppen `beamter` / `angestellter` / `sonstiges`.
+
+### 10.2 Standard-Codes
+| Code | Bezeichnung                     | Gruppe        | Teilzeit |
+|------|---------------------------------|---------------|----------|
+| L    | Beamter Lebenszeit              | beamter       | nein     |
+| LT   | Beamter Lebenszeit (Teilzeit)   | beamter       | ja       |
+| P    | Beamter auf Probe               | beamter       | nein     |
+| PT   | Beamter auf Probe (Teilzeit)    | beamter       | ja       |
+| U    | Angestellter unbefristet        | angestellter  | nein     |
+| UT   | Angestellter unbefristet (TZ)   | angestellter  | ja       |
+| B    | Angestellter befristet          | angestellter  | nein     |
+| BT   | Angestellter befristet (TZ)     | angestellter  | ja       |
+
+Die Codes liegen in der Tabelle `statistik_codes` (FK von `lehrer.statistik_code`) und sind ueber `/einstellungen/statistik-codes` admin-editierbar (Bezeichnung, Gruppe, Teilzeit-Flag, Sortierung, Aktiv-Status). Der Code-Schluessel selbst ist nach Anlage gesperrt — Aenderungen erfolgen ueber neuen Code anlegen + Lehrkraft umbuchen + alten Code deaktivieren.
+
+### 10.3 Sync-Verhalten (n8n)
+Beim n8n-Sync laeuft der eingehende Code durch eine Whitelist-Pruefung (`normalizeStatistikCode` in `src/lib/statistikCode.ts`):
+- trim + uppercase
+- nur Codes aus der `statistik_codes`-Tabelle werden uebernommen
+- unbekannte Codes werden verworfen (Schutz vor FK-Verletzung)
+- bei Update: bestehender Code bleibt erhalten falls Untis leer/ungueltig liefert (Datenverlust-Schutz)
+- jeder Code-Wechsel wird im Audit-Log protokolliert (relevant fuer arbeitsrechtliche Nachvollziehbarkeit)
+
+### 10.4 UI-Sichtbarkeit
+- **Mitarbeiterliste** (`/mitarbeiter`): Spalte "Code" mit farblicher Badge (blau = Beamte, gelb = Angestellte). Filter nach Gruppe oder Code via URL-Parameter `?gruppe=` / `?code=` / `?schule=`.
+- **Lehrer-Detailseite** (`/deputate/[id]`): Code + Bezeichnung im Header.
+- **Dashboard-Karte** "Personalstruktur": Aufsplittung pro Code, mit Schul-Tabs und 30-Tage-Trend (aus Audit-Log).
+- **Deputatsseite** (`/deputate`): Card "Deputatsstruktur" mit Schule-aussen-Gruppe-innen-Verteilung (Wochenstunden + Personenanzahl + Stacked-Bar).
+- **Stellenplan-Export** (`/api/export/stellenplan`): Excel-Sheet "Personalstruktur" + PDF-Seite mit Beamte/Angestellte-Aufteilung pro Schule.
+
+### 10.5 Tests
+`tests/lib/statistikCode.test.ts` deckt 18 Faelle ab: Whitelist-Normalisierung (Insert/Update, Datenverlust-Schutz, Trim/Uppercase) und Personalstruktur-Aggregation (Gruppen-Mapping, Ohne-Code-Fallback, Sortierung, leere Schulen).

@@ -261,6 +261,39 @@ export const stellenanteile = pgTable("stellenanteile", {
 ]);
 
 // ============================================================
+// STATISTIK-CODES (Personal-Statuscodes nach NRW-Standard)
+// ============================================================
+
+/**
+ * Stammdaten der Statistik-Codes — beschreiben das Rechtsverhaeltnis und
+ * die Beschaeftigungsart einer Lehrkraft. Werden vom Untis-Sync gefuellt
+ * (Feld `StatisticCodes`) und fuer Personalstatistiken nach NRW-Standard
+ * verwendet (Bezirksregierungs-Exporte trennen Beamte / Angestellte).
+ *
+ * Standard-Codes: L, LT, U, UT, P, PT, B, BT (Buchstabe = Verhaeltnis,
+ * +T = Teilzeit). Ueber `/einstellungen/statistik-codes` erweiterbar.
+ */
+export const statistikCodes = pgTable("statistik_codes", {
+  id: serial("id").primaryKey(),
+  /** NRW-Code, z.B. "L", "LT", "U" — referenziert von `lehrer.statistik_code` */
+  code: varchar("code", { length: 5 }).notNull().unique(),
+  /** Klartext fuer UI/Export, z.B. "Beamter Lebenszeit (Teilzeit)" */
+  bezeichnung: varchar("bezeichnung", { length: 150 }).notNull(),
+  /** Top-level Gruppierung im Export, z.B. "beamter" | "angestellter" */
+  gruppe: varchar("gruppe", { length: 30 }).notNull(),
+  istTeilzeit: boolean("ist_teilzeit").notNull().default(false),
+  /** Sortierreihenfolge in Listen + Export. Min(sortierung) je Gruppe bestimmt Gruppen-Reihenfolge. */
+  sortierung: integer("sortierung").notNull().default(0),
+  aktiv: boolean("aktiv").notNull().default(true),
+  bemerkung: text("bemerkung"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_statistik_codes_gruppe").on(table.gruppe),
+  index("idx_statistik_codes_aktiv").on(table.aktiv).where(sql`aktiv = true`),
+]);
+
+// ============================================================
 // LEHRER & DEPUTATE (aus Untis via n8n)
 // ============================================================
 
@@ -275,6 +308,11 @@ export const lehrer = pgTable("lehrer", {
   nachname: varchar("nachname", { length: 100 }),
   stammschuleId: integer("stammschule_id").references(() => schulen.id),
   stammschuleCode: varchar("stammschule_code", { length: 10 }),
+  /** NRW-Statuscode aus Untis (`StatisticCodes`) bzw. manuell gepflegt. NULL bis erster Sync / Erfassung. */
+  statistikCode: varchar("statistik_code", { length: 5 }).references(() => statistikCodes.code, {
+    onUpdate: "cascade",
+    onDelete: "restrict",
+  }),
   quelle: varchar("quelle", { length: 20 }).notNull().default("untis"),
   aktiv: boolean("aktiv").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -282,6 +320,7 @@ export const lehrer = pgTable("lehrer", {
 }, (table) => [
   index("idx_lehrer_stammschule").on(table.stammschuleId),
   index("idx_lehrer_quelle").on(table.quelle),
+  index("idx_lehrer_statistik_code").on(table.statistikCode),
 ]);
 
 /** Monatliche Deputate */

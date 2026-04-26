@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
@@ -38,6 +39,33 @@ export default async function EinstellungenPage() {
         haushaltsjahre={haushaltsjahreListe}
         isAdmin={isAdmin}
       />
+
+      {/* Stammdaten-Verwaltung (Admin-Subseiten) */}
+      {isAdmin && (
+        <Card className="mb-6">
+          <h3 className="text-lg font-bold text-[#1A1A1A] mb-3">Stammdaten</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Link
+              href="/einstellungen/stellenarten"
+              className="block p-4 border border-[#E5E7EB] rounded-lg hover:border-[#575756] hover:bg-[#FAFAFA] transition-colors"
+            >
+              <div className="font-medium text-[#1A1A1A]">Stellenarten</div>
+              <div className="text-sm text-[#6B7280] mt-1">
+                Stammdaten fuer zusaetzliche Stellenanteile (SBV, Personalrat, etc.)
+              </div>
+            </Link>
+            <Link
+              href="/einstellungen/statistik-codes"
+              className="block p-4 border border-[#E5E7EB] rounded-lg hover:border-[#575756] hover:bg-[#FAFAFA] transition-colors"
+            >
+              <div className="font-medium text-[#1A1A1A]">Statistik-Codes</div>
+              <div className="text-sm text-[#6B7280] mt-1">
+                NRW-Personalstatistik-Codes (Beamte/Angestellte) fuer Bezirksregierungs-Exporte
+              </div>
+            </Link>
+          </div>
+        </Card>
+      )}
 
       {/* n8n-Synchronisation (statisch) */}
       <Card>

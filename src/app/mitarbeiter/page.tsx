@@ -6,6 +6,7 @@ import {
   getAktuellesHaushaltsjahr,
   getLehrerMitDeputaten,
   getDeputatAenderungen,
+  getStatistikCodesAktiv,
 } from "@/lib/db/queries";
 import { MitarbeiterClient } from "./MitarbeiterClient";
 import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
@@ -13,10 +14,11 @@ import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffekti
 export const dynamic = "force-dynamic";
 
 export default async function MitarbeiterPage() {
-  const [alleLehrer, schulen, hj] = await Promise.all([
+  const [alleLehrer, schulen, hj, statistikCodes] = await Promise.all([
     getAlleLehrerMitDetails(),
     getSchulen(),
     getAktuellesHaushaltsjahr(),
+    getStatistikCodesAktiv(),
   ]);
 
   // Taggenauer Durchschnitt pro Lehrer (Monatswerte effektiv, dann gemittelt)
@@ -91,6 +93,10 @@ export default async function MitarbeiterPage() {
           quelle: l.quelle,
           aktiv: l.aktiv,
           deputat: deputatByLehrer[l.id] ?? null,
+          statistikCode: l.statistikCode,
+          statistikBezeichnung: l.statistikBezeichnung,
+          statistikGruppe: l.statistikGruppe,
+          statistikIstTeilzeit: l.statistikIstTeilzeit,
         }))}
         schulen={schulen.map((s) => ({
           id: s.id,
@@ -98,6 +104,7 @@ export default async function MitarbeiterPage() {
           name: s.name,
           farbe: s.farbe,
         }))}
+        statistikCodes={statistikCodes}
       />
 
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">

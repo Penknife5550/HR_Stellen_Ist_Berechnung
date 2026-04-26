@@ -58,6 +58,10 @@ export const lehrerPayloadSchema = z.object({
   deputat_ges: z.number().min(0).max(200),
   deputat_gym: z.number().min(0).max(200),
   deputat_bk: z.number().min(0).max(200),
+  // NRW-Statistik-Code aus Untis (`StatisticCodes`-Spalte). Optional fuer
+  // Backwards-Compat — alte n8n-Workflows ohne dieses Feld sind weiterhin
+  // gueltig, der Lehrer behaelt dann den vorhandenen Code.
+  statistik_code: z.string().max(5).nullable().optional(),
   schuljahr_text: z.string().optional(),
 });
 
@@ -271,6 +275,31 @@ export const stellenartTypCreateSchema = z.object({
 });
 
 // ============================================================
+// STATISTIK-CODES (NRW Personalstatistik)
+// ============================================================
+
+export const statistikCodeCreateSchema = z.object({
+  code: z
+    .string()
+    .min(1, "Code erforderlich.")
+    .max(5)
+    .regex(/^[A-Z]{1,5}$/, "Code: nur 1-5 Grossbuchstaben (A-Z)."),
+  bezeichnung: z.string().min(1, "Bezeichnung erforderlich.").max(150),
+  gruppe: z.enum(["beamter", "angestellter", "sonstiges"]),
+  istTeilzeit: z.boolean().default(false),
+  sortierung: z.number().int().min(0).default(0),
+  bemerkung: z.string().max(1000).optional(),
+});
+
+export const statistikCodeUpdateSchema = z.object({
+  bezeichnung: z.string().min(1, "Bezeichnung erforderlich.").max(150),
+  gruppe: z.enum(["beamter", "angestellter", "sonstiges"]),
+  istTeilzeit: z.boolean(),
+  sortierung: z.number().int().min(0),
+  bemerkung: z.string().max(1000).optional(),
+});
+
+// ============================================================
 // LEHRER (manuelle Anlage)
 // ============================================================
 
@@ -279,4 +308,12 @@ export const createLehrerManualSchema = z.object({
   nachname: z.string().min(1, "Nachname erforderlich.").max(100),
   personalnummer: z.string().max(20).optional().or(z.literal("")),
   stammschuleId: z.number().int().positive("Schule auswaehlen."),
+  // Statistik-Code optional (leerer String = kein Code).
+  // Whitelisting passiert serverseitig via FK; Format hier nur grob.
+  statistikCode: z
+    .string()
+    .max(5)
+    .regex(/^[A-Z]{1,5}$/, "Ungueltiges Code-Format.")
+    .optional()
+    .or(z.literal("")),
 });

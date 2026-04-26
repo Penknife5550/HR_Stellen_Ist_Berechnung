@@ -12,6 +12,7 @@ import {
   getAktuelleStellensollBySchule,
   getAktuelleStellenisteAlleSchulen,
   getAktuelleVergleiche,
+  getStatistikCodeUebersicht,
 } from "@/lib/db/queries";
 import {
   createWorkbook,
@@ -32,6 +33,11 @@ import {
   pdfToBuffer,
   pdfResponse,
 } from "@/lib/export/pdf";
+import {
+  buildPersonalstruktur as buildPersonalstrukturImpl,
+  summePersonalstruktur,
+  type PersonalstrukturRow,
+} from "@/lib/statistikCode";
 
 export async function GET(request: NextRequest) {
   // Auth pruefen
@@ -53,6 +59,8 @@ export async function GET(request: NextRequest) {
     const schulen = await getSchulen();
     const vergleiche = await getAktuelleVergleiche(haushaltsjahrId);
     const istDaten = await getAktuelleStellenisteAlleSchulen(haushaltsjahrId);
+    const statistikUebersicht = await getStatistikCodeUebersicht();
+    const personalstruktur = buildPersonalstrukturImpl(statistikUebersicht);
 
     // Pro Schule Soll-Daten mit Details laden
     const sollProSchule = await Promise.all(
@@ -63,9 +71,9 @@ export async function GET(request: NextRequest) {
     );
 
     if (format === "pdf") {
-      return generatePdf(sollProSchule, istDaten, vergleiche, haushaltsjahrId);
+      return generatePdf(sollProSchule, istDaten, vergleiche, personalstruktur, haushaltsjahrId);
     }
-    return generateExcel(sollProSchule, istDaten, vergleiche, haushaltsjahrId);
+    return generateExcel(sollProSchule, istDaten, vergleiche, personalstruktur, haushaltsjahrId);
   } catch (err) {
     console.error("Export-Fehler:", err);
     return new Response("Fehler beim Erstellen des Exports.", { status: 500 });
@@ -98,6 +106,7 @@ async function generateExcel(
   sollProSchule: SchulSollDaten[],
   istDaten: IstRow[],
   vergleiche: VergleichRow[],
+  personalstruktur: PersonalstrukturRow[],
   haushaltsjahrId: number
 ) {
   const wb = createWorkbook();
@@ -122,6 +131,48 @@ async function generateExcel(
       num(v.refinanzierung),
     ]);
   }
+
+  // --- Sheet 2: Personalstruktur ---
+  const ps = wb.addWorksheet("Personalstruktur");
+  setColumnWidths(ps, [16, 12, 14, 14, 12, 14, 14, 12, 12]);
+  addHeaderRow(ps, [
+    "Schule",
+    "Beamte ges.",
+    "dav. Vollzeit",
+    "dav. Teilzeit",
+    "Angest. ges.",
+    "dav. Vollzeit",
+    "dav. Teilzeit",
+    "Ohne Code",
+    "Gesamt",
+  ]);
+
+  for (const r of personalstruktur) {
+    ps.addRow([
+      r.schulKurzname,
+      r.beamteGesamt,
+      r.beamteVollzeit,
+      r.beamteTeilzeit,
+      r.angestellteGesamt,
+      r.angestellteVollzeit,
+      r.angestellteTeilzeit,
+      r.ohne,
+      r.gesamt,
+    ]);
+  }
+
+  const psSum = summePersonalstruktur(personalstruktur);
+  addSummenRow(ps, [
+    "Gesamt",
+    psSum.beamteGesamt,
+    psSum.beamteVollzeit,
+    psSum.beamteTeilzeit,
+    psSum.angestellteGesamt,
+    psSum.angestellteVollzeit,
+    psSum.angestellteTeilzeit,
+    psSum.ohne,
+    psSum.gesamt,
+  ]);
 
   // --- Sheet pro Schule ---
   for (const { schule, ergebnisse } of sollProSchule) {
@@ -203,6 +254,7 @@ function generatePdf(
   sollProSchule: SchulSollDaten[],
   istDaten: IstRow[],
   vergleiche: VergleichRow[],
+  personalstruktur: PersonalstrukturRow[],
   haushaltsjahrId: number
 ) {
   const doc = createPdf(true); // Landscape
@@ -219,6 +271,57 @@ function generatePdf(
     fmtNum(v.refinanzierung),
   ]);
   y = addPdfTable(doc, y, head, body);
+
+  // Personalstruktur (separate Seite)
+  doc.addPage();
+  y = addPdfHeader(doc, "Personalstruktur", `Haushaltsjahr ${haushaltsjahrId}`);
+
+  const psHead = [[
+    "Schule",
+    "Beamte ges.",
+    "dav. Vollzeit",
+    "dav. Teilzeit",
+    "Angest. ges.",
+    "dav. Vollzeit",
+    "dav. Teilzeit",
+    "Ohne Code",
+    "Gesamt",
+  ]];
+  const psBody = personalstruktur.map((r) => [
+    r.schulKurzname,
+    String(r.beamteGesamt),
+    String(r.beamteVollzeit),
+    String(r.beamteTeilzeit),
+    String(r.angestellteGesamt),
+    String(r.angestellteVollzeit),
+    String(r.angestellteTeilzeit),
+    String(r.ohne),
+    String(r.gesamt),
+  ]);
+  const psSum = summePersonalstruktur(personalstruktur);
+  psBody.push([
+    "Gesamt",
+    String(psSum.beamteGesamt),
+    String(psSum.beamteVollzeit),
+    String(psSum.beamteTeilzeit),
+    String(psSum.angestellteGesamt),
+    String(psSum.angestellteVollzeit),
+    String(psSum.angestellteTeilzeit),
+    String(psSum.ohne),
+    String(psSum.gesamt),
+  ]);
+  y = addPdfTable(doc, y, psHead, psBody, {
+    columnStyles: {
+      1: { halign: "right" },
+      2: { halign: "right" },
+      3: { halign: "right" },
+      4: { halign: "right" },
+      5: { halign: "right" },
+      6: { halign: "right" },
+      7: { halign: "right" },
+      8: { halign: "right" },
+    },
+  });
 
   // Pro Schule eine Detail-Seite
   for (const { schule, ergebnisse } of sollProSchule) {

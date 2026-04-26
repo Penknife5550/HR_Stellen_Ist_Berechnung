@@ -9,7 +9,9 @@ import {
   getRegeldeputateMap,
   getLatestSync,
   getAblaufendeBefristungen,
+  getStatistikCodeUebersicht,
 } from "@/lib/db/queries";
+import { PersonalstrukturCard } from "./PersonalstrukturCard";
 import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
 import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { db } from "@/db";
@@ -42,7 +44,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
 
   // Alles parallel laden
-  const [vergleiche, stellenistDaten, stellensollDaten, alleStellenanteile, regeldeputateMap, ablaufendeBefristungen, lehrerCountRows] = await Promise.all([
+  const [vergleiche, stellenistDaten, stellensollDaten, alleStellenanteile, regeldeputateMap, ablaufendeBefristungen, lehrerCountRows, statistikUebersicht] = await Promise.all([
     getAktuelleVergleiche(hjId),
     getAktuelleStellenisteAlleSchulen(hjId),
     getAktuelleStellensollAlleSchulen(hjId),
@@ -50,6 +52,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     getRegeldeputateMap(),
     getAblaufendeBefristungen(hjId, 90),
     db.select({ stammschuleId: lehrer.stammschuleId, count: sql<number>`count(*)` }).from(lehrer).where(eq(lehrer.aktiv, true)).groupBy(lehrer.stammschuleId),
+    getStatistikCodeUebersicht(),
   ]);
   const lehrerCounts: Record<number, number> = {};
   for (const row of lehrerCountRows) {
@@ -169,6 +172,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         breadcrumbs={[{ label: "Dashboard" }]}
       />
       {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} /></div>}
+
+      <PersonalstrukturCard
+        codes={statistikUebersicht.codes}
+        schulen={statistikUebersicht.schulen}
+        perCodeSchule={statistikUebersicht.perCodeSchule}
+        codeAenderungen30T={statistikUebersicht.codeAenderungen30T}
+      />
 
       <DashboardClient
         schulen={schulen.map((s) => ({ id: s.id, kurzname: s.kurzname, name: s.name, farbe: s.farbe }))}

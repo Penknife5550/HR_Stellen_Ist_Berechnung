@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { createLehrerAction, updateLehrerAction, toggleLehrerAktivAction } from "./actions";
@@ -19,6 +20,10 @@ type Lehrer = {
   quelle: string;
   aktiv: boolean;
   deputat: number | null;
+  statistikCode: string | null;
+  statistikBezeichnung: string | null;
+  statistikGruppe: string | null;
+  statistikIstTeilzeit: boolean | null;
 };
 
 type Schule = {
@@ -28,19 +33,46 @@ type Schule = {
   farbe: string;
 };
 
+type StatistikCodeOption = {
+  code: string;
+  bezeichnung: string;
+  gruppe: string;
+  istTeilzeit: boolean;
+};
+
 type Props = {
   lehrer: Lehrer[];
   schulen: Schule[];
+  statistikCodes: StatistikCodeOption[];
 };
 
-export function MitarbeiterClient({ lehrer, schulen }: Props) {
+export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
+  const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
   const [schoolFilter, setSchoolFilter] = useState<number | "alle">("alle");
   const [quelleFilter, setQuelleFilter] = useState<"alle" | "untis" | "manuell">("alle");
+  const [gruppeFilter, setGruppeFilter] = useState<"alle" | "beamter" | "angestellter" | "ohne">("alle");
+  const [codeFilter, setCodeFilter] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Initial-Filter aus URL (?gruppe=&code=&schule=) — Deeplink vom Dashboard
+  useEffect(() => {
+    const g = searchParams.get("gruppe");
+    if (g === "beamter" || g === "angestellter" || g === "ohne" || g === "alle") {
+      setGruppeFilter(g);
+    }
+    const c = searchParams.get("code");
+    if (c) setCodeFilter(c.toUpperCase());
+
+    const s = searchParams.get("schule");
+    if (s) {
+      const match = schulen.find((sch) => sch.kurzname.toUpperCase() === s.toUpperCase());
+      if (match) setSchoolFilter(match.id);
+    }
+  }, [searchParams, schulen]);
 
   // Filter logic
   const filtered = lehrer.filter((l) => {
@@ -51,7 +83,11 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
       (l.personalnummer && l.personalnummer.toLowerCase().includes(searchLower));
     const matchesSchool = schoolFilter === "alle" || l.stammschuleId === schoolFilter;
     const matchesQuelle = quelleFilter === "alle" || l.quelle === quelleFilter;
-    return matchesSearch && matchesSchool && matchesQuelle;
+    const matchesGruppe =
+      gruppeFilter === "alle" ||
+      (gruppeFilter === "ohne" ? !l.statistikGruppe : l.statistikGruppe === gruppeFilter);
+    const matchesCode = !codeFilter || l.statistikCode === codeFilter;
+    return matchesSearch && matchesSchool && matchesQuelle && matchesGruppe && matchesCode;
   });
 
   async function handleAction(
@@ -129,6 +165,52 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
             </button>
           ))}
         </div>
+
+        {/* Gruppe filter (Beamte / Angestellte) */}
+        <div className="flex rounded-lg border border-[#E5E7EB] overflow-hidden">
+          {(["alle", "beamter", "angestellter", "ohne"] as const).map((g) => (
+            <button
+              key={g}
+              onClick={() => setGruppeFilter(g)}
+              className={`px-4 py-2.5 text-[15px] min-h-[44px] transition-colors ${
+                gruppeFilter === g
+                  ? "bg-[#1A1A1A] text-white"
+                  : "bg-white text-[#575756] hover:bg-gray-50"
+              }`}
+              title={
+                g === "alle"
+                  ? "Alle Gruppen"
+                  : g === "beamter"
+                  ? "Beamte (L, LT, P, PT)"
+                  : g === "angestellter"
+                  ? "Angestellte TV-L (U, UT, B, BT)"
+                  : "Ohne Statistik-Code"
+              }
+            >
+              {g === "alle"
+                ? "Alle Gruppen"
+                : g === "beamter"
+                ? "Beamte"
+                : g === "angestellter"
+                ? "Angestellte"
+                : "Ohne Code"}
+            </button>
+          ))}
+        </div>
+
+        {/* Code filter chip (nur sichtbar bei aktivem Code-Deeplink) */}
+        {codeFilter && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#1A1A1A] px-3 py-1.5 text-xs font-medium text-white">
+            Code: {codeFilter}
+            <button
+              onClick={() => setCodeFilter(null)}
+              className="text-white/70 hover:text-white"
+              aria-label="Code-Filter entfernen"
+            >
+              ×
+            </button>
+          </span>
+        )}
 
         {/* Add button */}
         <Button
@@ -213,6 +295,37 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                 />
                 <span className="text-xs text-[#9CA3AF]">Wird fuer alle 12 Monate uebernommen</span>
               </div>
+              <div>
+                <label className="block text-sm text-[#575756] mb-1">
+                  Statistik-Code <span className="text-[#9CA3AF]">(Bezirksregierung)</span>
+                </label>
+                <select
+                  name="statistikCode"
+                  defaultValue=""
+                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-[15px] min-h-[44px]"
+                >
+                  <option value="">— Kein Code —</option>
+                  <optgroup label="Beamte">
+                    {statistikCodes
+                      .filter((c) => c.gruppe === "beamter")
+                      .map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.code} — {c.bezeichnung}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="Angestellte TV-L">
+                    {statistikCodes
+                      .filter((c) => c.gruppe === "angestellter")
+                      .map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.code} — {c.bezeichnung}
+                        </option>
+                      ))}
+                  </optgroup>
+                </select>
+                <span className="text-xs text-[#9CA3AF]">Pflicht für Bezirksregierungs-Export</span>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button type="submit" disabled={saving}>
@@ -241,6 +354,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
               <tr className="border-b border-[#E5E7EB]">
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Name</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Personalnr.</th>
+                <th className="text-left py-3 px-4 font-semibold text-[#575756]">Code</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Stammschule</th>
                 <th className="text-right py-3 px-4 font-semibold text-[#575756]">Deputat</th>
                 <th className="text-left py-3 px-4 font-semibold text-[#575756]">Quelle</th>
@@ -251,7 +365,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-[#6B7280]">
+                  <td colSpan={8} className="text-center py-8 text-[#6B7280]">
                     Keine Lehrkraefte gefunden.
                   </td>
                 </tr>
@@ -264,7 +378,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                 if (isEditing && isManuell) {
                   return (
                     <tr key={l.id} className="bg-yellow-50 border-y border-yellow-200">
-                      <td colSpan={7} className="py-3 px-4">
+                      <td colSpan={8} className="py-3 px-4">
                         <form
                           onSubmit={(e) => {
                             e.preventDefault();
@@ -273,7 +387,7 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                           }}
                         >
                           <input type="hidden" name="id" value={l.id} />
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                             <div>
                               <label className="block text-xs text-[#575756] mb-1">Vorname</label>
                               <input
@@ -314,6 +428,34 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                                     {s.kurzname}
                                   </option>
                                 ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-[#575756] mb-1">Code</label>
+                              <select
+                                name="statistikCode"
+                                defaultValue={l.statistikCode ?? ""}
+                                className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2 text-[15px] min-h-[44px]"
+                              >
+                                <option value="">— Kein Code —</option>
+                                <optgroup label="Beamte">
+                                  {statistikCodes
+                                    .filter((c) => c.gruppe === "beamter")
+                                    .map((c) => (
+                                      <option key={c.code} value={c.code}>
+                                        {c.code} — {c.bezeichnung}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Angestellte">
+                                  {statistikCodes
+                                    .filter((c) => c.gruppe === "angestellter")
+                                    .map((c) => (
+                                      <option key={c.code} value={c.code}>
+                                        {c.code} — {c.bezeichnung}
+                                      </option>
+                                    ))}
+                                </optgroup>
                               </select>
                             </div>
                             <div>
@@ -361,6 +503,34 @@ export function MitarbeiterClient({ lehrer, schulen }: Props) {
                     {/* Personalnummer */}
                     <td className="py-3 px-4 text-[#575756]">
                       {l.personalnummer || <span className="text-[#D1D5DB]">-</span>}
+                    </td>
+
+                    {/* Statistik-Code */}
+                    <td className="py-3 px-4">
+                      {l.statistikCode ? (
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${
+                            l.statistikGruppe === "beamter"
+                              ? "bg-blue-100 text-blue-800"
+                              : l.statistikGruppe === "angestellter"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-gray-100 text-gray-700"
+                          }`}
+                          title={
+                            l.statistikBezeichnung
+                              ? `${l.statistikBezeichnung}${
+                                  l.statistikIstTeilzeit ? " — Teilzeit" : ""
+                                }`
+                              : l.statistikCode
+                          }
+                        >
+                          {l.statistikCode}
+                        </span>
+                      ) : (
+                        <span className="text-[#D1D5DB]" title="Kein Statistik-Code hinterlegt">
+                          —
+                        </span>
+                      )}
                     </td>
 
                     {/* Stammschule */}
