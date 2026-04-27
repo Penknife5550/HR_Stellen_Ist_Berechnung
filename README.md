@@ -45,3 +45,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```bash
 npm run test
 ```
+
+## Dokumentation
+
+Siehe [`docs/`](docs/README.md) — Projektplan, Feature-Doku, Deployment-Checklisten, Handbuch.

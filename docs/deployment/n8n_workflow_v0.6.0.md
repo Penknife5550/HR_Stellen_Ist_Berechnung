@@ -171,5 +171,5 @@ App-seitig sind keine Aenderungen noetig; ein leerer/fehlender `statistik_code` 
 - **App-Endpoint**: `src/app/api/deputate/sync/route.ts:283-298` — Whitelist-Check via `normalizeStatistikCode`.
 - **Pure-Helper**: `src/lib/statistikCode.ts` — `normalizeStatistikCode`, `detectStatistikCodeChange`.
 - **Tests**: `tests/lib/statistikCode.test.ts` — 9 Faelle fuer `normalizeStatistikCode`, 7 fuer `detectStatistikCodeChange`.
-- **Deployment-Schritt**: `DEPLOYMENT_v0.6.0.md` Schritt 4.
+- **Deployment-Schritt**: `v0.6.0.md` Schritt 4.
 - **Test-Skript lokal**: `test-sync.mjs` (gegen `localhost:3000`) — verwendet dasselbe Mapping zu Verifikationszwecken.
