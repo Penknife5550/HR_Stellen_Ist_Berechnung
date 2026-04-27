@@ -1,0 +1,334 @@
+# Deployment-Checkliste — v0.6.0 (NRW-Statistik-Codes)
+
+**Ziel:** Statistik-Codes-Feature (Beamte/Angestellte-Trennung fuer Bezirksregierung) auf `deputat.fes-credo.de` ausrollen.
+**Geplant:** offen
+**Stand bei Erstellung:** 2026-04-27
+
+---
+
+## 🎯 Was wird deployed
+
+| Release | Commit | Inhalt |
+|---|---|---|
+| **v0.6.0-feature** | `f9247c8` | NRW-Statistik-Codes durchgaengig sichtbar + verwaltbar. Migration 0006 (`statistik_codes`-Tabelle + FK auf `lehrer.statistik_code`). Personalstruktur-Card im Dashboard, Deputatsstruktur-Card auf `/deputate`, Admin-UI unter `/einstellungen/statistik-codes`, Mitarbeiterliste mit Code-Spalte + Filter-Deeplinks. Stellenplan-Export Anlage 2a um Personalstruktur-Block erweitert. |
+| **v0.6.0-review** | `81fc789` | Code-Review-Fixes (3 CRITICAL, 27 MAJOR): FK-Existenzcheck, A11y, Server-Action-Tests, Audit-Vorher-Wert aus DB, PG-Errorcodes, Promise.all in `getStatistikCodeUebersicht`, schlanke `getLehrerStatistikGruppen`-Query, ConfirmDialog ersetzt `window.confirm()`. Migration 0007 (Composite-Index `audit_log` fuer 30T-Trend). |
+| **v0.6.0-docs** | `0d6799a` | DOKUMENTATION.md § 10 vollstaendig auf Stand der Review-Fixes. |
+
+Alle drei Commits sind auf `origin/main` gepusht. Lokale Tests: 175/175 gruen, Typecheck sauber, ESLint clean.
+
+---
+
+## 🧰 Umgebung / Zugriff
+
+- **Produktions-Server:** `deputat.fes-credo.de`
+- **Container-Namen:** `stellenist-app`, `stellenist-db`
+- **Compose-File:** `docker-compose.prod.yml`
+- **Reverse Proxy:** Caddy (extern, mit Security-Headern)
+- **DB:** Postgres 16-alpine, Name `stellenistberechnung`, User `stellenist`
+
+**Zugang bereit halten:**
+- [ ] SSH-Zugang zum Produktions-Server
+- [ ] `.env` auf dem Server ist aktuell (keine neuen Env-Variablen — `DATABASE_URL` wird von der Auto-Migration und vom Seed-Skript wiederverwendet)
+- [ ] n8n-Admin-Zugang (https://n8n.fes-minden.de/) — fuer Schritt 4
+- [ ] Zugang zum Web-UI als Admin (fuer Smoke-Tests)
+- [ ] Untis-Zugang als Referenz, falls Codes manuell zu pruefen sind
+
+---
+
+## 🔒 Schritt 0 — Sicherung vor Deployment
+
+**Auf dem Server:**
+
+```bash
+# Postgres-Dump als Backup vor Migration 0006 + 0007
+docker exec stellenist-db pg_dump -U stellenist stellenistberechnung \
+  > ~/backups/stellenist_$(date +%Y%m%d_%H%M)_pre_v0.6.0.sql
+
+# Verifizieren: Dump-Groesse > 0
+ls -lh ~/backups/stellenist_*_pre_v0.6.0.sql | tail -1
+```
+
+- [ ] Dump erstellt und > 0 Bytes
+
+---
+
+## 📦 Schritt 1 — Code-Deploy + Migrationen
+
+**Auf dem Server im Projekt-Verzeichnis:**
+
+```bash
+git fetch origin
+git log origin/main -3 --oneline     # Erwartet: 0d6799a, 81fc789, f9247c8
+git pull origin main
+```
+
+- [ ] `git log` zeigt die drei neuen Commits
+- [ ] `git status` ist clean
+
+**Container neu bauen und starten:**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build app
+```
+
+Der Container startet, `migrate.mjs` laeuft automatisch vor dem Next.js-Server. Erwartete Log-Ausgabe:
+
+```
+[done] 0006_lehrer_statistik_code
+[done] 0007_audit_log_trend_index
+Database is up to date.
+```
+
+**Verifizieren:**
+
+```bash
+# Logs verfolgen bis "ready in ..."
+docker logs -f stellenist-app
+
+# In anderem Terminal: Migration-Status
+docker exec stellenist-db psql -U stellenist -d stellenistberechnung \
+  -c "SELECT hash FROM __drizzle_migrations ORDER BY id;"
+# Muss 0006 UND 0007 enthalten
+```
+
+- [ ] Container laeuft (Status `healthy`)
+- [ ] Migration **0006** angewendet (`statistik_codes`-Tabelle existiert)
+- [ ] Migration **0007** angewendet (Index `idx_audit_log_trend`)
+- [ ] Web-UI erreichbar: `https://deputat.fes-credo.de` → Login funktioniert
+
+**Kurz-Check der DB-Struktur:**
+
+```bash
+docker exec stellenist-db psql -U stellenist -d stellenistberechnung -c "\d statistik_codes"
+docker exec stellenist-db psql -U stellenist -d stellenistberechnung -c "\d+ lehrer" | grep statistik_code
+```
+
+- [ ] Tabelle `statistik_codes` existiert mit Spalten `code, bezeichnung, gruppe, ist_teilzeit, sortierung, aktiv, bemerkung`
+- [ ] `lehrer.statistik_code` existiert mit FK `lehrer_statistik_code_fkey`
+
+---
+
+## 🌱 Schritt 2 — Seed der Standard-Codes
+
+**WICHTIG:** Migration 0006 erstellt die Tabelle leer. Ohne diesen Schritt:
+- gibt es keine Codes zur Auswahl im Mitarbeiter-Form
+- die Sync-Whitelist verwirft alle eingehenden Codes von Untis (alles → "Ohne Code")
+- die Personalstruktur-Card im Dashboard zeigt nur "Ohne Code"
+
+**Ausfuehren:**
+
+```bash
+docker exec stellenist-app npx tsx src/db/seed-statistik-codes.ts
+```
+
+Erwartete Ausgabe: 8 Codes angelegt (L, LT, P, PT, U, UT, B, BT).
+
+**Verifizieren:**
+
+```bash
+docker exec stellenist-db psql -U stellenist -d stellenistberechnung \
+  -c "SELECT code, bezeichnung, gruppe, ist_teilzeit, sortierung FROM statistik_codes ORDER BY sortierung;"
+```
+
+- [ ] 8 Zeilen ausgegeben
+- [ ] L/LT/P/PT haben `gruppe = 'beamter'`
+- [ ] U/UT/B/BT haben `gruppe = 'angestellter'`
+- [ ] Teilzeit-Varianten (LT/PT/UT/BT) haben `ist_teilzeit = true`
+
+---
+
+## 🧪 Schritt 3 — App-Smoke-Tests (vor n8n-Update)
+
+Bestehende Lehrer haben `statistik_code = NULL` bis zum naechsten Sync. Die UI muss damit sauber umgehen — keine Crashes, "Ohne Code"-Anzeige, alle Filter und Aggregationen funktionieren.
+
+**3.1 Mitarbeiterliste**
+- [ ] `/mitarbeiter` aufrufen → Liste laedt
+- [ ] Code-Spalte sichtbar (alle initial leer / "—")
+- [ ] Filter-Buttons "Alle / Beamte / Angestellte / Ohne Code" funktionieren — "Ohne Code" zeigt alle Lehrer
+- [ ] Suche + Schul-Filter weiterhin OK
+
+**3.2 Lehrer manuell anlegen mit Code**
+- [ ] „+ Neue Lehrkraft" → Form zeigt Statistik-Code-Dropdown mit optgroups Beamte/Angestellte
+- [ ] Test-Lehrer mit `statistikCode: "L"` anlegen → speichert ohne Fehler
+- [ ] In der Liste erscheint die blaue „L"-Badge
+- [ ] Test-Lehrer wieder loeschen / inaktiv setzen
+
+**3.3 Dashboard-Karte „Personalstruktur"**
+- [ ] `/dashboard` → Card oben sichtbar
+- [ ] Anfangs: alle Tiles leer ausser dem rot markierten „Ohne Code"-Footer
+- [ ] Tabs `Alle / GES / GYM / BK / GSH / GSM / GSS` funktionieren (`role="tab"`-Pattern)
+- [ ] Stacked-Bar zeigt 100% grau (Ohne Code)
+- [ ] Nach Anlage des Test-Lehrers in 3.2: Beamte-Tile „L" zeigt 1, Bar enthaelt blauen Anteil
+
+**3.4 Deputatsseite Card „Deputatsstruktur"**
+- [ ] `/deputate` → Card oben sichtbar (sofern Deputatsdaten vorhanden)
+- [ ] Spalten Beamte / Angestellte / Ohne Code / Gesamt rechtsbuendig mit Stunden + Personenanzahl
+- [ ] Verteilungs-Bar pro Schul-Zeile
+
+**3.5 Admin-Oberflaeche `/einstellungen/statistik-codes`**
+- [ ] Link auf `/einstellungen` sichtbar (Karte „Stammdaten" mit zwei Kacheln)
+- [ ] `/einstellungen/statistik-codes` zeigt 8 Seed-Codes
+- [ ] Toggle-Switch fuer einen Code anklicken → ConfirmDialog erscheint (NICHT der Browser-confirm) — Esc-Taste schliesst, Klick auf Backdrop schliesst
+- [ ] Pencil-Icon → Inline-Edit, Bezeichnung aendern, ✓ speichert. In `/mitarbeiter` ist die geaenderte Bezeichnung im Dropdown zu sehen
+- [ ] „+ Neuen Code anlegen" → Test-Code „X" anlegen, dann wieder loeschen via Toggle
+
+**3.6 Stellenplan-Export Anlage 2a**
+- [ ] `/api/export/stellenplan?haushaltsjahrId=<id>&format=excel` herunterladen
+- [ ] Excel hat neues Sheet **„Personalstruktur"** mit Spalten Schule / Beamte ges. / dav. Vollzeit / dav. Teilzeit / Angest. ges. / dav. Vollzeit / dav. Teilzeit / Ohne Code / Gesamt
+- [ ] Nach Anlage des Test-Lehrers in 3.2 erscheint dieser an seiner Schule
+- [ ] PDF-Variante (`format=pdf`) hat eine zusaetzliche Seite „Personalstruktur"
+
+**3.7 Lehrer-Detailseite `/deputate/[id]`**
+- [ ] Header zeigt „Code: — " bei Lehrern ohne Code
+- [ ] Beim Test-Lehrer aus 3.2: „Code: L — Beamter Lebenszeit"
+
+---
+
+## 🔄 Schritt 4 — n8n-Workflow aktualisieren
+
+**WICHTIG:** Ohne diesen Schritt bleiben alle aus Untis stammenden Lehrer auf `statistik_code = NULL`. Die Bezirksregierung-Statistik ist erst dann aussagekraeftig wenn der Sync den Code mitliefert.
+
+**Die Aenderung:** Im Code-Node „Daten fuer Stellenist aufbereiten" wird das Lehrer-Mapping um `statistik_code` ergaenzt. Im Untis-Datenmodell heisst das Feld `StatisticCodes` (kann mehrere Codes komma-separiert enthalten — wir nehmen den ersten / einzigen).
+
+```js
+// Innerhalb des map() ueber Untis-Lehrer:
+statistik_code: lehrer.StatisticCodes
+  ? String(lehrer.StatisticCodes).split(",")[0].trim().toUpperCase() || null
+  : null,
+```
+
+Die App-Seite ist bereits robust:
+- Whitelist-Check verwirft unbekannte Codes (kein FK-Crash)
+- Datenverlust-Schutz: leerer/ungueltiger Wert ueberschreibt einen bestehenden Code NICHT
+
+**Zu aktualisieren:**
+- [ ] Workflow **#223 „Stellenist Deputat-Sync (Untis → Stellenist-App)"**
+- [ ] Workflow **„Backfill HJ 2025 + 2026 (Stellenist-App)"** (falls Backfill ueber bestehende Daten neu laufen soll)
+
+**Vorgehen:**
+1. n8n-UI oeffnen → Workflow oeffnen → „⋮ → Download" als Sicherung des alten Stands
+2. Code-Node anklicken, Zeile ergaenzen
+3. Save → Workflow „Active" lassen
+4. Gleiches fuer Backfill-Workflow
+
+- [ ] Workflow #223 aktualisiert
+- [ ] Backfill-Workflow aktualisiert (optional — nur falls retroaktiver Backfill gewuenscht)
+
+**Smoke-Test n8n:**
+- [ ] Workflow #223 manuell einmal ausfuehren („Execute Workflow")
+- [ ] Response von App: `success: true`
+- [ ] In Postgres pruefen: einige Lehrer haben jetzt einen Code
+
+```sql
+SELECT statistik_code, COUNT(*)
+FROM lehrer
+WHERE aktiv = true
+GROUP BY statistik_code
+ORDER BY COUNT(*) DESC;
+```
+
+- [ ] Mehrere Codes (L/LT/U/UT/...) sind belegt
+- [ ] „Unbekannt" oder NULL nimmt nur einen kleinen Rest aus (ggf. Lehrer ohne Untis-Eintrag)
+
+**Audit-Trail pruefen:**
+
+```sql
+SELECT COUNT(*) FROM audit_log
+WHERE tabelle = 'lehrer' AND aktion = 'UPDATE'
+  AND alte_werte ? 'statistikCode'
+  AND zeitpunkt > NOW() - INTERVAL '1 hour';
+```
+
+- [ ] Jeder Code-Wechsel wurde auditiert (sollte == Anzahl der Lehrer mit Code-Update sein)
+
+---
+
+## ✅ Schritt 5 — Post-Deployment-Tests
+
+**5.1 Dashboard zeigt sinnvolle Verteilung**
+- [ ] Personalstruktur-Card im Dashboard zeigt jetzt eine Verteilung (nicht mehr nur „Ohne Code")
+- [ ] Beim Klick auf eine Tile (z.B. „L") landet man auf `/mitarbeiter?gruppe=beamter&code=L` — Filter sind aktiv
+- [ ] Schul-Tabs filtern den Tile-Block korrekt
+
+**5.2 30-Tage-Trend funktioniert**
+- [ ] Trend-Badge oben rechts in der Card zeigt „N Code-Wechsel · 30T" (mit der Anzahl aus dem ersten Sync)
+
+**5.3 Stellenplan-Export ist Bezirksregierungs-tauglich**
+- [ ] Excel + PDF zeigen Personalstruktur-Block mit echten Zahlen pro Schule
+- [ ] Gesamt-Zeile addiert sich zur Anzahl aller aktiven Lehrer
+
+**5.4 Naechster geplanter Sync**
+Am naechsten Tag (06:01 Uhr) laeuft der geplante Sync.
+
+```sql
+-- Nach dem Sync: keine FK-Verletzungen erwartet
+SELECT COUNT(*) FROM audit_log
+WHERE tabelle = 'lehrer' AND aktion = 'UPDATE'
+  AND alte_werte ? 'statistikCode'
+  AND zeitpunkt::date = CURRENT_DATE;
+```
+
+- [ ] Sync laeuft sauber durch (Status `success` in `deputat_sync_log`)
+- [ ] Code-Wechsel werden nur dort auditiert wo Untis tatsaechlich was geaendert hat
+
+---
+
+## 🚨 Rollback-Plan (falls was schief geht)
+
+**Rollback App-Code:**
+
+```bash
+git revert 0d6799a 81fc789 f9247c8
+git push origin main
+docker compose -f docker-compose.prod.yml up -d --build app
+```
+
+**Migration-Rollback ist fast nie noetig:**
+- Migration 0006 ist additiv: neue Tabelle + nullable Spalte. Bei Rollback ohne DB-Aenderung bleiben Tabelle und Spalte einfach ungenutzt — kein Datenverlust.
+- Migration 0007 ist nur ein Index auf `audit_log` — verlangsamt nichts und kann stehen bleiben.
+
+Falls trotzdem die `statistik_codes`-Tabelle entfernt werden soll:
+
+```sql
+ALTER TABLE lehrer DROP CONSTRAINT lehrer_statistik_code_fkey;
+ALTER TABLE lehrer DROP COLUMN statistik_code;
+DROP TABLE statistik_codes;
+DROP INDEX IF EXISTS idx_audit_log_trend;
+DELETE FROM __drizzle_migrations WHERE hash LIKE '%0006_lehrer_statistik_code%' OR hash LIKE '%0007_audit_log_trend_index%';
+```
+
+**Rollback n8n:**
+- Alten Workflow-Stand importieren (Download-Kopie aus Schritt 4) oder die `statistik_code:`-Zeile manuell wieder entfernen.
+
+**Bei akutem Problem mit Migration:**
+Backup aus Schritt 0 zurueckspielen:
+```bash
+docker exec -i stellenist-db psql -U stellenist -d stellenistberechnung < ~/backups/stellenist_YYYYMMDD_HHMM_pre_v0.6.0.sql
+```
+
+---
+
+## 📝 Bekannte Einschraenkungen / Follow-ups
+
+Nichts davon ist blockierend, nur zum Nachziehen:
+
+- **Browser-Smoke-Test der Cards lokal:** Vor dem Deploy ist die UI-Funktion nur durch TypeScript + 175 Vitest-Tests abgesichert, nicht im laufenden System geklickt worden. Schritt 3 ersetzt das auf Produktion.
+- **n8n-Workflow ist nicht im Git** (in `.gitignore`). Lokal bei Dimitri liegt die JSON unter `#223 - Stellenist Deputat-Sync (Untis → Stellenist-App).json`.
+- **Handbuch:** `Handbuch_Stellenistberechnung_v1.0.docx` muss um Statistik-Codes-Kapitel erweitert werden (Mitarbeiterliste-Filter, Dashboard-Card, Admin-Oberflaeche, Anlage-2a-Personalstruktur-Block).
+- **MINOR-Findings aus Code-Review** die bewusst nicht gefixt wurden, weil sie das bestehende Pattern brechen wuerden (hartcodierte Hex-Werte konsistent mit Stellenarten-Admin) — siehe Code-Review-Report bei Bedarf.
+- **`lehrer.statistik_code` ist nullable** und bleibt es vorerst — auf required umstellen erst wenn `n8n` >6 Monate stabil liefert.
+
+---
+
+## 📚 Referenz-Dateien
+
+- `DOKUMENTATION.md` § 10 — Vollstaendige Feature-Doku (Standard-Codes, Sync, UI, Architektur, Sicherheit, Tests)
+- `src/lib/statistikCode.ts` — Pure Helpers (normalize, detect, build*, summe*, Konstanten)
+- `src/db/migrations/0006_lehrer_statistik_code.sql` — Schema
+- `src/db/migrations/0007_audit_log_trend_index.sql` — Audit-Performance-Index
+- `src/db/seed-statistik-codes.ts` — Seed der 8 NRW-Standard-Codes
+- `tests/lib/statistikCode*.test.ts` — 44 Tests (Unit + Integration der Server Actions)
+
+## 🔙 Wenn wir morgen hier weitermachen
+
+Kontext fuer Claude (oder Dimitri): **Das v0.6.0-Deployment steht noch aus.** Code + Tests + Doku sind fertig und gepusht (`origin/main` bei Commit `0d6799a`), aber auf dem Produktions-Server laeuft noch v0.5.x. Der n8n-Workflow ist noch nicht aktualisiert. Dieses Dokument Schritt fuer Schritt durchgehen — besonders Schritt 2 (Seed) und Schritt 4 (n8n) sind kritisch, ohne sie ist das Feature wirkungslos.
