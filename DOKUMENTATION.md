@@ -296,7 +296,9 @@ Die Bezirksregierung verlangt in der Stellenplan-Anlage 2a eine getrennte Auswei
 Die Codes liegen in der Tabelle `statistik_codes` (FK von `lehrer.statistik_code`) und sind ueber `/einstellungen/statistik-codes` admin-editierbar (Bezeichnung, Gruppe, Teilzeit-Flag, Sortierung, Aktiv-Status). Der Code-Schluessel selbst ist nach Anlage gesperrt — Aenderungen erfolgen ueber neuen Code anlegen + Lehrkraft umbuchen + alten Code deaktivieren.
 
 ### 10.3 Sync-Verhalten (n8n)
-Beim n8n-Sync laeuft der eingehende Code durch eine Whitelist-Pruefung (`normalizeStatistikCode` in `src/lib/statistikCode.ts`):
+Der n8n-Workflow #223 selektiert `t.StatisticCodes` aus der Untis-`Teacher`-Tabelle und reicht es als `statistik_code` pro Lehrer im Sync-Payload weiter. Genaue Workflow-Patches (SQL + JS-Code-Node) inkl. Rollback siehe `N8N_WORKFLOW_v0.6.0.md`.
+
+Beim Empfang im App-Endpoint laeuft der Code durch eine Whitelist-Pruefung (`normalizeStatistikCode` in `src/lib/statistikCode.ts`):
 - trim + uppercase
 - nur Codes aus der `statistik_codes`-Tabelle werden uebernommen
 - unbekannte Codes werden verworfen (Schutz vor FK-Verletzung)

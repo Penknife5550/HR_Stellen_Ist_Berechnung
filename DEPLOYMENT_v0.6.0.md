@@ -188,31 +188,39 @@ Bestehende Lehrer haben `statistik_code = NULL` bis zum naechsten Sync. Die UI m
 
 **WICHTIG:** Ohne diesen Schritt bleiben alle aus Untis stammenden Lehrer auf `statistik_code = NULL`. Die Bezirksregierung-Statistik ist erst dann aussagekraeftig wenn der Sync den Code mitliefert.
 
-**Die Aenderung:** Im Code-Node „Daten fuer Stellenist aufbereiten" wird das Lehrer-Mapping um `statistik_code` ergaenzt. Im Untis-Datenmodell heisst das Feld `StatisticCodes` (kann mehrere Codes komma-separiert enthalten — wir nehmen den ersten / einzigen).
+**Vollstaendige Anleitung (mit Begruendungen + Rollback):** Siehe **[N8N_WORKFLOW_v0.6.0.md](./N8N_WORKFLOW_v0.6.0.md)**.
 
-```js
-// Innerhalb des map() ueber Untis-Lehrer:
-statistik_code: lehrer.StatisticCodes
-  ? String(lehrer.StatisticCodes).split(",")[0].trim().toUpperCase() || null
-  : null,
+**Kurzfassung — Zwei Knoten in Workflow #223 anpassen:**
+
+**4.1 MSSQL-Query** — eine Zeile in den SELECT-Block einfuegen:
+
+```diff
+     t.PNumber AS Personalnummer,
++    t.StatisticCodes AS Statistik_Code,
+     t.OwnSchool AS Stammschule,
+```
+
+**4.2 Code-Node „Daten fuer Stellenist aufbereiten"** — eine Zeile am Ende des Lehrer-Push-Objekts:
+
+```diff
+       deputat_bk: Math.round((parseFloat(d.Deputat_BK) || 0) * 1000) / 1000,
++      statistik_code: d.Statistik_Code ? String(d.Statistik_Code).substring(0, 5).trim().toUpperCase() : null,
+     });
 ```
 
 Die App-Seite ist bereits robust:
-- Whitelist-Check verwirft unbekannte Codes (kein FK-Crash)
+- Whitelist-Check verwirft unbekannte Codes (kein FK-Crash) — `normalizeStatistikCode` in `src/lib/statistikCode.ts`
 - Datenverlust-Schutz: leerer/ungueltiger Wert ueberschreibt einen bestehenden Code NICHT
 
-**Zu aktualisieren:**
-- [ ] Workflow **#223 „Stellenist Deputat-Sync (Untis → Stellenist-App)"**
-- [ ] Workflow **„Backfill HJ 2025 + 2026 (Stellenist-App)"** (falls Backfill ueber bestehende Daten neu laufen soll)
+**Vorgehen empfohlen — Import der lokalen JSON:**
+1. Lokale JSON-Datei `#223 - Stellenist Deputat-Sync (Untis → Stellenist-App).json` (im Projekt-Root) enthaelt bereits beide Patches.
+2. n8n-UI (https://n8n.fes-minden.de/) → Workflow #223 → „⋮ → Download" als Sicherung des alten Stands
+3. „⋮ → Import from File" → lokale JSON waehlen
+4. Diff pruefen → Save → Workflow `Active` lassen
 
-**Vorgehen:**
-1. n8n-UI oeffnen → Workflow oeffnen → „⋮ → Download" als Sicherung des alten Stands
-2. Code-Node anklicken, Zeile ergaenzen
-3. Save → Workflow „Active" lassen
-4. Gleiches fuer Backfill-Workflow
-
-- [ ] Workflow #223 aktualisiert
-- [ ] Backfill-Workflow aktualisiert (optional — nur falls retroaktiver Backfill gewuenscht)
+- [ ] Sicherung des alten Workflow-Stands heruntergeladen
+- [ ] Workflow #223 aktualisiert (SELECT + Code-Node)
+- [ ] Backfill-Workflow aktualisiert (**optional** — nur falls retroaktiver Backfill gewuenscht; siehe N8N_WORKFLOW_v0.6.0.md § 5)
 
 **Smoke-Test n8n:**
 - [ ] Workflow #223 manuell einmal ausfuehren („Execute Workflow")
@@ -323,6 +331,7 @@ Nichts davon ist blockierend, nur zum Nachziehen:
 ## 📚 Referenz-Dateien
 
 - `DOKUMENTATION.md` § 10 — Vollstaendige Feature-Doku (Standard-Codes, Sync, UI, Architektur, Sicherheit, Tests)
+- `N8N_WORKFLOW_v0.6.0.md` — Genaue Diffs fuer Workflow #223 (SQL + JS), Smoke-Test, Rollback
 - `src/lib/statistikCode.ts` — Pure Helpers (normalize, detect, build*, summe*, Konstanten)
 - `src/db/migrations/0006_lehrer_statistik_code.sql` — Schema
 - `src/db/migrations/0007_audit_log_trend_index.sql` — Audit-Performance-Index
