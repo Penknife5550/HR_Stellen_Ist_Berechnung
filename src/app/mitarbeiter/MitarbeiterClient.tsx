@@ -44,6 +44,8 @@ type Props = {
   lehrer: Lehrer[];
   schulen: Schule[];
   statistikCodes: StatistikCodeOption[];
+  /** Aktuelles Haushaltsjahr — fuer Detailseiten-PDF-Link. NULL wenn kein HJ gefunden wurde. */
+  haushaltsjahrId: number | null;
 };
 
 function StatistikCodeSelect({
@@ -80,7 +82,7 @@ function StatistikCodeSelect({
   );
 }
 
-export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
+export function MitarbeiterClient({ lehrer, schulen, statistikCodes, haushaltsjahrId }: Props) {
   const searchParams = useSearchParams();
   // Initial-Filter aus URL (?gruppe=&code=&schule=) — Deeplink vom Dashboard
   const initialGruppe = (() => {
@@ -578,6 +580,17 @@ export function MitarbeiterClient({ lehrer, schulen, statistikCodes }: Props) {
                     {/* Actions */}
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {haushaltsjahrId !== null && (
+                          <a
+                            href={`/api/export/lehrer-detail?lehrerId=${l.id}&hj=${haushaltsjahrId}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-[#009AC6] hover:bg-[#E0F2FB] hover:text-[#0086AC] transition-colors"
+                            title="Detailseite als PDF (Nachweis-Dokument fuer Bezirksregierung)"
+                            aria-label={`PDF-Nachweis fuer ${l.vollname}`}
+                          >
+                            <span aria-hidden>📄</span>
+                            <span>PDF</span>
+                          </a>
+                        )}
                         {isManuell ? (
                           <>
                             <button

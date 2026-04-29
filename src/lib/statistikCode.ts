@@ -92,6 +92,42 @@ export function normalizeStatistikCode(
 }
 
 /**
+ * Sortier-Rang einer Statistik-Gruppe fuer Listen-/Export-Sortierung:
+ *   0 = Beamte (zuerst)
+ *   1 = Angestellte
+ *   2 = Sonstiges / null / unbekannt (zuletzt)
+ */
+export function gruppenSortRank(gruppe: string | null | undefined): number {
+  if (gruppe === "beamter") return 0;
+  if (gruppe === "angestellter") return 1;
+  return 2;
+}
+
+/** Lesbare Bezeichnung fuer Sub-Header in Listen/Exports. */
+export function gruppenLabel(gruppe: string | null | undefined): string {
+  if (gruppe === "beamter") return "Beamte";
+  if (gruppe === "angestellter") return "Angestellte";
+  return "Sonstige / Ohne Code";
+}
+
+/**
+ * Sortiert eine Lehrerliste nach Schule -> Gruppe (Beamte vor Angestellten
+ * vor Sonstigen) -> Name. Pure Helper, in Ueberblick und Excel/PDF-Export
+ * gleichermassen verwendet.
+ */
+export function vergleicheLehrerNachSchuleGruppeName<
+  T extends { stammschule: string | null; gruppe: string | null; name: string }
+>(a: T, b: T): number {
+  const sa = (a.stammschule ?? "").toUpperCase();
+  const sb = (b.stammschule ?? "").toUpperCase();
+  if (sa !== sb) return sa.localeCompare(sb, "de");
+  const ga = gruppenSortRank(a.gruppe);
+  const gb = gruppenSortRank(b.gruppe);
+  if (ga !== gb) return ga - gb;
+  return a.name.localeCompare(b.name, "de");
+}
+
+/**
  * Aggregiert Lehrer-pro-Code-und-Schule zu einer Personalstruktur-Tabelle.
  * Eine Zeile pro Schule mit Gruppe-Aufschluesselung (Beamte / Angestellte / Ohne).
  * Sortiert alphabetisch nach Schul-Kurzname (de-DE).

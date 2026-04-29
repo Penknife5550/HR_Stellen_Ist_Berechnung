@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { deputatAenderungen } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { deputatAenderungen, deputatAenderungKorrekturen } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { z } from "zod";
@@ -69,4 +69,152 @@ export async function korrigiereDatumAction(formData: FormData) {
   revalidatePath("/deputate");
 
   return { success: true, message: "Tatsaechliches Datum gespeichert." };
+}
+
+// ============================================================
+// PERIODENMODELL — Korrektur-Layer (v0.7+)
+// ============================================================
+
+const periodenKorrekturSchema = z.object({
+  lehrerId: z.number().int().positive(),
+  syAlt: z.number().int().positive(),
+  termIdAlt: z.number().int().positive(),
+  syNeu: z.number().int().positive(),
+  termIdNeu: z.number().int().positive(),
+  // Echter Stichtag (jedes Datum erlaubt, nicht nur Montag — das ist genau der Punkt)
+  tatsaechlichesDatum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format: JJJJ-MM-TT"),
+  bemerkung: z.string().max(500).optional(),
+});
+
+/**
+ * Setzt oder aktualisiert eine Sachbearbeiter-Korrektur fuer einen Term-zu-Term-
+ * Wechsel im Periodenmodell. Wirkt auf v_deputat_pro_tag (Tagesgenau-Berechnung)
+ * und v_deputat_aenderungen (UI-Anzeige).
+ *
+ * Untis bleibt unangetastet — die Korrektur lebt in deputat_aenderung_korrekturen.
+ * Pro (lehrer, sy_neu, term_id_neu) max. eine Korrektur (Unique-Constraint).
+ */
+export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
+  const session = await requireWriteAccess();
+
+  const raw = {
+    lehrerId: Number(formData.get("lehrerId")),
+    syAlt: Number(formData.get("syAlt")),
+    termIdAlt: Number(formData.get("termIdAlt")),
+    syNeu: Number(formData.get("syNeu")),
+    termIdNeu: Number(formData.get("termIdNeu")),
+    tatsaechlichesDatum: String(formData.get("tatsaechlichesDatum") ?? ""),
+    bemerkung: formData.get("bemerkung") ? String(formData.get("bemerkung")) : undefined,
+  };
+
+  const parsed = periodenKorrekturSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Ungueltige Eingabe." };
+  }
+
+  const data = parsed.data;
+  const now = new Date();
+
+  // Bestehende Korrektur fuer Audit-Vorher-Wert laden
+  const [existing] = await db
+    .select()
+    .from(deputatAenderungKorrekturen)
+    .where(
+      and(
+        eq(deputatAenderungKorrekturen.lehrerId, data.lehrerId),
+        eq(deputatAenderungKorrekturen.syNeu, data.syNeu),
+        eq(deputatAenderungKorrekturen.termIdNeu, data.termIdNeu),
+      ),
+    );
+
+  await db
+    .insert(deputatAenderungKorrekturen)
+    .values({
+      lehrerId: data.lehrerId,
+      syAlt: data.syAlt,
+      termIdAlt: data.termIdAlt,
+      syNeu: data.syNeu,
+      termIdNeu: data.termIdNeu,
+      tatsaechlichesDatum: data.tatsaechlichesDatum,
+      korrigiertVon: session.name,
+      korrigiertAm: now,
+      bemerkung: data.bemerkung ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [
+        deputatAenderungKorrekturen.lehrerId,
+        deputatAenderungKorrekturen.syNeu,
+        deputatAenderungKorrekturen.termIdNeu,
+      ],
+      set: {
+        syAlt: data.syAlt,
+        termIdAlt: data.termIdAlt,
+        tatsaechlichesDatum: data.tatsaechlichesDatum,
+        korrigiertVon: session.name,
+        korrigiertAm: now,
+        bemerkung: data.bemerkung ?? null,
+        updatedAt: now,
+      },
+    });
+
+  await writeAuditLog(
+    "deputat_aenderung_korrekturen",
+    existing?.id ?? 0,
+    existing ? "UPDATE" : "INSERT",
+    existing
+      ? { tatsaechlichesDatum: existing.tatsaechlichesDatum, bemerkung: existing.bemerkung }
+      : null,
+    {
+      lehrerId: data.lehrerId,
+      sy: data.syNeu,
+      termWechsel: `${data.termIdAlt}->${data.termIdNeu}`,
+      tatsaechlichesDatum: data.tatsaechlichesDatum,
+      bemerkung: data.bemerkung ?? null,
+    },
+    session.name,
+  );
+
+  revalidatePath(`/deputate/${data.lehrerId}`);
+  revalidatePath("/deputate");
+
+  return { success: true, message: "Korrektur gespeichert." };
+}
+
+const loescheKorrekturSchema = z.object({
+  korrekturId: z.number().int().positive(),
+});
+
+/** Loescht eine Sachbearbeiter-Korrektur — der Wechsel gilt dann wieder zum Untis-Montag. */
+export async function loescheKorrekturAction(formData: FormData) {
+  const session = await requireWriteAccess();
+  const parsed = loescheKorrekturSchema.safeParse({
+    korrekturId: Number(formData.get("korrekturId")),
+  });
+  if (!parsed.success) return { error: "Ungueltige Korrektur-ID." };
+
+  const [existing] = await db
+    .select()
+    .from(deputatAenderungKorrekturen)
+    .where(eq(deputatAenderungKorrekturen.id, parsed.data.korrekturId));
+  if (!existing) return { error: "Korrektur nicht gefunden." };
+
+  await db
+    .delete(deputatAenderungKorrekturen)
+    .where(eq(deputatAenderungKorrekturen.id, parsed.data.korrekturId));
+
+  await writeAuditLog(
+    "deputat_aenderung_korrekturen",
+    parsed.data.korrekturId,
+    "DELETE",
+    {
+      tatsaechlichesDatum: existing.tatsaechlichesDatum,
+      lehrerId: existing.lehrerId,
+      termWechsel: `${existing.termIdAlt}->${existing.termIdNeu}`,
+    },
+    null,
+    session.name,
+  );
+
+  revalidatePath(`/deputate/${existing.lehrerId}`);
+  return { success: true, message: "Korrektur entfernt." };
 }

@@ -17,6 +17,9 @@ import {
   lehrer,
   deputatMonatlich,
   deputatAenderungen,
+  deputatProPeriode,
+  deputatAenderungKorrekturen,
+  untisTerms,
   mehrarbeit,
   mehrarbeitSchuleBemerkung,
   deputatSyncLog,
@@ -741,6 +744,74 @@ export async function getDeputatSummenBySchule(
   return rows;
 }
 
+/**
+ * Schul-Monatssummen aus dem Periodenmodell (v_deputat_monat_tagesgenau).
+ *
+ * Liefert pro Monat die tagesgewichtete Summe der Wochenstunden ALLER Lehrer
+ * fuer eine bestimmte Schule — schulspezifisch (GES/GYM/BK ueber die jeweilige
+ * Spalte, Grundschulen ueber deputat_gesamt aller Lehrer mit dieser Stammschule).
+ *
+ * Im Unterschied zur alten getDeputatSummenBySchule (basierend auf deputat_monatlich)
+ * sind hier die Werte schon tagesgenau gewichtet — inklusive Sachbearbeiter-
+ * Korrekturen aus deputat_aenderung_korrekturen. Kein nachgelagerter Korrektur-
+ * Schritt mehr noetig.
+ */
+export async function getDeputatSummenBySchuleTagesgenau(
+  haushaltsjahrId: number,
+  schulKurzname: string,
+) {
+  type Row = {
+    monat: number;
+    summeSchulspezifisch: string;
+    summeGesamt: string;
+    anzahlLehrer: number;
+    enthaeltKorrektur: boolean;
+  };
+
+  // GES/GYM/BK haben jeweils ihre eigene tagesgenau-Spalte. Grundschulen u.a.
+  // nutzen deputat_gesamt_tagesgenau, gefiltert auf Stammschule.
+  const isCrossSchool = schulKurzname === "GES" || schulKurzname === "GYM" || schulKurzname === "BK";
+  const spalte =
+    schulKurzname === "GES" ? sql.raw("deputat_ges_tagesgenau") :
+    schulKurzname === "GYM" ? sql.raw("deputat_gym_tagesgenau") :
+    schulKurzname === "BK"  ? sql.raw("deputat_bk_tagesgenau")  :
+    sql.raw("deputat_gesamt_tagesgenau");
+
+  const rows = await db.execute<Row>(
+    isCrossSchool
+      ? sql`
+        SELECT
+          v.monat,
+          SUM(${spalte})::text                                              AS "summeSchulspezifisch",
+          SUM(v.deputat_gesamt_tagesgenau)::text                            AS "summeGesamt",
+          COUNT(DISTINCT v.lehrer_id) FILTER (WHERE ${spalte} > 0)::int     AS "anzahlLehrer",
+          BOOL_OR(v.enthaelt_korrektur)                                     AS "enthaeltKorrektur"
+        FROM v_deputat_monat_tagesgenau v
+        INNER JOIN lehrer l ON l.id = v.lehrer_id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+        GROUP BY v.monat
+        ORDER BY v.monat
+      `
+      : sql`
+        SELECT
+          v.monat,
+          SUM(v.deputat_gesamt_tagesgenau)::text                            AS "summeSchulspezifisch",
+          SUM(v.deputat_gesamt_tagesgenau)::text                            AS "summeGesamt",
+          COUNT(DISTINCT v.lehrer_id)::int                                  AS "anzahlLehrer",
+          BOOL_OR(v.enthaelt_korrektur)                                     AS "enthaeltKorrektur"
+        FROM v_deputat_monat_tagesgenau v
+        INNER JOIN lehrer l ON l.id = v.lehrer_id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+          AND l.stammschule_code = ${schulKurzname}
+        GROUP BY v.monat
+        ORDER BY v.monat
+      `,
+  );
+  return rows as unknown as Row[];
+}
+
 // ============================================================
 // SYNC-LOG
 // ============================================================
@@ -1312,12 +1383,192 @@ export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number)
 
   const aenderungen = await getDeputatAenderungenByLehrer(lehrerId, haushaltsjahrId);
 
+  // Periodenmodell-Daten (v0.7+) — 1:1 aus Untis. Tagesgenaue Monatswerte
+  // ueber View v_deputat_monat_tagesgenau.
+  const [periodenverlauf, echteAenderungen, tagesgenauMonate] = await Promise.all([
+    getLehrerPeriodenverlauf(lehrerId),
+    getLehrerEchteAenderungen(lehrerId),
+    getLehrerTagesgenauMonate(lehrerId, haushaltsjahrId),
+  ]);
+
   return {
     lehrer: lehrerRow,
     statistik,
     monatsDaten,
     aenderungen,
+    // Periodenmodell — leere Arrays wenn noch keine v2-Daten vorhanden
+    periodenverlauf,
+    echteAenderungen,
+    tagesgenauMonate,
   };
+}
+
+// ============================================================
+// PERIODENMODELL-QUERIES (v0.7+)
+// ============================================================
+
+/**
+ * Liefert alle Periodenwerte eines Lehrers mit Term-Namen, sortiert chronologisch.
+ * Genutzt fuer die "Periodenverlauf"-Sektion auf der Lehrer-Detailseite.
+ */
+export async function getLehrerPeriodenverlauf(lehrerId: number) {
+  return await db
+    .select({
+      schoolYearId: deputatProPeriode.untisSchoolyearId,
+      termId: deputatProPeriode.untisTermId,
+      termName: untisTerms.termName,
+      isBPeriod: untisTerms.isBPeriod,
+      gueltigVon: deputatProPeriode.gueltigVon,
+      gueltigBis: deputatProPeriode.gueltigBis,
+      deputatGesamt: deputatProPeriode.deputatGesamt,
+      deputatGes: deputatProPeriode.deputatGes,
+      deputatGym: deputatProPeriode.deputatGym,
+      deputatBk: deputatProPeriode.deputatBk,
+    })
+    .from(deputatProPeriode)
+    .leftJoin(
+      untisTerms,
+      and(
+        eq(untisTerms.schoolYearId, deputatProPeriode.untisSchoolyearId),
+        eq(untisTerms.termId, deputatProPeriode.untisTermId),
+      ),
+    )
+    .where(eq(deputatProPeriode.lehrerId, lehrerId))
+    .orderBy(asc(deputatProPeriode.gueltigVon));
+}
+
+/**
+ * Batch-Variante: liefert die echten Wertwechsel aller Lehrer aus
+ * v_deputat_aenderungen, optional gefiltert auf ein Kalenderjahr (anhand
+ * effektiv_wirksam_ab). Aufrufer baut typischerweise eine Map<lehrerId, ...>.
+ *
+ * Eine Query statt N Einzelqueries — relevant fuer Mitarbeiter-Uebersicht,
+ * Deputate-Uebersicht und Excel/PDF-Export.
+ */
+export async function getEchteAenderungenAlleLehrer(jahr?: number) {
+  type Row = {
+    lehrer_id: number;
+    sy_alt: number;
+    term_alt: number;
+    sy_neu: number;
+    term_neu: number;
+    wirksam_ab: string;
+    gueltig_bis_alt: string;
+    tatsaechliches_datum: string | null;
+    effektiv_wirksam_ab: string;
+    hat_korrektur: boolean;
+    korrigiert_von: string | null;
+    korrigiert_am: string | null;
+    bemerkung: string | null;
+    korrektur_id: number | null;
+    gesamt_alt: string;
+    gesamt_neu: string;
+    delta_gesamt: string;
+    ges_alt: string;
+    ges_neu: string;
+    gym_alt: string;
+    gym_neu: string;
+    bk_alt: string;
+    bk_neu: string;
+  };
+  const rows = await db.execute<Row>(
+    jahr !== undefined
+      ? sql`
+        SELECT lehrer_id, sy_alt, term_alt, sy_neu, term_neu,
+               wirksam_ab, gueltig_bis_alt,
+               tatsaechliches_datum, effektiv_wirksam_ab, hat_korrektur,
+               korrigiert_von, korrigiert_am, bemerkung, korrektur_id,
+               gesamt_alt, gesamt_neu, delta_gesamt,
+               ges_alt, ges_neu, gym_alt, gym_neu, bk_alt, bk_neu
+        FROM v_deputat_aenderungen
+        WHERE EXTRACT(YEAR FROM effektiv_wirksam_ab) = ${jahr}
+        ORDER BY lehrer_id, effektiv_wirksam_ab ASC
+      `
+      : sql`
+        SELECT lehrer_id, sy_alt, term_alt, sy_neu, term_neu,
+               wirksam_ab, gueltig_bis_alt,
+               tatsaechliches_datum, effektiv_wirksam_ab, hat_korrektur,
+               korrigiert_von, korrigiert_am, bemerkung, korrektur_id,
+               gesamt_alt, gesamt_neu, delta_gesamt,
+               ges_alt, ges_neu, gym_alt, gym_neu, bk_alt, bk_neu
+        FROM v_deputat_aenderungen
+        ORDER BY lehrer_id, effektiv_wirksam_ab ASC
+      `,
+  );
+  return rows as unknown as Row[];
+}
+
+/**
+ * Liefert die echten Wertwechsel eines Lehrers aus v_deputat_aenderungen.
+ * Eine Zeile pro Periode-zu-Periode-Uebergang, an dem sich der Wert tatsaechlich
+ * geaendert hat. wirksam_ab = Untis-Montag, tatsaechliches_datum = optionale
+ * Sachbearbeiter-Korrektur (echter Stichtag, kann an jedem Wochentag liegen).
+ */
+export async function getLehrerEchteAenderungen(lehrerId: number) {
+  type Row = {
+    sy_alt: number;
+    term_alt: number;
+    sy_neu: number;
+    term_neu: number;
+    wirksam_ab: string;
+    gueltig_bis_alt: string;
+    tatsaechliches_datum: string | null;
+    effektiv_wirksam_ab: string;
+    hat_korrektur: boolean;
+    korrigiert_von: string | null;
+    korrigiert_am: string | null;
+    bemerkung: string | null;
+    korrektur_id: number | null;
+    gesamt_alt: string;
+    gesamt_neu: string;
+    delta_gesamt: string;
+    ges_alt: string;
+    ges_neu: string;
+    gym_alt: string;
+    gym_neu: string;
+    bk_alt: string;
+    bk_neu: string;
+  };
+  const rows = await db.execute<Row>(sql`
+    SELECT sy_alt, term_alt, sy_neu, term_neu,
+           wirksam_ab, gueltig_bis_alt,
+           tatsaechliches_datum, effektiv_wirksam_ab, hat_korrektur,
+           korrigiert_von, korrigiert_am, bemerkung, korrektur_id,
+           gesamt_alt, gesamt_neu, delta_gesamt,
+           ges_alt, ges_neu, gym_alt, gym_neu, bk_alt, bk_neu
+    FROM v_deputat_aenderungen
+    WHERE lehrer_id = ${lehrerId}
+    ORDER BY wirksam_ab ASC
+  `);
+  return rows as unknown as Row[];
+}
+
+/**
+ * Liefert die tagesgenauen Monatswerte eines Lehrers fuer ein Haushaltsjahr
+ * aus v_deputat_monat_tagesgenau. Nutzt die Fortschreibe-Logik (letzter
+ * bekannter Wert in Lueckenmonaten wie Sommerferien).
+ */
+export async function getLehrerTagesgenauMonate(lehrerId: number, haushaltsjahrId: number) {
+  type Row = {
+    monat: number;
+    deputat_gesamt_tagesgenau: string;
+    deputat_ges_tagesgenau: string;
+    deputat_gym_tagesgenau: string;
+    deputat_bk_tagesgenau: string;
+    tage_im_monat: number;
+    dominante_term_id: number;
+    dominante_schoolyear_id: number;
+  };
+  const rows = await db.execute<Row>(sql`
+    SELECT monat, deputat_gesamt_tagesgenau, deputat_ges_tagesgenau,
+           deputat_gym_tagesgenau, deputat_bk_tagesgenau,
+           tage_im_monat, dominante_term_id, dominante_schoolyear_id
+    FROM v_deputat_monat_tagesgenau
+    WHERE lehrer_id = ${lehrerId}
+      AND haushaltsjahr_id = ${haushaltsjahrId}
+    ORDER BY monat ASC
+  `);
+  return rows as unknown as Row[];
 }
 
 /** Zusammenfassung der Aenderungen (fuer Dashboard-Badge) */

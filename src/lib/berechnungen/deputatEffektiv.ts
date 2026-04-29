@@ -306,3 +306,60 @@ export function berechneLehrerDeputatEffektiv(
 export function rundeDeputat(v: number): number {
   return Math.round(v * 1000) / 1000;
 }
+
+// ============================================================
+// ADAPTER FUER PERIODENMODELL (v0.7+)
+// ============================================================
+
+/**
+ * Eine Zeile aus v_deputat_aenderungen (View ueber das Periodenmodell + Korrektur-Layer).
+ *
+ * Untis liefert Periodenwechsel immer am Montag (`wirksam_ab`). Wenn der echte
+ * Stichtag im Personalbestand abweicht, ueberschreibt der Korrektur-Layer den
+ * Wert in `tatsaechliches_datum`. `effektiv_wirksam_ab` ist das Datum, das die
+ * tagesgenaue Berechnung tatsaechlich verwendet.
+ */
+export interface EchterWertwechselInput {
+  effektiv_wirksam_ab: string; // ISO YYYY-MM-DD — Untis-Montag oder Korrektur
+  gesamt_alt: number | string | null;
+  ges_alt: number | string | null;
+  gym_alt: number | string | null;
+  bk_alt: number | string | null;
+  gesamt_neu: number | string | null;
+  ges_neu: number | string | null;
+  gym_neu: number | string | null;
+  bk_neu: number | string | null;
+}
+
+/**
+ * Konvertiert View-Zeilen (v_deputat_aenderungen) zu AenderungInput[] fuer
+ * `berechneLehrerDeputatEffektiv`. Im Periodenmodell ist JEDER Wertwechsel
+ * tagesgenau verortet (entweder Untis-Montag oder Sachbearbeiter-Korrektur),
+ * daher wird `tatsaechlichesDatum` immer aus `effektiv_wirksam_ab` gesetzt.
+ */
+export function adaptiereEchteAenderungen(
+  echte: EchterWertwechselInput[],
+  filterJahr?: number,
+): AenderungInput[] {
+  const result: AenderungInput[] = [];
+  for (const a of echte) {
+    if (!a.effektiv_wirksam_ab) continue;
+    const [yearStr, monthStr] = a.effektiv_wirksam_ab.split("-");
+    const jahr = parseInt(yearStr, 10);
+    const monat = parseInt(monthStr, 10);
+    if (filterJahr !== undefined && jahr !== filterJahr) continue;
+    result.push({
+      monat,
+      deputatGesamtAlt: a.gesamt_alt,
+      deputatGesAlt: a.ges_alt,
+      deputatGymAlt: a.gym_alt,
+      deputatBkAlt: a.bk_alt,
+      deputatGesamtNeu: a.gesamt_neu,
+      deputatGesNeu: a.ges_neu,
+      deputatGymNeu: a.gym_neu,
+      deputatBkNeu: a.bk_neu,
+      tatsaechlichesDatum: a.effektiv_wirksam_ab,
+    });
+  }
+  return result;
+}

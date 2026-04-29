@@ -456,6 +456,97 @@ export const deputatAenderungen = pgTable("deputat_aenderungen", {
 ]);
 
 // ============================================================
+// UNTIS-PERIODENMODELL (v0.7+ — Quelle der Wahrheit, ersetzt deputat_monatlich)
+// ============================================================
+
+/**
+ * Master-Periodendaten aus Untis (Tabelle Terms).
+ * Eine Zeile pro (schoolYearId, termId) — z.B. SY 2025/2026 hat ~18 Eintraege.
+ * dateTo ist das EFFEKTIVE Periodenende (LEAD(DateFrom)-1 bzw. echtes DateTo
+ * bei b-Perioden). Untis liefert in 'DateTo' meist das Schuljahresende, was
+ * fuer unsere Zwecke nicht das gewuenschte Periodenende ist — der Terms-Sync
+ * berechnet das daher selbst.
+ */
+export const untisTerms = pgTable("untis_terms", {
+  schoolYearId: integer("school_year_id").notNull(),
+  termId: integer("term_id").notNull(),
+  termName: varchar("term_name", { length: 50 }),
+  dateFrom: date("date_from").notNull(),
+  dateTo: date("date_to").notNull(),
+  /** True wenn Untis ein echtes (nicht Schuljahresende-)DateTo gesetzt hat — Sub-Einschub-Periode. */
+  isBPeriod: boolean("is_b_period").notNull().default(false),
+  syncDatum: timestamp("sync_datum", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // Primary Key zusammengesetzt; in Migration als CONSTRAINT angelegt.
+  index("idx_untis_terms_zeitraum").on(table.dateFrom, table.dateTo),
+]);
+
+/**
+ * Lehrer-Werte pro Untis-Periode.
+ * Eine Zeile pro (lehrerId × schoolYearId × termId). Untis liefert das ohnehin so.
+ *
+ * Kein Coverage-Tie-Breaker mehr — jeder Wert wird gespeichert. Die tagesgenaue
+ * Monatsberechnung erfolgt via View v_deputat_monat_tagesgenau ueber alle
+ * Periodenwerte, gewichtet nach Tagen im Monat. Luecken (z.B. Sommerferien
+ * zwischen Schuljahren) werden durch Fortschreiben des letzten Werts gefuellt.
+ */
+export const deputatProPeriode = pgTable("deputat_pro_periode", {
+  id: serial("id").primaryKey(),
+  lehrerId: integer("lehrer_id").notNull().references(() => lehrer.id, { onDelete: "cascade" }),
+  untisSchoolyearId: integer("untis_schoolyear_id").notNull(),
+  untisTermId: integer("untis_term_id").notNull(),
+  /** Datums-Cache (= untis_terms.date_from) fuer schnelle Range-Queries ohne Join. */
+  gueltigVon: date("gueltig_von").notNull(),
+  gueltigBis: date("gueltig_bis").notNull(),
+  deputatGesamt: numeric("deputat_gesamt", { precision: 8, scale: 3 }).notNull(),
+  deputatGes: numeric("deputat_ges", { precision: 8, scale: 3 }).notNull().default("0"),
+  deputatGym: numeric("deputat_gym", { precision: 8, scale: 3 }).notNull().default("0"),
+  deputatBk: numeric("deputat_bk", { precision: 8, scale: 3 }).notNull().default("0"),
+  /** Stammschule pro Periode — Lehrer kann mitten im Jahr wechseln (zukunftssicher). */
+  stammschuleCode: varchar("stammschule_code", { length: 10 }),
+  quelle: varchar("quelle", { length: 20 }).notNull().default("untis"),
+  syncDatum: timestamp("sync_datum", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("deputat_pro_periode_unique").on(table.lehrerId, table.untisSchoolyearId, table.untisTermId),
+  index("idx_dpp_lehrer").on(table.lehrerId),
+  index("idx_dpp_zeitraum").on(table.gueltigVon, table.gueltigBis),
+  index("idx_dpp_term").on(table.untisSchoolyearId, table.untisTermId),
+]);
+
+/**
+ * Sachbearbeiter-Korrekturen des Wirksamkeitsdatums eines Term-zu-Term-Wechsels.
+ *
+ * Untis erlaubt Periodenwechsel nur zum Montag — der echte Stichtag im Personal-
+ * bestand kann aber an jedem Wochentag liegen. Diese Tabelle bildet den manuellen
+ * Korrektur-Layer und bleibt beim Untis-Sync unangetastet.
+ *
+ * Pro (lehrer, sy_neu, term_id_neu) max. eine Korrektur — gehoert immer an die
+ * NEUE Periode (das ist die, deren Start verschoben wird). View v_deputat_pro_tag
+ * nutzt sie als effektiv_von, View v_deputat_aenderungen joined sie an.
+ */
+export const deputatAenderungKorrekturen = pgTable("deputat_aenderung_korrekturen", {
+  id: serial("id").primaryKey(),
+  lehrerId: integer("lehrer_id").notNull().references(() => lehrer.id, { onDelete: "cascade" }),
+  syAlt: integer("sy_alt").notNull(),
+  termIdAlt: integer("term_id_alt").notNull(),
+  syNeu: integer("sy_neu").notNull(),
+  termIdNeu: integer("term_id_neu").notNull(),
+  tatsaechlichesDatum: date("tatsaechliches_datum").notNull(),
+  korrigiertVon: varchar("korrigiert_von", { length: 100 }),
+  korrigiertAm: timestamp("korrigiert_am", { withTimezone: true }).notNull().defaultNow(),
+  bemerkung: text("bemerkung"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("deputat_aenderung_korrekturen_unique").on(table.lehrerId, table.syNeu, table.termIdNeu),
+  index("idx_dak_lehrer").on(table.lehrerId),
+]);
+
+// ============================================================
 // SYNC-PROTOKOLL
 // ============================================================
 

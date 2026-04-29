@@ -82,6 +82,34 @@ export function addSchulHeader(
   row.height = 30;
 }
 
+/**
+ * Sub-Header innerhalb einer Schul-Gruppe (z.B. "Beamte (8)" / "Angestellte (12)")
+ * fuer die Trennung der Statistik-Gruppen im Deputats-Export.
+ */
+export function addGruppenSubHeader(
+  sheet: ExcelJS.Worksheet,
+  text: string,
+  colSpan: number,
+): void {
+  const row = sheet.addRow([text]);
+  row.getCell(1).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFE5E7EB" },
+  };
+  row.getCell(1).font = {
+    bold: true,
+    italic: true,
+    color: { argb: "FF374151" },
+    size: 10,
+    name: "Calibri",
+  };
+  if (colSpan > 1) {
+    sheet.mergeCells(row.number, 1, row.number, colSpan);
+  }
+  row.height = 18;
+}
+
 // ============================================================
 // SPALTENBREITEN
 // ============================================================

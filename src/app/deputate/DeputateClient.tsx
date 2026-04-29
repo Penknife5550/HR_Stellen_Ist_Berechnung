@@ -225,7 +225,7 @@ export function DeputateClient({
                         </a>
                         {/* Aktuelle Deputat-Info */}
                         <span className="text-xs text-[#6B7280] ml-1">
-                          ({stammDep > 0 ? stammDep.toFixed(1) : "—"}
+                          ({stammDep > 0 ? stammDep.toFixed(2) : "—"}
                           {fremd.length > 0 && (
                             <span className="text-[#9CA3AF]">
                               {" + "}
@@ -263,12 +263,12 @@ export function DeputateClient({
                         >
                           {std !== null && std > 0 ? (
                             <span className="inline-flex items-center gap-0.5 justify-end">
-                              {std.toFixed(1)}
+                              {std.toFixed(2)}
                               {korr && <sup className="text-[10px] text-[#E2001A]">*</sup>}
                               {abw !== null && (
                                 <span
                                   className="text-amber-600 cursor-help text-xs"
-                                  title={`Untis-Gesamt (${lehrer.monatsDetails[j]!.gesamt}) weicht von Summe der Schulen ab (${(lehrer.monatsDetails[j]!.ges + lehrer.monatsDetails[j]!.gym + lehrer.monatsDetails[j]!.bk).toFixed(1)}). ${Math.abs(abw).toFixed(1)} Std. nicht zugeordnet.`}
+                                  title={`Untis-Gesamt (${lehrer.monatsDetails[j]!.gesamt}) weicht von Summe der Schulen ab (${(lehrer.monatsDetails[j]!.ges + lehrer.monatsDetails[j]!.gym + lehrer.monatsDetails[j]!.bk).toFixed(2)}). ${Math.abs(abw).toFixed(2)} Std. nicht zugeordnet.`}
                                 >
                                   !
                                 </span>
@@ -281,7 +281,7 @@ export function DeputateClient({
                       );
                     })}
                     <td className="py-2.5 px-3 text-right tabular-nums font-bold bg-[#F3F4F6]">
-                      {avg > 0 ? avg.toFixed(1) : "—"}
+                      {avg > 0 ? avg.toFixed(2) : "—"}
                     </td>
                   </tr>
                 );
@@ -302,7 +302,7 @@ export function DeputateClient({
                       key={j}
                       className="py-3 px-3 text-right tabular-nums font-bold"
                     >
-                      {sum > 0 ? sum.toFixed(1) : "—"}
+                      {sum > 0 ? sum.toFixed(2) : "—"}
                     </td>
                   );
                 })}
@@ -313,7 +313,7 @@ export function DeputateClient({
                         acc + l.stunden.reduce<number>((a, b) => a + (b ?? 0), 0),
                       0
                     );
-                    return totalAll > 0 ? (totalAll / 12).toFixed(1) : "—";
+                    return totalAll > 0 ? (totalAll / 12).toFixed(2) : "—";
                   })()}
                 </td>
               </tr>

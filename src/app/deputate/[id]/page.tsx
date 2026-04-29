@@ -9,8 +9,11 @@ import {
 import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
 import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { notFound } from "next/navigation";
-import { AenderungsHistorie } from "./AenderungsHistorie";
-import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
+import { PeriodenModellCard } from "./PeriodenModellCard";
+import {
+  berechneLehrerDeputatEffektiv,
+  adaptiereEchteAenderungen,
+} from "@/lib/berechnungen/deputatEffektiv";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +38,7 @@ export default async function LehrerDetailPage({
 
   if (!detail) notFound();
 
-  const { lehrer: l, statistik, monatsDaten, aenderungen } = detail;
+  const { lehrer: l, statistik, monatsDaten, periodenverlauf, echteAenderungen } = detail;
   const schulFarben: Record<string, string> = {};
   for (const s of schulen) schulFarben[s.kurzname] = s.farbe;
 
@@ -48,14 +51,23 @@ export default async function LehrerDetailPage({
     return m ?? null;
   });
 
-  // Aenderungen nach Monat gruppieren
-  const aenderungenByMonat: Record<number, typeof aenderungen> = {};
-  for (const a of aenderungen) {
+  // Aenderungen aus Periodenmodell + Korrektur-Layer (v0.7+).
+  // Pauschalwert: Sieger-Wert aus deputat_monatlich (parallel mitgeschrieben).
+  // Effektivwert: tagesgenau aus dem Periodenmodell, korrigiert wo der
+  // Sachbearbeiter ein abweichendes Datum gesetzt hat.
+  const adaptierteAenderungen = adaptiereEchteAenderungen(echteAenderungen, aktuellesHj.jahr);
+
+  // Aenderungen nach Monat gruppieren (fuer "*"-Marker in der Spaltenkopf)
+  const aenderungenByMonat: Record<number, typeof adaptierteAenderungen> = {};
+  for (const a of adaptierteAenderungen) {
     if (!aenderungenByMonat[a.monat]) aenderungenByMonat[a.monat] = [];
     aenderungenByMonat[a.monat].push(a);
   }
 
-  const hatGehaltsrelevante = aenderungen.some((a) => a.istGehaltsrelevant);
+  // Gehaltsrelevant = Gesamt-Wert aendert sich
+  const hatGehaltsrelevante = adaptierteAenderungen.some(
+    (a) => Math.abs(Number(a.deputatGesamtAlt ?? 0) - Number(a.deputatGesamtNeu ?? 0)) > 0.001,
+  );
 
   // Taggenaue Deputate berechnen (pauschal + Korrektur aus tatsaechlichesDatum)
   const effektivByMonat = berechneLehrerDeputatEffektiv(
@@ -66,18 +78,7 @@ export default async function LehrerDetailPage({
       deputatGym: m.deputatGym,
       deputatBk: m.deputatBk,
     })),
-    aenderungen.map((a) => ({
-      monat: a.monat,
-      deputatGesamtAlt: a.deputatGesamtAlt,
-      deputatGesAlt: a.deputatGesAlt,
-      deputatGymAlt: a.deputatGymAlt,
-      deputatBkAlt: a.deputatBkAlt,
-      deputatGesamtNeu: a.deputatGesamtNeu,
-      deputatGesNeu: a.deputatGesNeu,
-      deputatGymNeu: a.deputatGymNeu,
-      deputatBkNeu: a.deputatBkNeu,
-      tatsaechlichesDatum: a.tatsaechlichesDatum,
-    })),
+    adaptierteAenderungen,
     aktuellesHj.jahr,
   );
 
@@ -102,9 +103,9 @@ export default async function LehrerDetailPage({
   // Formatierte Monatszelle (mit "*" wenn taggenau korrigiert)
   const cell = (col: "gesamt" | "ges" | "gym" | "bk", monat: number, fallback: number): string => {
     const e = effektivByMonat.get(monat);
-    if (!e || fallback === 0) return fallback === 0 ? "—" : fallback.toFixed(1);
+    if (!e || fallback === 0) return fallback === 0 ? "—" : fallback.toFixed(2);
     const val = e.hatKorrektur ? e.effektiv[col] : e.pauschal[col];
-    return val.toFixed(1);
+    return val.toFixed(2);
   };
 
   return (
@@ -121,11 +122,19 @@ export default async function LehrerDetailPage({
         ]}
       />
 
-      {hjOptions.length > 1 && (
-        <div className="flex justify-end mb-4">
+      <div className="flex flex-wrap items-center justify-end gap-3 mb-4">
+        <a
+          href={`/api/export/lehrer-detail?lehrerId=${lehrerId}&hj=${aktuellesHj.id}`}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-[#009AC6] text-white hover:bg-[#0086AC] transition-colors"
+          title={`Detailseite als PDF (DIN A4) — Nachweis-Dokument fuer die Bezirksregierung`}
+        >
+          <span>📄</span>
+          <span>Als PDF (Nachweis)</span>
+        </a>
+        {hjOptions.length > 1 && (
           <HaushaltsjahrSelector options={hjOptions} selectedJahr={aktuellesHj.jahr} />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Gehaltsrelevante Warnung */}
       {hatGehaltsrelevante && (
@@ -214,7 +223,7 @@ export default async function LehrerDetailPage({
                       if (v > 0) vals.push(v);
                     }
                     return vals.length > 0
-                      ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1)
+                      ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2)
                       : "—";
                   })()}
                 </td>
@@ -368,12 +377,12 @@ export default async function LehrerDetailPage({
                         <div className="text-[13px] space-y-0.5">
                           <div>
                             <span className="text-[#6B7280]">Vor Aenderung:</span>{" "}
-                            {a.alt.gesamt.toFixed(1)} × {a.tageVor} Tage / {e.monatsTage} ={" "}
+                            {a.alt.gesamt.toFixed(2)} × {a.tageVor} Tage / {e.monatsTage} ={" "}
                             <strong>{a.anteilAlt.gesamt.toFixed(3)}</strong>
                           </div>
                           <div>
                             <span className="text-[#6B7280]">Ab Aenderung:</span>{" "}
-                            {a.neu.gesamt.toFixed(1)} × {a.tageNach} Tage / {e.monatsTage} ={" "}
+                            {a.neu.gesamt.toFixed(2)} × {a.tageNach} Tage / {e.monatsTage} ={" "}
                             <strong>{a.anteilNeu.gesamt.toFixed(3)}</strong>
                           </div>
                           <div className="pt-1 border-t border-[#E5E7EB] mt-1">
@@ -392,30 +401,19 @@ export default async function LehrerDetailPage({
         </Card>
       )}
 
-      {/* Aenderungshistorie (Client Component mit Inline-Datumsbearbeitung) */}
-      <AenderungsHistorie
-        aenderungen={aenderungen.map((a) => ({
-          id: a.id,
-          monat: a.monat,
-          aenderungstyp: a.aenderungstyp,
-          istGehaltsrelevant: a.istGehaltsrelevant,
-          deputatGesamtAlt: a.deputatGesamtAlt,
-          deputatGesamtNeu: a.deputatGesamtNeu,
-          deputatGesAlt: a.deputatGesAlt,
-          deputatGesNeu: a.deputatGesNeu,
-          deputatGymAlt: a.deputatGymAlt,
-          deputatGymNeu: a.deputatGymNeu,
-          deputatBkAlt: a.deputatBkAlt,
-          deputatBkNeu: a.deputatBkNeu,
-          termIdAlt: a.termIdAlt,
-          termIdNeu: a.termIdNeu,
-          geaendertAm: a.geaendertAm.toLocaleDateString("de-DE", {
-            day: "2-digit", month: "2-digit", year: "numeric",
-            hour: "2-digit", minute: "2-digit",
-          }),
-          tatsaechlichesDatum: a.tatsaechlichesDatum,
-          datumKorrigiertVon: a.datumKorrigiertVon,
+      {/* Periodenmodell v0.7+ — Untis 1:1, tagesgenau */}
+      <PeriodenModellCard
+        lehrerId={lehrerId}
+        periodenverlauf={periodenverlauf.map((p) => ({
+          ...p,
+          deputatGesamt: String(p.deputatGesamt ?? "0"),
+          deputatGes: String(p.deputatGes ?? "0"),
+          deputatGym: String(p.deputatGym ?? "0"),
+          deputatBk: String(p.deputatBk ?? "0"),
+          isBPeriod: p.isBPeriod ?? false,
+          termName: p.termName ?? null,
         }))}
+        echteAenderungen={echteAenderungen}
       />
 
       {/* Rechtsgrundlage */}

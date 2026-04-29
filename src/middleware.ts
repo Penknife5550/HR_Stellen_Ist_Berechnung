@@ -17,8 +17,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 2. n8n-API-Endpoint: eigene API-Key-Authentifizierung
-  if (pathname.startsWith("/api/deputate/sync")) {
+  // 2. n8n-API-Endpoints: eigene API-Key-Authentifizierung (kein Session-Schutz)
+  //    - /api/deputate/sync       Lehrer-Deputate (v1, monatsbasiert)
+  //    - /api/deputate/sync-v2    Lehrer-Deputate (v2, periodenbasiert)
+  //    - /api/untis-terms/sync    Untis-Periodenmaster (v2-Voraussetzung)
+  if (
+    pathname.startsWith("/api/deputate/sync") ||
+    pathname.startsWith("/api/untis-terms/sync")
+  ) {
     return NextResponse.next();
   }
 

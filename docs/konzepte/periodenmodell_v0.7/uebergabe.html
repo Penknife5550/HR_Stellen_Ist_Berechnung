@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Phase-2-Übergabe</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  html { font-size: 10.5pt; }
+  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; line-height: 1.45; color: #1f2937; max-width: 100%; margin: 0; }
+  h1 { font-size: 22pt; color: #0f172a; margin-top: 0; border-bottom: 2px solid #0f172a; padding-bottom: 6pt; }
+  h2 { font-size: 15pt; color: #0f172a; margin-top: 22pt; border-bottom: 1px solid #cbd5e1; padding-bottom: 3pt; page-break-after: avoid; }
+  h3 { font-size: 12pt; color: #1e293b; margin-top: 14pt; page-break-after: avoid; }
+  p, li { font-size: 10.5pt; }
+  blockquote { border-left: 4px solid #2563eb; background: #eff6ff; margin: 12pt 0; padding: 8pt 14pt; color: #1e3a8a; font-size: 10pt; }
+  code { font-family: "Consolas", "Courier New", monospace; font-size: 9pt; background: #f1f5f9; padding: 1pt 4pt; border-radius: 3px; color: #be185d; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #cbd5e1; padding: 4pt 7pt; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; color: #0f172a; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  hr { border: none; border-top: 1px solid #cbd5e1; margin: 18pt 0; }
+  ul, ol { padding-left: 22pt; }
+  li { margin: 2pt 0; }
+  strong { color: #0f172a; }
+  .doc-header { font-size: 8.5pt; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 6pt; margin-bottom: 14pt; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="doc-header">
+  <span>Freie Evangelische Schule Minden &middot; HR Stellen-Ist-Berechnung</span>
+  <span>Phase-2-Übergabe &middot; 2026-04-29</span>
+</div>
+<h1>Phase-2-Übergabe — Periodenmodell live</h1>
+<blockquote>
+<p><strong>Stand:</strong> 2026-04-29 · <strong>Version:</strong> v0.7 lokal · <strong>Konzept:</strong> v0.4
+<strong>Briefing für nächste Session</strong> — alles, was nötig ist, um sofort weiterarbeiten zu können.</p>
+</blockquote>
+<hr>
+<h2>1. Was ist fertig</h2>
+<h3>Datenmodell (Migrationen 0008–0010)</h3>
+<ul>
+<li><strong><code>untis_terms</code></strong> — Master-Periodendaten aus Untis (1:1 Spiegel der Untis-<code>Terms</code>-Tabelle, pro <code>(school_year_id, term_id)</code> eine Zeile mit <code>date_from</code>, <code>date_to</code>, <code>is_b_period</code>).</li>
+<li><strong><code>deputat_pro_periode</code></strong> — Lehrer-Werte pro Untis-Periode (1 Zeile pro <code>(lehrer × sy × term)</code>, mit <code>gueltig_von/bis</code>-Cache).</li>
+<li><strong><code>deputat_aenderung_korrekturen</code></strong> — Sachbearbeiter-Korrektur des Wirksamkeitsdatums (Untis erlaubt nur Montag, real auch andere Tage).</li>
+<li><strong>3 Views:</strong><ul>
+<li><code>v_deputat_pro_tag</code> — pro Tag der gültige Wert (mit Fortschreibung in Lücken + Korrektur-Layer)</li>
+<li><code>v_deputat_monat_tagesgenau</code> — Aggregat pro Monat (gewichtet über alle Kalendertage)</li>
+<li><code>v_deputat_aenderungen</code> — echte Wertwechsel zwischen aufeinanderfolgenden Perioden, joined die Korrekturen</li>
+</ul>
+</li>
+</ul>
+<h3>Endpoints</h3>
+<ul>
+<li><strong><code>POST /api/untis-terms/sync</code></strong> — Spiegel der Untis-<code>Terms</code>-Tabelle (Voraussetzung für sync-v2)</li>
+<li><strong><code>POST /api/deputate/sync-v2</code></strong> — Lehrer-Werte pro Periode (kein Coverage-Tie-Breaker mehr)</li>
+<li><strong><code>GET /api/export/lehrer-detail?lehrerId=X&amp;hj=Y</code></strong> — DIN-A4-Detail-PDF als Bezirksregierungs-Nachweis</li>
+</ul>
+<h3>UI</h3>
+<ul>
+<li><strong>Detailseite (<code>/deputate/[id]</code>)</strong> — auf Periodenmodell umgestellt:<ul>
+<li>„Periodenmodell&quot;-Card mit echten Wertwechseln (mit Inline-Edit für tatsächliches Datum) + ausklappbarem Periodenverlauf</li>
+<li>„Monatliche Deputatsverteilung&quot; zeigt tagesgenaue Werte mit <code>*</code>-Marker</li>
+<li>„Taggenaue Deputatsberechnung (§ 3 Abs. 1 FESchVO)&quot;-Card mit Aufschlüsselung pro Monat</li>
+<li>„Als PDF (Nachweis)&quot;-Button oben rechts</li>
+<li>Alte <code>AenderungsHistorie</code>-Card entfernt</li>
+</ul>
+</li>
+<li><strong>Mitarbeiter-Liste (<code>/mitarbeiter</code>)</strong> — pro Lehrer-Zeile „📄 PDF&quot;-Pill</li>
+<li><strong>Deputate-Übersicht (<code>/deputate</code>)</strong> — Sortierung <strong>Schule → Beamte → Angestellte → Name</strong>, 2 Nachkommastellen</li>
+<li><strong>Excel-/PDF-Export Deputate</strong> — analog: pro Schule Sub-Header <em>„Beamte (n)&quot;</em> / <em>„Angestellte (n)&quot;</em>, 2 NK</li>
+</ul>
+<h3>Berechnung</h3>
+<ul>
+<li><strong>Stellen-IST-Action</strong> auf Periodenmodell umgestellt — der gesamte alte <code>berechneTagesgenauKorrekturen</code>-Block ist weg, die View liefert die Wahrheit</li>
+<li><code>details.modell = &quot;periodenmodell-v0.7&quot;</code> im JSON-Audit-Trail jeder Berechnung</li>
+</ul>
+<h3>Wichtige Architektur-Entscheidungen</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Frage</th>
+<th>Entscheidung</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Juli rechnen</td>
+<td>Volle 31 Kalendertage (gleiche Logik in jedem Monat)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Sommerferien-Lücke</td>
+<td>Letzten bekannten Wert fortschreiben</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Endpoint-Strategie</td>
+<td>Neuer <code>sync-v2</code> parallel zum alten <code>sync</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>deputat_monatlich</code></td>
+<td>Bleibt vorerst (parallel beschrieben) — Phase 3 ersetzt durch Materialized View</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Korrektur-Layer</td>
+<td>Eigene Tabelle, getrennt vom Untis-Spiegel</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Nachkommastellen</td>
+<td>2 (statt 1) durchgängig</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>2. Lokaler Test-Stand</h2>
+<table>
+<thead>
+<tr>
+<th>Metrik</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Lehrer</td>
+<td>96 (aus <code>C:/Users/driesen.FES/Downloads/lehhrer.txt</code>, beide SY backfilled)</td>
+</tr>
+<tr>
+<td><code>untis_terms</code></td>
+<td>34 (16× SY 2024/25, 18× SY 2025/26)</td>
+</tr>
+<tr>
+<td><code>deputat_pro_periode</code></td>
+<td>2858</td>
+</tr>
+<tr>
+<td>Echte Wertwechsel (<code>v_deputat_aenderungen</code>)</td>
+<td>144, davon 112 gehaltsrelevant</td>
+</tr>
+<tr>
+<td>Lokale Korrekturen</td>
+<td>1 (Bergmann T10→T11 auf Mi 04.02. — Test-Eintrag)</td>
+</tr>
+</tbody></table>
+<p><strong>Verifikate:</strong></p>
+<ul>
+<li><strong>Bergmann Benjamin</strong> (lehrer_id 81, GYM): 4 echte Wertwechsel, Februar 16,25 (mit Korrektur) statt 17,0 pauschal</li>
+<li><strong>Diercks Daniel</strong> (lehrer_id 5, BK): Februar 24,57 (tagesgenau) statt 25,0 pauschal — UI und PDF identisch</li>
+</ul>
+<p><strong>Container:</strong> <code>hr_stellen_ist_berechnung-db-1</code> läuft auf Port 5450 (siehe <code>.env</code>).
+<strong>Dev-Server:</strong> <code>npm run dev</code> → <code>http://localhost:3001</code>.</p>
+<hr>
+<h2>3. Was noch offen ist</h2>
+<h3>Sofort umsetzbar (klein)</h3>
+<ul>
+<li><strong>Massen-PDF</strong>: ein Klick liefert alle Lehrer einer Schule als ein PDF (oder ZIP). Endpoint-Pattern: <code>/api/export/lehrer-detail-massen?schuleId=X&amp;hj=Y</code> — iteriert über <code>getAlleLehrerMitDetails</code> (gefiltert) und hängt PDFs aneinander mit <code>doc.addPage()</code> zwischen den Lehrern. Button in <code>/deputate</code> (pro Schul-Header) und/oder in <code>/mitarbeiter</code> (Schul-Filter).</li>
+</ul>
+<h3>Phase 3 — Cleanup (mittel)</h3>
+<ul>
+<li>Alten v1-Sync (<code>/api/deputate/sync</code>) deprecaten — sobald n8n auf v2 umgestellt ist</li>
+<li><code>deputat_aenderungen</code> Tabelle archivieren (nur noch v_deputat_aenderungen lesen)</li>
+<li><code>deputat_monatlich</code> als Materialized View über <code>v_deputat_monat_tagesgenau</code></li>
+<li><code>berechneTagesgenauKorrekturen</code>/<code>getAenderungenMitDatum</code>/<code>getPauschaleDeputateByLehrer</code> aus <code>queries.ts</code> entfernen (heute nicht mehr aufgerufen)</li>
+<li>Andere Aufrufer von <code>berechneLehrerDeputatEffektiv</code> mit dem alten Modell sind keine mehr da — alle 4 Aufrufer (Detailseite, Mitarbeiter, Deputate, Export) sind umgestellt. Die alte Funktion akzeptiert weiter den alten Adapter-Stil und ist somit kompatibel.</li>
+</ul>
+<h3>n8n-Integration (extern)</h3>
+<ul>
+<li>Workflow #223 erweitern um zwei neue Schritte:<ol>
+<li>Untis-<code>Terms</code>-Query → POST <code>/api/untis-terms/sync</code></li>
+<li>Lehrer-Query → POST <code>/api/deputate/sync-v2</code> (statt <code>/sync</code>)</li>
+</ol>
+</li>
+<li>Detail in <code>docs/deployment/n8n_workflow_v0.6.0.md</code> (muss noch um Periodenmodell ergänzt werden — oder neue Datei <code>n8n_workflow_v0.7.md</code>)</li>
+</ul>
+<h3>Detail-Polish (klein)</h3>
+<ul>
+<li>DIN-A4-PDF: Beim Bergmann-Test sah das Layout gut aus, bei Diercks ggf. nochmal querprüfen ob alle Werte stimmen</li>
+<li>Tagesgenau-Card auf der Detailseite zeigt Pauschal/Effektiv aus dem alten <code>deputat_monatlich</code> als „Pauschal&quot; — funktioniert, könnte aber auf den dominanten Term-Wert aus <code>v_deputat_monat_tagesgenau.dominante_term_id</code> umgestellt werden für volle Konsistenz mit Phase 3</li>
+</ul>
+<hr>
+<h2>4. Code-Wegweiser für die nächste Session</h2>
+<p><strong>Pure Helper / Logik:</strong></p>
+<ul>
+<li><code>src/lib/berechnungen/deputatEffektiv.ts</code> — <code>berechneLehrerDeputatEffektiv</code> + neuer Adapter <code>adaptiereEchteAenderungen</code></li>
+<li><code>src/lib/statistikCode.ts</code> — <code>gruppenSortRank</code>, <code>gruppenLabel</code>, <code>vergleicheLehrerNachSchuleGruppeName</code></li>
+</ul>
+<p><strong>Queries:</strong></p>
+<ul>
+<li><code>src/lib/db/queries.ts</code> — neu: <code>getEchteAenderungenAlleLehrer</code>, <code>getDeputatSummenBySchuleTagesgenau</code>, <code>getLehrerPeriodenverlauf</code>, <code>getLehrerEchteAenderungen</code>, <code>getLehrerTagesgenauMonate</code></li>
+</ul>
+<p><strong>UI-Komponenten:</strong></p>
+<ul>
+<li><code>src/app/deputate/[id]/PeriodenModellCard.tsx</code> — Client-Komponente, „Echte Wertwechsel&quot; mit Inline-Edit + Periodenverlauf</li>
+<li><code>src/app/deputate/actions.ts</code> — <code>korrigierePeriodeWirksamkeitAction</code> + <code>loescheKorrekturAction</code></li>
+</ul>
+<p><strong>Sync-Endpoints:</strong></p>
+<ul>
+<li><code>src/app/api/untis-terms/sync/route.ts</code></li>
+<li><code>src/app/api/deputate/sync-v2/route.ts</code></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul>
+<li><code>src/app/api/export/lehrer-detail/route.ts</code> — DIN-A4-Detailseiten-PDF (Hochformat, A4)</li>
+<li><code>src/app/api/export/deputate/route.ts</code> — Excel/PDF-Übersicht mit Schule → Gruppe → Name</li>
+</ul>
+<p><strong>Schema:</strong></p>
+<ul>
+<li><code>src/db/schema.ts</code> — neu: <code>untisTerms</code>, <code>deputatProPeriode</code>, <code>deputatAenderungKorrekturen</code></li>
+<li><code>src/db/migrations/0008_deputat_pro_periode.sql</code>, <code>0009_view_pro_tag_range.sql</code>, <code>0010_korrektur_layer.sql</code></li>
+</ul>
+<p><strong>Test-Skripte:</strong></p>
+<ul>
+<li><code>scripts/test-bergmann-v2.mjs</code> — kleiner Verifikat-Run für Bergmann</li>
+<li><code>scripts/backfill-v2-from-lehhrer-txt.mjs</code> — Backfill aus dem lokalen JSON-Dump</li>
+</ul>
+<p><strong>Verifikations-SQL:</strong></p>
+<ul>
+<li><code>docs/bergmann_v2_check.sql</code> — alle drei Sektionen (Periodenwerte, echte Wertwechsel, Tagesgenau) für Bergmann</li>
+</ul>
+<hr>
+<h2>5. Ausgangspunkt für die nächste Session</h2>
+<p>Wenn du <strong>Massen-PDF</strong> als nächstes willst:</p>
+<ol>
+<li>Lies <code>src/app/api/export/lehrer-detail/route.ts</code> als Vorlage</li>
+<li>Neue Route <code>/api/export/lehrer-massen/route.ts</code> — gleicher Aufbau, aber Schleife über mehrere Lehrer mit <code>doc.addPage()</code> zwischendurch</li>
+<li>Filter-Param <code>schuleId</code> + optional <code>nurAktiv=true</code></li>
+<li>Buttons in <code>/deputate</code> (pro Schul-Header) oder <code>/mitarbeiter</code> (über dem Filter-Bereich)</li>
+</ol>
+<p>Wenn du <strong>Phase 3 Cleanup</strong> als nächstes willst:</p>
+<ol>
+<li>Erst n8n auf v2 umstellen (real-Daten-Test in Prod)</li>
+<li>Erst danach Code-Removal — sonst riskierst du Datenlücken in der Übergangszeit</li>
+</ol>
+<p><strong>Empfehlung:</strong> Erst Massen-PDF (klein, sichtbarer Nutzen, kein Risiko), dann n8n-Umstellung, dann Phase 3.</p>
+
+</body></html>

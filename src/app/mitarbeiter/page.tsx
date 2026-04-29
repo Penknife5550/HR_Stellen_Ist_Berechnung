@@ -5,11 +5,14 @@ import {
   getSchulen,
   getAktuellesHaushaltsjahr,
   getLehrerMitDeputaten,
-  getDeputatAenderungen,
+  getEchteAenderungenAlleLehrer,
   getStatistikCodesAktiv,
 } from "@/lib/db/queries";
 import { MitarbeiterClient } from "./MitarbeiterClient";
-import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
+import {
+  berechneLehrerDeputatEffektiv,
+  adaptiereEchteAenderungen,
+} from "@/lib/berechnungen/deputatEffektiv";
 
 export const dynamic = "force-dynamic";
 
@@ -22,18 +25,20 @@ export default async function MitarbeiterPage() {
   ]);
 
   // Taggenauer Durchschnitt pro Lehrer (Monatswerte effektiv, dann gemittelt)
+  // Datenquelle: Periodenmodell (deputat_pro_periode + Korrektur-Layer) ueber
+  // v_deputat_aenderungen — nicht mehr deputat_aenderungen.
   const deputatByLehrer: Record<number, number> = {};
   if (hj) {
-    const [deputate, aenderungen] = await Promise.all([
+    const [deputate, echteAenderungen] = await Promise.all([
       getLehrerMitDeputaten(hj.id),
-      getDeputatAenderungen(hj.id),
+      getEchteAenderungenAlleLehrer(hj.jahr),
     ]);
 
-    const aenderungenByLehrer = new Map<number, typeof aenderungen>();
-    for (const a of aenderungen) {
-      const arr = aenderungenByLehrer.get(a.lehrerId) ?? [];
+    const aenderungenByLehrer = new Map<number, typeof echteAenderungen>();
+    for (const a of echteAenderungen) {
+      const arr = aenderungenByLehrer.get(a.lehrer_id) ?? [];
       arr.push(a);
-      aenderungenByLehrer.set(a.lehrerId, arr);
+      aenderungenByLehrer.set(a.lehrer_id, arr);
     }
 
     const depByLehrer = new Map<number, Array<{ monat: number; deputatGesamt: number; deputatGes: number; deputatGym: number; deputatBk: number }>>();
@@ -50,11 +55,11 @@ export default async function MitarbeiterPage() {
     }
 
     for (const [lehrerId, monate] of depByLehrer) {
-      const eff = berechneLehrerDeputatEffektiv(
-        monate,
+      const adaptiert = adaptiereEchteAenderungen(
         aenderungenByLehrer.get(lehrerId) ?? [],
         hj.jahr,
       );
+      const eff = berechneLehrerDeputatEffektiv(monate, adaptiert, hj.jahr);
       const werte: number[] = [];
       for (const r of eff.values()) {
         const v = r.hatKorrektur ? r.effektiv.gesamt : r.pauschal.gesamt;
@@ -105,6 +110,7 @@ export default async function MitarbeiterPage() {
           farbe: s.farbe,
         }))}
         statistikCodes={statistikCodes}
+        haushaltsjahrId={hj?.id ?? null}
       />
 
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">

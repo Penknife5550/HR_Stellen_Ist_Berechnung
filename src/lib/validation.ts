@@ -80,6 +80,72 @@ export const syncPayloadSchema = z.object({
 });
 
 // ============================================================
+// SYNC-PAYLOAD v2 (Periodenmodell — Untis 1:1)
+// ============================================================
+//
+// Format-Konvention:
+//   Datumsfelder im Format "DD.MM.YYYY" (deutsch) — wie bisher.
+//   Deputatswerte als number (Wochenstunden, max 3 Nachkommastellen).
+
+const germanDateRegex = /^\d{2}\.\d{2}\.\d{4}$/;
+const germanDateField = z.string().regex(germanDateRegex, "Datum erwartet im Format DD.MM.YYYY.");
+
+/** Eine Untis-Periode (Master-Daten). */
+export const untisTermPayloadSchema = z.object({
+  school_year_id: z.number().int().positive("Ungueltige school_year_id."),
+  term_id: z.number().int().positive("Ungueltige term_id."),
+  term_name: z.string().max(50).nullable().optional(),
+  date_from: germanDateField,
+  /** Effektives Periodenende (LEAD(DateFrom)-1 oder echtes DateTo bei b-Perioden). */
+  date_to: germanDateField,
+  /** True wenn Untis ein echtes (nicht Schuljahresende-)DateTo gesetzt hat. */
+  is_b_period: z.boolean().optional().default(false),
+});
+
+export const untisTermsSyncPayloadSchema = z.object({
+  api_key: z.string().min(1),
+  sync_datum: z.string().min(1, "sync_datum fehlt."),
+  terms: z
+    .array(untisTermPayloadSchema)
+    .min(1, "Mindestens 1 Term erforderlich.")
+    .max(200, "Maximal 200 Terms pro Sync."),
+});
+
+/** Wert eines Lehrers fuer EINE Periode. */
+export const lehrerProPeriodePayloadSchema = z.object({
+  teacher_id: z.number().int().positive("Ungueltige Teacher-ID."),
+  name: z.string().min(1).max(50),
+  vollname: z.string().min(1).max(200),
+  personalnummer: z.string().max(20).nullable().optional(),
+  stammschule: z.string().max(10),
+  /** NRW-Statistik-Code (Beamter/Angestellter) — optional, gleich wie v1. */
+  statistik_code: z.string().max(5).nullable().optional(),
+  /** Untis-Periodenidentitaet — Schuljahr + Term-ID. */
+  school_year_id: z.number().int().positive("Ungueltige school_year_id."),
+  term_id: z.number().int().positive("Ungueltige term_id."),
+  /** Werte fuer genau diese Periode. */
+  deputat_gesamt: z.number().min(0).max(200, "Deputat unrealistisch hoch."),
+  deputat_ges: z.number().min(0).max(200),
+  deputat_gym: z.number().min(0).max(200),
+  deputat_bk: z.number().min(0).max(200),
+});
+
+export const syncV2PayloadSchema = z.object({
+  api_key: z.string().min(1),
+  sync_datum: z.string().min(1, "sync_datum fehlt."),
+  schuljahr_text: z.string().optional(),
+  /**
+   * Werte pro (Lehrer x Periode). Ein Sync-Call kann beliebig viele Eintraege
+   * tragen — etwa "alle Lehrer einer Periode" oder "ein Lehrer ueber alle
+   * Perioden eines Schuljahrs".
+   */
+  eintraege: z
+    .array(lehrerProPeriodePayloadSchema)
+    .min(1, "Mindestens 1 Eintrag erforderlich.")
+    .max(5000, "Maximal 5000 Eintraege pro Sync."),
+});
+
+// ============================================================
 // AUTH: LOGIN
 // ============================================================
 

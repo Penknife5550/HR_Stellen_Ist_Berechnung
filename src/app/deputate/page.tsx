@@ -6,15 +6,21 @@ import {
   getSchulen,
   getLehrerMitDeputaten,
   getLatestSync,
-  getDeputatAenderungen,
+  getEchteAenderungenAlleLehrer,
   getLehrerStatistikGruppen,
 } from "@/lib/db/queries";
 import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
 import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { DeputateClient } from "./DeputateClient";
 import { DeputatStrukturCard } from "./DeputatStrukturCard";
-import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
-import { buildDeputatStruktur } from "@/lib/statistikCode";
+import {
+  berechneLehrerDeputatEffektiv,
+  adaptiereEchteAenderungen,
+} from "@/lib/berechnungen/deputatEffektiv";
+import {
+  buildDeputatStruktur,
+  vergleicheLehrerNachSchuleGruppeName,
+} from "@/lib/statistikCode";
 
 export default async function DeputatePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
@@ -45,22 +51,28 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
     );
   }
 
-  // Deputate + Aenderungen laden
-  const [deputatRaw, alleAenderungen] = await Promise.all([
+  // Deputate + echte Wertwechsel (Periodenmodell) laden
+  const [deputatRaw, echteAenderungen] = await Promise.all([
     getLehrerMitDeputaten(hj.id),
-    getDeputatAenderungen(hj.id),
+    getEchteAenderungenAlleLehrer(hj.jahr),
   ]);
 
-  // Aenderungs-Flags pro Lehrer aufbauen
+  // Aenderungs-Flags pro Lehrer ableiten:
+  // gehaltsrelevant = Gesamt-Wert hat sich geaendert (delta_gesamt != 0)
+  // verteilungsaenderung = nur GES/GYM/BK-Verteilung geaendert
   const lehrerMitGehaltsaenderung = new Set<number>();
   const lehrerMitVerteilungsaenderung = new Set<number>();
-  const aenderungenByLehrer = new Map<number, typeof alleAenderungen>();
-  for (const a of alleAenderungen) {
-    if (a.istGehaltsrelevant) lehrerMitGehaltsaenderung.add(a.lehrerId);
-    else lehrerMitVerteilungsaenderung.add(a.lehrerId);
-    const arr = aenderungenByLehrer.get(a.lehrerId) ?? [];
+  const aenderungenByLehrer = new Map<number, typeof echteAenderungen>();
+  for (const a of echteAenderungen) {
+    const deltaGesamt = Math.abs(Number(a.delta_gesamt));
+    if (deltaGesamt > 0.001) {
+      lehrerMitGehaltsaenderung.add(a.lehrer_id);
+    } else {
+      lehrerMitVerteilungsaenderung.add(a.lehrer_id);
+    }
+    const arr = aenderungenByLehrer.get(a.lehrer_id) ?? [];
     arr.push(a);
-    aenderungenByLehrer.set(a.lehrerId, arr);
+    aenderungenByLehrer.set(a.lehrer_id, arr);
   }
 
   // Daten zu Lehrer-Objekten gruppieren (inkl. schulspezifischer Deputate)
@@ -103,7 +115,7 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
     };
   }
 
-  // Taggenaue Korrektur pro Lehrer anwenden
+  // Taggenaue Korrektur pro Lehrer anwenden — aus echten Wertwechseln (Periodenmodell)
   const lehrerKorrekturFlags = new Map<number, boolean[]>(); // lehrerId -> Array[12] bool
   for (const l of lehrerMap.values()) {
     const monatsDaten = l.monatsDetails
@@ -115,8 +127,11 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
         deputatBk: d.bk,
       }) : null)
       .filter((x): x is NonNullable<typeof x> => x !== null);
-    const aen = aenderungenByLehrer.get(l.lehrerId) ?? [];
-    const eff = berechneLehrerDeputatEffektiv(monatsDaten, aen, hj.jahr);
+    const adaptiert = adaptiereEchteAenderungen(
+      aenderungenByLehrer.get(l.lehrerId) ?? [],
+      hj.jahr,
+    );
+    const eff = berechneLehrerDeputatEffektiv(monatsDaten, adaptiert, hj.jahr);
     const korrFlags: boolean[] = Array(12).fill(false);
     for (const [monat, r] of eff) {
       if (!r.hatKorrektur) continue;
@@ -133,8 +148,17 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
     lehrerKorrekturFlags.set(l.lehrerId, korrFlags);
   }
 
+  // Statistik-Gruppe pro Lehrer (fuer Sortierung Schule -> Gruppe -> Name)
+  const gruppeByLehrer = new Map<number, string | null>();
+  for (const ld of lehrerGruppen) {
+    gruppeByLehrer.set(ld.id, ld.statistikGruppe);
+  }
+
   const lehrerListe = Array.from(lehrerMap.values()).sort((a, b) =>
-    a.name.localeCompare(b.name, "de")
+    vergleicheLehrerNachSchuleGruppeName(
+      { stammschule: a.stammschuleCode, gruppe: gruppeByLehrer.get(a.lehrerId) ?? null, name: a.name },
+      { stammschule: b.stammschuleCode, gruppe: gruppeByLehrer.get(b.lehrerId) ?? null, name: b.name },
+    )
   );
 
   // Farbmap fuer Schulen
@@ -144,11 +168,7 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
   }
 
   // Deputatsstruktur: Aggregation pro (Schule, Statistik-Gruppe) via Pure Helper
-  const gruppeByLehrer = new Map<number, string | null>();
-  for (const ld of lehrerGruppen) {
-    gruppeByLehrer.set(ld.id, ld.statistikGruppe);
-  }
-
+  // (gruppeByLehrer wurde oben fuer Sortierung schon gebaut)
   const strukturRows = buildDeputatStruktur({
     schulen: schulen.map((s) => ({ id: s.id, kurzname: s.kurzname, farbe: s.farbe })),
     lehrer: lehrerListe.map((l) => {

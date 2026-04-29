@@ -9,7 +9,7 @@ interface Props {
 }
 
 function fmtH(n: number): string {
-  return `${n.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
+  return `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
 }
 
 export function DeputatStrukturCard({ rows, jahr }: Props) {

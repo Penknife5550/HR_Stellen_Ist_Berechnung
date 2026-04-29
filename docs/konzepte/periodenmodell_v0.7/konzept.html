@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Konzept v0.4: Deputat-Speicherung pro Untis-Periode</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  html { font-size: 10.5pt; }
+  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; line-height: 1.45; color: #1f2937; max-width: 100%; margin: 0; }
+  h1 { font-size: 22pt; color: #0f172a; margin-top: 0; border-bottom: 2px solid #0f172a; padding-bottom: 6pt; }
+  h2 { font-size: 15pt; color: #0f172a; margin-top: 22pt; border-bottom: 1px solid #cbd5e1; padding-bottom: 3pt; page-break-after: avoid; }
+  h3 { font-size: 12pt; color: #1e293b; margin-top: 14pt; page-break-after: avoid; }
+  h4 { font-size: 11pt; color: #334155; margin-top: 10pt; page-break-after: avoid; }
+  p, li { font-size: 10.5pt; }
+  blockquote { border-left: 4px solid #2563eb; background: #eff6ff; margin: 12pt 0; padding: 8pt 14pt; color: #1e3a8a; font-size: 10pt; }
+  blockquote p { margin: 4pt 0; }
+  code { font-family: "Consolas", "Cascadia Code", "Courier New", monospace; font-size: 9pt; background: #f1f5f9; padding: 1pt 4pt; border-radius: 3px; color: #be185d; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 10pt 12pt; border-radius: 5px; font-size: 8.5pt; line-height: 1.35; overflow-x: auto; page-break-inside: avoid; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #cbd5e1; padding: 4pt 7pt; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; color: #0f172a; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  hr { border: none; border-top: 1px solid #cbd5e1; margin: 18pt 0; }
+  ul, ol { padding-left: 22pt; }
+  li { margin: 2pt 0; }
+  strong { color: #0f172a; }
+  a { color: #2563eb; text-decoration: none; }
+  .doc-header { font-size: 8.5pt; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 6pt; margin-bottom: 14pt; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="doc-header">
+  <span>Freie Evangelische Schule Minden &middot; HR Stellen-Ist-Berechnung</span>
+  <span>Konzept v0.4 (Phase 2 + Korrektur-Layer + DIN-A4-PDF) &middot; 2026-04-29</span>
+</div>
+<h1>Konzept: Deputat-Speicherung pro Untis-Periode statt pro Monat</h1>
+<blockquote>
+<p><strong>Status:</strong> v0.4 (2026-04-29) — Phase 1 + Phase 2 + Korrektur-Layer + DIN-A4-Detail-PDF abgeschlossen. Lokal verifiziert mit Bergmann + Diercks.
+<strong>Beispiel-Lehrer:</strong> Bergmann Benjamin (UntisTeacherID 166, GYM)
+<strong>Schuljahr:</strong> 2025/2026</p>
+</blockquote>
+<hr>
+<h2>0. Leitprinzip</h2>
+<blockquote>
+<p><strong>Untis ist die einzige Quelle der Wahrheit.</strong>
+Die App spiegelt die Untis-Periodendaten 1:1, bereitet sie für Personalverwaltung &amp; Bezirksregierungs-Statistik auf und macht sie tagesgenau auswertbar — ohne eigene Logik draufzulegen, die Untis-Information verändert.</p>
+<p><strong>Konsequenzen:</strong></p>
+<ul>
+<li>Untis erlaubt Werteänderungen nur zum Montag → unsere Periodendaten sind ohnehin tagesgenau ableitbar.</li>
+<li>Wir denken <strong>niemals</strong> Daten dazu, die nicht aus Untis kommen.</li>
+<li>Wir werfen <strong>niemals</strong> Daten weg, die Untis liefert (kein Coverage-Tie-Breaker mehr).</li>
+<li>Lücken in Untis-Daten (z. B. Sommerferien zwischen Schuljahren) füllen wir durch <strong>Fortschreiben des letzten bekannten Werts</strong> — nicht mit 0, nicht mit Schätzungen.</li>
+</ul>
+</blockquote>
+<hr>
+<h2>1. Worum geht&#39;s</h2>
+<p>Aktuell speichert die App pro Lehrer <strong>einen Wert pro Monat</strong> (<code>deputat_monatlich</code>).
+Wenn in einem Monat <strong>mehrere Untis-Perioden</strong> liegen, gewinnt diejenige mit der größten Tages-Coverage — die Werte der anderen Perioden gehen verloren. Tagesgenaue Berechnung ist dadurch nicht mehr möglich.</p>
+<p><strong>Lösung:</strong> Speichere den Wert in der natürlichen Untis-Granularität — <strong>eine Zeile pro <code>(Lehrer, Periode)</code></strong>. Untis liefert das ohnehin so.</p>
+<hr>
+<h2>2. Bergmann Benjamin — was Untis sagt</h2>
+<p>Aus der Untis-<code>Teacher</code>-Tabelle (<code>PlannedWeek</code> / 1000 = Wochenstunden):</p>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Periode</th>
+<th>Gilt von</th>
+<th>Gilt bis</th>
+<th><strong>Wochenstd.</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Periode1</td>
+<td>25.08.2025</td>
+<td>14.09.2025</td>
+<td>8,0</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Periode2</td>
+<td>15.09.2025</td>
+<td>21.09.2025</td>
+<td>8,0</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Periode3</td>
+<td>22.09.2025</td>
+<td>05.10.2025</td>
+<td>8,0</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Periode4</td>
+<td>06.10.2025</td>
+<td>19.10.2025</td>
+<td>8,0</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Periode5</td>
+<td>20.10.2025</td>
+<td>02.11.2025</td>
+<td>8,0</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Periode6</td>
+<td>03.11.2025</td>
+<td>09.11.2025</td>
+<td><strong>10,0</strong> ⬆</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Periode7</td>
+<td>10.11.2025</td>
+<td>16.11.2025</td>
+<td>10,0</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Periode8</td>
+<td>17.11.2025</td>
+<td>23.11.2025</td>
+<td>10,0</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Periode9</td>
+<td>24.11.2025</td>
+<td>04.01.2026</td>
+<td>10,0</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Periode10</td>
+<td>05.01.2026</td>
+<td>08.02.2026</td>
+<td>10,0</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Periode11</td>
+<td>09.02.2026</td>
+<td>01.03.2026</td>
+<td><strong>17,0</strong> ⬆</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Periode12</td>
+<td>02.03.2026</td>
+<td>15.03.2026</td>
+<td>17,0</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Periode12b</td>
+<td>16.03.2026</td>
+<td>12.04.2026</td>
+<td>17,0</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Periode13</td>
+<td>13.04.2026</td>
+<td>19.04.2026</td>
+<td><strong>10,0</strong> ⬇</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Periode14</td>
+<td>20.04.2026</td>
+<td>26.04.2026</td>
+<td>10,0</td>
+</tr>
+<tr>
+<td>16</td>
+<td>Periode14b</td>
+<td>27.04.2026</td>
+<td>03.05.2026</td>
+<td>10,0</td>
+</tr>
+<tr>
+<td>17</td>
+<td>Periode15</td>
+<td>04.05.2026</td>
+<td>24.05.2026</td>
+<td><strong>16,0</strong> ⬆</td>
+</tr>
+<tr>
+<td>18</td>
+<td>Periode16</td>
+<td>25.05.2026</td>
+<td>19.07.2026</td>
+<td>16,0</td>
+</tr>
+</tbody></table>
+<p><strong>Eigentliche Wertwechsel (Sicht des Personalsachbearbeiters):</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Wirksam ab</th>
+<th>Term-Wechsel</th>
+<th>Alt → Neu</th>
+<th>Δ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>Mo 03.11.2025</strong></td>
+<td>T5 → T6</td>
+<td>8,0 → 10,0</td>
+<td>+2,0</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Mo 09.02.2026</strong></td>
+<td>T10 → T11</td>
+<td>10,0 → 17,0</td>
+<td>+7,0</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Mo 13.04.2026</strong></td>
+<td>T13 → T14</td>
+<td>17,0 → 10,0</td>
+<td>-7,0</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Mo 04.05.2026</strong></td>
+<td>T16 → T17</td>
+<td>10,0 → 16,0</td>
+<td>+6,0</td>
+</tr>
+</tbody></table>
+<p>Genau <strong>4 Änderungen über das Schuljahr</strong> — alle wirksam zum Montag. Diese 4 Daten will der Sachbearbeiter im UI sehen.</p>
+<hr>
+<h2>3. Was die App aktuell daraus macht (HJ 2026 für Bergmann)</h2>
+<table>
+<thead>
+<tr>
+<th>Monat</th>
+<th>DB speichert</th>
+<th>&quot;Sieger-Periode&quot;</th>
+<th>Tagesgenau (wahr)</th>
+<th>Differenz</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Jan</td>
+<td>10,0</td>
+<td>T10 (27 Tage)</td>
+<td>10,000</td>
+<td>0 ✓</td>
+</tr>
+<tr>
+<td><strong>Feb</strong></td>
+<td><strong>17,0</strong></td>
+<td>T11 (20 Tage)</td>
+<td><strong>15,000</strong></td>
+<td><strong>+2,0 ❌</strong></td>
+</tr>
+<tr>
+<td>Mär</td>
+<td>17,0</td>
+<td>T13 (16 Tage)</td>
+<td>17,000</td>
+<td>0 ✓</td>
+</tr>
+<tr>
+<td><strong>Apr</strong></td>
+<td><strong>17,0</strong></td>
+<td>T13 (12 Tage)</td>
+<td><strong>12,800</strong></td>
+<td><strong>+4,2 ❌</strong></td>
+</tr>
+<tr>
+<td><strong>Mai</strong></td>
+<td><strong>16,0</strong></td>
+<td>T17 (21 Tage)</td>
+<td><strong>15,419</strong></td>
+<td><strong>+0,58 ❌</strong></td>
+</tr>
+<tr>
+<td>Jun</td>
+<td>16,0</td>
+<td>T18 (30 Tage)</td>
+<td>16,000</td>
+<td>0 ✓</td>
+</tr>
+<tr>
+<td>Jul</td>
+<td>16,0</td>
+<td>T18 fortgeschrieben</td>
+<td>16,000</td>
+<td>0 ✓</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>Juli/August — Fortschreibe-Regel:</strong> T18 endet am 19.07., danach Sommerferien bis ~24.08. (Beginn T1 SY 2026/27). Wir <strong>schreiben den letzten bekannten Wert (16,0) bis zum nächsten Periodenstart fort</strong>. Juli und August sind beide voll 16,0 WS — fachlich korrekt, weil der Lehrer auch in den Ferien sein Deputat behält.</p>
+<p>Σ Fehler ohne neues Modell für Bergmann in HJ 2026: <strong>6,8 Wochenstunden</strong> (Feb +2,0 / Apr +4,2 / Mai +0,58).</p>
+</blockquote>
+<hr>
+<h2>4. Vorgeschlagenes Datenmodell</h2>
+<h3>4.1 Neue Tabelle <code>untis_terms</code> (Master-Periodendaten)</h3>
+<pre><code class="language-sql">CREATE TABLE untis_terms (
+    school_year_id  INTEGER NOT NULL,            -- z.B. 20252026
+    term_id         INTEGER NOT NULL,            -- 1..18
+    term_name       VARCHAR(50),                 -- &quot;Periode12b&quot;
+    date_from       DATE NOT NULL,               -- echtes DateFrom aus Untis
+    date_to         DATE NOT NULL,               -- effektives DateTo (LEAD(DateFrom)-1 oder echtes DateTo bei b-Perioden)
+    is_b_period     BOOLEAN DEFAULT false,       -- true wenn Untis ein echtes (nicht Schuljahresende-)DateTo gesetzt hat
+    sync_datum      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    updated_at      TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (school_year_id, term_id),
+    CHECK (date_from &lt;= date_to)
+);
+</code></pre>
+<p><strong>Befüllung:</strong> separater n8n-Knoten (oder Sub-Query im bestehenden Workflow #223), der die Untis-<code>Terms</code>-Tabelle 1:1 spiegelt — pro Schuljahr ca. 15–20 Zeilen.</p>
+<h3>4.2 Neue Tabelle <code>deputat_pro_periode</code> (Lehrer-Werte pro Periode)</h3>
+<pre><code class="language-sql">CREATE TABLE deputat_pro_periode (
+    id                   SERIAL PRIMARY KEY,
+    lehrer_id            INTEGER NOT NULL REFERENCES lehrer(id),
+
+    -- Periodenidentität (FK auf untis_terms zusammengesetzt)
+    untis_schoolyear_id  INTEGER NOT NULL,
+    untis_term_id        INTEGER NOT NULL,
+
+    -- Datums-Cache (entkoppelt für schnelle Range-Queries, redundant zu untis_terms)
+    gueltig_von          DATE NOT NULL,
+    gueltig_bis          DATE NOT NULL,
+
+    -- Werte (genau wie heute in deputat_monatlich)
+    deputat_gesamt       NUMERIC(8,3) NOT NULL,
+    deputat_ges          NUMERIC(8,3) NOT NULL DEFAULT 0,
+    deputat_gym          NUMERIC(8,3) NOT NULL DEFAULT 0,
+    deputat_bk           NUMERIC(8,3) NOT NULL DEFAULT 0,
+
+    -- Stammschule pro Periode (zukunftssicher: Lehrer wechselt mitten im Jahr)
+    stammschule_code     VARCHAR(10),
+
+    -- Audit
+    quelle               VARCHAR(20) DEFAULT &#39;untis&#39;,
+    sync_datum           TIMESTAMPTZ,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE (lehrer_id, untis_schoolyear_id, untis_term_id),
+    FOREIGN KEY (untis_schoolyear_id, untis_term_id)
+        REFERENCES untis_terms(school_year_id, term_id)
+);
+
+CREATE INDEX idx_dpp_lehrer ON deputat_pro_periode(lehrer_id);
+CREATE INDEX idx_dpp_zeitraum ON deputat_pro_periode USING GIST (
+    daterange(gueltig_von, gueltig_bis, &#39;[]&#39;)
+);
+</code></pre>
+<p>Für Bergmann sind das <strong>18 Zeilen</strong> pro Schuljahr.</p>
+<h3>4.3 Tagesgenaue Monatswerte als View — mit Fortschreibung</h3>
+<p>Der View hat <strong>zwei Stufen</strong>:</p>
+<ol>
+<li><code>v_deputat_pro_tag</code> weist jedem Tag den geltenden Wert zu (mit Fortschreiben bei Lücken).</li>
+<li><code>v_deputat_monat_tagesgenau</code> aggregiert daraus den Monatsmittelwert über die Kalendertage.</li>
+</ol>
+<pre><code class="language-sql">-- Stufe 1: Pro Tag den geltenden Wert (mit Fortschreibung des letzten Werts in Lücken)
+CREATE OR REPLACE VIEW v_deputat_pro_tag AS
+WITH tage AS (
+    SELECT generate_series(
+        (SELECT MIN(gueltig_von) FROM deputat_pro_periode),
+        (SELECT MAX(gueltig_bis) FROM deputat_pro_periode) + INTERVAL &#39;90 days&#39;,
+        INTERVAL &#39;1 day&#39;
+    )::date AS tag
+),
+lehrer_aktiv AS (
+    SELECT DISTINCT lehrer_id FROM deputat_pro_periode
+)
+SELECT
+    t.tag,
+    la.lehrer_id,
+    -- Letzte Periode &lt;= aktueller Tag: deren Wert gilt (auch in Ferienlücken)
+    (SELECT dpp.deputat_gesamt
+     FROM deputat_pro_periode dpp
+     WHERE dpp.lehrer_id = la.lehrer_id
+       AND dpp.gueltig_von &lt;= t.tag
+     ORDER BY dpp.gueltig_von DESC
+     LIMIT 1)                                  AS deputat_gesamt,
+    (SELECT dpp.untis_term_id
+     FROM deputat_pro_periode dpp
+     WHERE dpp.lehrer_id = la.lehrer_id
+       AND dpp.gueltig_von &lt;= t.tag
+     ORDER BY dpp.gueltig_von DESC
+     LIMIT 1)                                  AS quell_term_id,
+    -- Liegt der Tag innerhalb einer Periode oder in einer fortgeschriebenen Lücke?
+    EXISTS (
+        SELECT 1 FROM deputat_pro_periode dpp
+        WHERE dpp.lehrer_id = la.lehrer_id
+          AND t.tag BETWEEN dpp.gueltig_von AND dpp.gueltig_bis
+    )                                          AS in_periode
+FROM tage t
+CROSS JOIN lehrer_aktiv la;
+
+-- Stufe 2: Monatsmittel über die Kalendertage (immer 28/29/30/31 als Nenner)
+CREATE OR REPLACE VIEW v_deputat_monat_tagesgenau AS
+SELECT
+    vdt.lehrer_id,
+    hj.id                              AS haushaltsjahr_id,
+    EXTRACT(YEAR  FROM vdt.tag)::int   AS jahr,
+    EXTRACT(MONTH FROM vdt.tag)::int   AS monat,
+    AVG(vdt.deputat_gesamt)            AS deputat_gesamt_tagesgenau,
+    COUNT(*)                           AS tage_im_monat,
+    -- Repräsentative Periode (Mehrheit der Monatstage)
+    mode() WITHIN GROUP (ORDER BY vdt.quell_term_id) AS dominante_term_id
+FROM v_deputat_pro_tag vdt
+JOIN haushaltsjahre hj
+  ON hj.jahr = EXTRACT(YEAR FROM vdt.tag)::int
+GROUP BY vdt.lehrer_id, hj.id, EXTRACT(YEAR FROM vdt.tag), EXTRACT(MONTH FROM vdt.tag);
+</code></pre>
+<p><strong>Performance-Hinweis:</strong> Bei 100 Lehrern × 365 Tagen × 2 SY = ~73 000 Zeilen in der Stufe-1-View, die per LATERAL-LEAD durchsucht werden. Das ist machbar, aber im Hot Path (Stellen-IST-Berechnung) wird daraus eine <strong>Materialized View</strong> mit Refresh am Ende jedes Sync-Laufs.</p>
+<h3>4.4 Änderungshistorie als View</h3>
+<pre><code class="language-sql">CREATE OR REPLACE VIEW v_deputat_aenderungen AS
+SELECT
+    a.lehrer_id,
+    a.untis_schoolyear_id,
+    a.untis_term_id          AS term_alt,
+    b.untis_term_id          AS term_neu,
+    a.deputat_gesamt         AS gesamt_alt,
+    b.deputat_gesamt         AS gesamt_neu,
+    b.deputat_gesamt - a.deputat_gesamt AS delta,
+    b.gueltig_von            AS wirksam_ab,
+    a.gueltig_bis            AS letzter_tag_alt
+FROM deputat_pro_periode a
+JOIN deputat_pro_periode b
+    ON b.lehrer_id            = a.lehrer_id
+   AND b.untis_schoolyear_id  = a.untis_schoolyear_id
+   AND b.untis_term_id        = a.untis_term_id + 1
+WHERE a.deputat_gesamt &lt;&gt; b.deputat_gesamt
+   OR a.deputat_ges    &lt;&gt; b.deputat_ges
+   OR a.deputat_gym    &lt;&gt; b.deputat_gym
+   OR a.deputat_bk     &lt;&gt; b.deputat_bk;
+</code></pre>
+<p>Für Bergmann liefert dieser View <strong>automatisch und genau die 4 echten Wechsel</strong> — ohne dass irgendwo &quot;Coverage-Tie-Breaker&quot;-Logik laufen muss.</p>
+<hr>
+<h2>5. Wie sieht das UI für Bergmann dann aus</h2>
+<h3>5.1 Lehrer-Detailseite — Sektion „Periodenverlauf&quot;</h3>
+<pre><code>Bergmann Benjamin (P 600281, GYM)  — Schuljahr 2025/2026
+
+Periode    │ Gültig                       │ Wochenstd. │ Δ
+───────────┼──────────────────────────────┼────────────┼──────
+T1 P1      │ 25.08.2025 – 14.09.2025      │ 8,0        │
+T2 P2      │ 15.09.2025 – 21.09.2025      │ 8,0        │
+T3 P3      │ 22.09.2025 – 05.10.2025      │ 8,0        │
+T4 P4      │ 06.10.2025 – 19.10.2025      │ 8,0        │
+T5 P5      │ 20.10.2025 – 02.11.2025      │ 8,0        │
+T6 P6      │ 03.11.2025 – 09.11.2025      │ 10,0       │ +2,0  ◀ Wechsel
+T7 P7      │ 10.11.2025 – 16.11.2025      │ 10,0       │
+…
+T11 P11    │ 09.02.2026 – 01.03.2026      │ 17,0       │ +7,0  ◀ Wechsel
+…
+T14 P13    │ 13.04.2026 – 19.04.2026      │ 10,0       │ -7,0  ◀ Wechsel
+…
+T17 P15    │ 04.05.2026 – 24.05.2026      │ 16,0       │ +6,0  ◀ Wechsel
+T18 P16    │ 25.05.2026 – 19.07.2026      │ 16,0       │
+</code></pre>
+<h3>5.2 Sektion „Änderungen&quot; (kompakt)</h3>
+<pre><code>4 Änderungen im Schuljahr 2025/2026
+
+▲ +2,0 WS  ab Mo 03.11.2025  (T5 P5 → T6 P6)         8,0  →  10,0
+▲ +7,0 WS  ab Mo 09.02.2026  (T10 P10 → T11 P11)    10,0  →  17,0
+▼ -7,0 WS  ab Mo 13.04.2026  (T13 P12b → T14 P13)   17,0  →  10,0
+▲ +6,0 WS  ab Mo 04.05.2026  (T16 P14b → T17 P15)   10,0  →  16,0
+</code></pre>
+<h3>5.3 Sektion „Monatswerte (tagesgenau, für Statistik)&quot;</h3>
+<pre><code>HJ 2026                 Tagesgenau    Bisher (DB)    Differenz
+──────────────────────────────────────────────────────────────
+Jan 2026                10,000        10,0           0
+Feb 2026                15,000        17,0           +2,0  ◀
+Mär 2026                17,000        17,0           0
+Apr 2026                12,800        17,0           +4,2  ◀
+Mai 2026                15,419        16,0           +0,58 ◀
+Jun 2026                16,000        16,0           0
+Jul 2026 (¹)             9,806        16,0           +6,2  ◀
+                                                     ─────
+                                          Σ Fehler   13,0 WS
+</code></pre>
+<p>(¹) Frage: Juli mit 31 Kalendertagen rechnen oder mit 19 Schultagen? <strong>Bitte klären.</strong></p>
+<hr>
+<h2>6. n8n-Erweiterung</h2>
+<p>Workflow #223 bekommt <strong>zwei zusätzliche Schritte:</strong></p>
+<h3>6.1 Neuer Knoten „Untis-Terms abrufen&quot; (vor dem Lehrer-Knoten)</h3>
+<pre><code class="language-sql">SELECT
+    tr.SCHOOLYEAR_ID, tr.TERM_ID, tr.Name AS term_name,
+    -- echtes DateFrom
+    DATEFROMPARTS(tr.DateFrom/10000, (tr.DateFrom/100)%100, tr.DateFrom%100) AS date_from,
+    -- effektives DateTo: LEAD(DateFrom)-1, fallback: echtes DateTo
+    DATEADD(DAY, -1, ISNULL(
+        DATEFROMPARTS(
+            LEAD(tr.DateFrom) OVER (PARTITION BY tr.SCHOOLYEAR_ID ORDER BY tr.TERM_ID)/10000,
+            (LEAD(tr.DateFrom) OVER (PARTITION BY tr.SCHOOLYEAR_ID ORDER BY tr.TERM_ID)/100)%100,
+            LEAD(tr.DateFrom) OVER (PARTITION BY tr.SCHOOLYEAR_ID ORDER BY tr.TERM_ID)%100
+        ),
+        DATEFROMPARTS(tr.DateTo/10000, (tr.DateTo/100)%100, tr.DateTo%100)
+    )) AS date_to,
+    -- b-Perioden-Erkennung: echtes DateTo != Schuljahresende
+    CASE WHEN tr.DateTo &lt; (
+        SELECT MAX(DateFrom) FROM Terms WHERE SCHOOLYEAR_ID = tr.SCHOOLYEAR_ID AND Deleted = 0
+    ) THEN 1 ELSE 0 END AS is_b_period
+FROM Terms tr
+WHERE tr.Deleted = 0
+  AND tr.SCHOOLYEAR_ID IN (
+      (SELECT MAX(SCHOOLYEAR_ID) FROM Teacher WHERE Deleted=0),
+      (SELECT MAX(SCHOOLYEAR_ID) - 10001 FROM Teacher WHERE Deleted=0)
+  )
+ORDER BY tr.SCHOOLYEAR_ID, tr.TERM_ID;
+</code></pre>
+<p>Diese Daten werden via <strong>neuem Endpoint</strong> <code>POST /api/untis-terms/sync</code> an die App geschickt → upsert in <code>untis_terms</code>.</p>
+<h3>6.2 Bestehender Lehrer-Sync wird auf <code>/api/deputate/sync-v2</code> umgebogen</h3>
+<p>Payload-Struktur ändert sich nicht groß — der Endpunkt schreibt zusätzlich in <code>deputat_pro_periode</code>:</p>
+<pre><code class="language-js">// pro Lehrer pro Term: eine Zeile in deputat_pro_periode upserten
+INSERT INTO deputat_pro_periode (
+    lehrer_id, untis_schoolyear_id, untis_term_id,
+    gueltig_von, gueltig_bis,
+    deputat_gesamt, deputat_ges, deputat_gym, deputat_bk,
+    stammschule_code, sync_datum
+) VALUES (...)
+ON CONFLICT (lehrer_id, untis_schoolyear_id, untis_term_id)
+DO UPDATE SET ...;
+</code></pre>
+<p><strong>Vorteil:</strong> Kein Coverage-Tie-Breaker mehr nötig. Jeder Sync schreibt seine Periode rein, Punkt. Werte können nur durch einen weiteren Sync mit demselben <code>(lehrer, sy, term)</code> überschrieben werden — eindeutig und idempotent.</p>
+<hr>
+<h2>7. Migrationspfad</h2>
+<h3>Phase 1: Daten parallel mitschreiben (1 Woche)</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Migration 0008: <code>untis_terms</code> + <code>deputat_pro_periode</code></li>
+<li><input disabled="" type="checkbox"> n8n-Workflow erweitern (Terms-Sync + Lehrer-Sync schreibt zusätzlich <code>deputat_pro_periode</code>)</li>
+<li><input disabled="" type="checkbox"> <code>deputat_monatlich</code> bleibt unverändert (Doppel-Schreibung) — keine Verhaltensänderung</li>
+<li><input disabled="" type="checkbox"> Backfill: aus <code>Teacher</code>-Tabelle alle Perioden für SY 2024/25 + 2025/26 importieren</li>
+</ul>
+<h3>Phase 2: Berechnungen umstellen (1–2 Wochen)</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Stellen-IST-Berechnung liest aus <code>v_deputat_monat_tagesgenau</code> statt <code>deputat_monatlich</code></li>
+<li><input disabled="" type="checkbox"> UI-Änderungshistorie liest aus <code>v_deputat_aenderungen</code> statt <code>deputat_aenderungen</code></li>
+<li><input disabled="" type="checkbox"> Lehrer-Detailseite bekommt Periodenliste-Sektion</li>
+<li><input disabled="" type="checkbox"> Stellenplan-Export Anlage 2a verwendet tagesgenaue Monatswerte</li>
+<li><input disabled="" type="checkbox"> <strong>Verifikation:</strong> Bergmann + 5 weitere Lehrer mit echten Wechseln händisch nachrechnen</li>
+</ul>
+<h3>Phase 3: Altsystem zurückbauen (eine Woche, später)</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <code>deputat_monatlich</code> wird zur Materialized View über <code>v_deputat_monat_tagesgenau</code></li>
+<li><input disabled="" type="checkbox"> <code>deputat_aenderungen</code> wird <code>_archiv</code> umbenannt (Historie bleibt erhalten)</li>
+<li><input disabled="" type="checkbox"> Coverage-Tie-Breaker-Logik aus Sync-Endpoint entfernen</li>
+<li><input disabled="" type="checkbox"> Tests anpassen</li>
+</ul>
+<hr>
+<h2>8. Risiken &amp; offene Fragen</h2>
+<table>
+<thead>
+<tr>
+<th>Risiko / Frage</th>
+<th>Antwort / Entscheidung</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Juli — wie rechnen?</strong></td>
+<td><strong>ENTSCHIEDEN:</strong> Volle Kalendertage (31), gleiche Logik in jedem Monat. Keine Sonderfälle.</td>
+</tr>
+<tr>
+<td><strong>Sommerferien-Lücke</strong> zwischen T18 (alt SY) und T1 (neu SY)</td>
+<td><strong>ENTSCHIEDEN:</strong> Letzten bekannten Wert fortschreiben — zwischen den Periodenintervallen wird der zuletzt gültige Wert verwendet. Logik in <code>v_deputat_pro_tag</code> über <code>ORDER BY gueltig_von DESC LIMIT 1</code>.</td>
+</tr>
+<tr>
+<td><strong>Termwechsel über Schuljahresgrenze</strong> (T18 SY 2025/26 → T1 SY 2026/27)</td>
+<td>View <code>v_deputat_aenderungen</code> darf nicht auf <code>term_id + 1</code> aufbauen, sondern muss per <code>LEAD() OVER (PARTITION BY lehrer_id ORDER BY gueltig_von)</code> über alle Periodenwerte hinweg den Folge-Wert finden. (Anpassung der SQL in §4.4.)</td>
+</tr>
+<tr>
+<td><strong>Doppelte Personalnummern</strong> (Reich Lea / Bergmann B. mit P 600281)</td>
+<td>Unabhängig vom Konzept — Match in der App geschieht über <code>untis_teacher_id</code>, nicht Personalnummer. Daten sollten in Untis korrigiert werden.</td>
+</tr>
+<tr>
+<td><strong>b-Perioden ohne Wertänderung</strong> (z. B. P12b/P14b bei Bergmann gleicher Wert)</td>
+<td>Werden als eigene Zeile gespeichert (Untis = Quelle der Wahrheit) — im Änderungsview tauchen sie nicht auf, weil Werte gleich bleiben. Korrekt.</td>
+</tr>
+<tr>
+<td><strong>Performance</strong> Aggregations-View</td>
+<td>100 Lehrer × 365 Tage × 2 SY = ~73 000 Zeilen in <code>v_deputat_pro_tag</code>. View für Ad-hoc OK; Stellen-IST-Berechnung nutzt <strong>Materialized View</strong> mit Refresh nach Sync.</td>
+</tr>
+<tr>
+<td><strong>Migration der bisherigen <code>deputat_aenderungen</code></strong></td>
+<td>Bleibt als Archiv-Tabelle (<code>deputat_aenderungen_archiv</code>). Der neue View liefert die Wahrheit aus <code>deputat_pro_periode</code>, das Archiv dient Forensik.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>9. Was uns das bringt — TL;DR</h2>
+<table>
+<thead>
+<tr>
+<th>Punkt</th>
+<th>Vorher</th>
+<th>Nachher</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Speicher-Granularität</td>
+<td>1 Wert pro Monat</td>
+<td>1 Wert pro Periode</td>
+</tr>
+<tr>
+<td>Datenverlust bei Coverage-Konflikt</td>
+<td>ja (alle außer Sieger)</td>
+<td><strong>nein</strong> (alle Werte erhalten)</td>
+</tr>
+<tr>
+<td>Tagesgenaue Monatsberechnung</td>
+<td>unmöglich (fehlende Werte)</td>
+<td><strong>trivial</strong> (View)</td>
+</tr>
+<tr>
+<td>Änderungserkennung</td>
+<td>komplex (Coverage-Tie-Breaker)</td>
+<td><strong>trivial</strong> (Differenz aufeinanderfolgender Terms)</td>
+</tr>
+<tr>
+<td>Sync-Reihenfolge spielt eine Rolle</td>
+<td>ja (Race Conditions möglich)</td>
+<td><strong>nein</strong> (idempotenter Upsert)</td>
+</tr>
+<tr>
+<td>Bergmann Februar/April/Mai/Juli korrekt</td>
+<td>nein (bis zu +6,2 WS Fehler)</td>
+<td><strong>ja</strong> (taggenau)</td>
+</tr>
+<tr>
+<td>Audit-Trail Wertwechsel</td>
+<td>künstliche Zwangs-Erkennung</td>
+<td>natürlich (View über zwei aufeinanderfolgende Periodenwerte)</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>10. Entscheidungen (Stand 2026-04-29, mit Dimitri abgestimmt)</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Frage</th>
+<th>Entscheidung</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Juli rechnen über 31 Kalendertage oder 19 Schultage?</td>
+<td><strong>31 Kalendertage</strong> — gleiche Logik in jedem Monat, keine Sonderfälle.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Sommerferien-Lücke fortschreiben oder als 0?</td>
+<td><strong>Fortschreiben</strong> des letzten bekannten Werts.</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Backfill SY 2024/25 + 2025/26?</td>
+<td><strong>Ja</strong> — sobald das neue Modell live und verifiziert ist.</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Endpoint-Strategie?</td>
+<td><strong>Neuer Endpoint</strong> (<code>POST /api/deputate/sync-v2</code>) — sauber getrennt vom alten.</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>deputat_monatlich</code> Zukunft?</td>
+<td>Während Phase 1+2 parallel mitschreiben; in Phase 3 als <strong>Materialized View</strong> über <code>v_deputat_monat_tagesgenau</code> ersetzen, damit alle bestehenden Berechnungen unverändert weiter funktionieren.</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Korrektur-Layer für tatsächliches Datum?</td>
+<td><strong>Eigene Tabelle</strong> <code>deputat_aenderung_korrekturen</code> (Migration 0010) — eine Korrektur pro Term-Wechsel-Ziel, deckt sowohl gehaltsrelevante als auch Verteilungs-Änderungen ab.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Wo das Detailseiten-PDF anbieten?</td>
+<td>Button auf der Detailseite und kleines „📄 PDF&quot;-Pill in der Mitarbeiter-Liste — beides liefert dasselbe DIN-A4-PDF als Bezirksregierungs-Nachweis.</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Nachkomma-Stellen in Deputaten</td>
+<td><strong>2</strong> statt 1 — durchgängig in Detailseite, Übersicht, Excel- und PDF-Exporten.</td>
+</tr>
+</tbody></table>
+<p><strong>Status (Stand 2026-04-29):</strong> Phase 1 + Phase 2 + Korrektur-Layer + DIN-A4-Detail-PDF sind implementiert und mit Bergmann/Diercks lokal verifiziert. Offen: Massen-PDF (alle Lehrer einer Schule), Cleanup des alten v1-Sync-Pfades.</p>
+<hr>
+<h2>11. Korrektur-Layer für Sachbearbeiter (Migration 0010)</h2>
+<h3>Problem</h3>
+<p>Untis erlaubt aus technischen Gründen Periodenwechsel <strong>nur zum Montag</strong>. Im Personalbestand passiert die echte Änderung aber an jedem Wochentag — eine Reduktion ab <strong>Mi 04.02.2026</strong> wird in Untis als <strong>Mo 09.02.2026</strong> abgebildet, mit 3 Tagen Versatz.</p>
+<p>Für eine korrekte Refinanzierung nach <strong>§ 3 Abs. 1 FESchVO</strong> und die Gehaltsabrechnung muss der <strong>echte Stichtag</strong> tagesgenau erfasst werden — und das ist die Aufgabe des Sachbearbeiters.</p>
+<h3>Lösung: Korrektur-Layer als eigene Tabelle</h3>
+<p>Untis (<code>deputat_pro_periode</code>) bleibt 1:1 die Quelle der Wahrheit. Die menschliche Korrektur lebt in einer <strong>eigenen Tabelle</strong>, die beim Untis-Sync nie angetastet wird:</p>
+<pre><code class="language-sql">CREATE TABLE deputat_aenderung_korrekturen (
+    id                       SERIAL PRIMARY KEY,
+    lehrer_id                INTEGER NOT NULL REFERENCES lehrer(id) ON DELETE CASCADE,
+    sy_alt                   INTEGER NOT NULL,
+    term_id_alt              INTEGER NOT NULL,
+    sy_neu                   INTEGER NOT NULL,
+    term_id_neu              INTEGER NOT NULL,
+    tatsaechliches_datum     DATE NOT NULL,           -- echter Stichtag
+    korrigiert_von           VARCHAR(100),
+    korrigiert_am            TIMESTAMPTZ DEFAULT now(),
+    bemerkung                TEXT,
+    UNIQUE (lehrer_id, sy_neu, term_id_neu),         -- max 1 Korrektur pro Wechsel-Ziel
+    FOREIGN KEY (sy_alt, term_id_alt)
+        REFERENCES untis_terms(school_year_id, term_id),
+    FOREIGN KEY (sy_neu, term_id_neu)
+        REFERENCES untis_terms(school_year_id, term_id)
+);
+</code></pre>
+<p><strong>Schlüssel-Idee:</strong> Pro Term-zu-Term-Wechsel max. eine Korrektur. Sie ist immer an die <strong>neue</strong> Periode geheftet (das ist die, deren Start verschoben wird).</p>
+<h3>Wirkung auf die Views</h3>
+<p><code>v_deputat_pro_tag</code> joined die Korrekturen und nutzt das <strong>effektive Wirksamkeitsdatum</strong> (<code>COALESCE(tatsaechliches_datum, gueltig_von)</code>) für die Tag-Zuordnung — die alte Periode reicht entsprechend kürzer/länger, die neue startet entsprechend früher/später.</p>
+<p><code>v_deputat_aenderungen</code> joined die Korrekturen ebenfalls und liefert pro Wechsel:</p>
+<ul>
+<li><code>wirksam_ab</code> (Untis-Montag — bleibt für Audit-Zwecke sichtbar)</li>
+<li><code>tatsaechliches_datum</code> (NULL falls unkorrigiert)</li>
+<li><code>effektiv_wirksam_ab</code> (was die Berechnung wirklich verwendet)</li>
+<li><code>hat_korrektur</code>, <code>korrigiert_von</code>, <code>korrigiert_am</code>, <code>bemerkung</code></li>
+</ul>
+<p>→ <code>v_deputat_monat_tagesgenau</code> rechnet automatisch mit den Korrekturen, weil sie auf der korrigierten Tages-View aufbaut.</p>
+<h3>Beispiel: Bergmann mit Korrektur</h3>
+<p>Angenommen, T10 → T11 (Reduktion 10 → 17 WS) wird <strong>Mi 04.02.2026</strong> gesetzt statt Untis-<code>Mo 09.02.2026</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Monat</th>
+<th>Vor Korrektur</th>
+<th>Nach Korrektur</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Feb 2026</td>
+<td>(8 × 10 + 20 × 17) / 28 = <strong>15,000</strong></td>
+<td>(3 × 10 + 25 × 17) / 28 = <strong>16,250</strong></td>
+</tr>
+</tbody></table>
+<p>→ 1,25 Wochenstunden mehr im Februar, weil 5 Tage früher reduziert.</p>
+<h3>Eine Tabelle für beide Fälle</h3>
+<p>Die Korrektur-Tabelle deckt <strong>gehaltsrelevante Wechsel</strong> (Gesamt-WS ändert sich) UND <strong>reine Schul-Verteilungswechsel</strong> (GES↔GYM↔BK) ab. Der <code>tatsaechliches_datum</code>-Wert ist in beiden Fällen die gleiche Information (echter Stichtag), und die View-Logik unterscheidet nicht — beide profitieren gleichermaßen von der tagesgenauen Berechnung.</p>
+<h3>UI-Erweiterung in PeriodenModellCard</h3>
+<p>In der Tabelle „Echte Wertwechsel&quot; eine zusätzliche Spalte <strong>„Tats. Datum&quot;</strong>:</p>
+<pre><code>Untis-Montag   | Tats. Datum   | Term-Wechsel | Wert alt → neu | Δ
+Mo 09.02.2026  | Mi 04.02.2026 ✎🗑 | T10 → T11    | 10,0 → 17,0    | +7,0
+Mo 13.04.2026  | Datum setzen ✎    | T13 → T14    | 17,0 → 10,0    | -7,0
+</code></pre>
+<ul>
+<li><strong>„Datum setzen&quot;</strong> öffnet ein Inline-Date-Picker, schreibt via Server-Action <code>korrigierePeriodeWirksamkeitAction</code></li>
+<li><strong>✎</strong> öffnet vorhandene Korrektur zum Editieren</li>
+<li><strong>🗑</strong> entfernt die Korrektur (Wechsel gilt dann wieder zum Untis-Montag)</li>
+</ul>
+<h3>Migration aus altem Modell</h3>
+<p>Bestehende <code>deputat_aenderungen.tatsaechliches_datum</code>-Einträge werden im Migration-Schritt 0010 nach <code>deputat_aenderung_korrekturen</code> übertragen. Mapping:</p>
+<ul>
+<li><code>(lehrer_id, term_id_alt, term_id_neu)</code> aus alter Tabelle</li>
+<li><code>school_year_id</code> aus dem zugehörigen <code>deputat_pro_periode</code>-Eintrag erschließen (gleicher Lehrer + gleiche <code>term_id_neu</code> + Periode-Jahr passt zum HJ-Jahr)</li>
+<li><code>korrigiert_von</code>, <code>korrigiert_am</code>, <code>bemerkung = &#39;Backfill aus deputat_aenderungen #&lt;id&gt;&#39;</code></li>
+</ul>
+<p>Auf Konflikt (extrem unwahrscheinlich) gewinnt der jüngste Eintrag (<code>ORDER BY geaendert_am DESC</code>).</p>
+<h3>Audit &amp; Auditierbarkeit</h3>
+<p>Jeder Save/Delete schreibt einen Eintrag in <code>audit_log</code>:</p>
+<ul>
+<li><code>tabelle = &#39;deputat_aenderung_korrekturen&#39;</code></li>
+<li><code>aktion = &#39;INSERT&#39; | &#39;UPDATE&#39; | &#39;DELETE&#39;</code></li>
+<li><code>alte_werte</code> / <code>neue_werte</code> mit <code>tatsaechliches_datum</code> und <code>bemerkung</code></li>
+<li><code>geaendert_von</code> = aktueller User aus <code>requireWriteAccess()</code></li>
+</ul>
+<p>Damit ist nachvollziehbar, wer wann welches Datum gesetzt/geändert hat — wichtig für Compliance-Audits.</p>
+<hr>
+
+</body></html>

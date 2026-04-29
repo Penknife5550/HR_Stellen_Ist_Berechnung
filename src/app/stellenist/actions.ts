@@ -7,23 +7,26 @@ import {
   getSchulen,
   getAktuellesHaushaltsjahr,
   getHaushaltsjahrById,
-  getDeputatSummenBySchule,
+  getDeputatSummenBySchuleTagesgenau,
   getMehrarbeitByHaushaltsjahr,
   getRegeldeputateMap,
-  getAenderungenMitDatum,
-  getPauschaleDeputateByLehrer,
 } from "@/lib/db/queries";
 import { berechneStellenist } from "@/lib/berechnungen/stellenist";
 import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
-import {
-  berechneTagesgenauKorrekturen,
-  type TagesgenauAenderung,
-  type PauschalLehrerMonat,
-} from "@/lib/berechnungen/tagesgenau";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
 
+/**
+ * Stellen-IST-Berechnung im Periodenmodell (v0.7+).
+ *
+ * Datenquelle ist die View v_deputat_monat_tagesgenau, die alle Wertwechsel
+ * im Monat tagesgewichtet auswertet — inklusive Sachbearbeiter-Korrekturen
+ * fuer das tatsaechliche Wirksamkeitsdatum (deputat_aenderung_korrekturen).
+ *
+ * Die frueher noetige nachgelagerte Korrektur ueber berechneTagesgenauKorrekturen
+ * entfaellt damit komplett — die Schul-Monatssummen sind bereits korrekt.
+ */
 export async function berechneStellenisteAction(haushaltsjahrId?: number) {
   const session = await requireWriteAccess();
   try {
@@ -32,53 +35,10 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
       : await getAktuellesHaushaltsjahr();
     if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
-    const [schulen, regeldeputateMap, alleAenderungen] = await Promise.all([
+    const [schulen, regeldeputateMap] = await Promise.all([
       getSchulen(),
       getRegeldeputateMap(),
-      getAenderungenMitDatum(aktuellesHj.id),
     ]);
-
-    // Tagesgenaue Korrekturen vorbereiten
-    // Aenderungen in das Format fuer berechneTagesgenauKorrekturen umwandeln
-    const tagesgenauInput: TagesgenauAenderung[] = alleAenderungen.map((a) => {
-      // Tag im Monat aus dem tatsaechlichen Datum extrahieren
-      const datum = a.tatsaechlichesDatum!; // IS NOT NULL in Query
-      const tag = new Date(datum + "T00:00:00").getDate();
-      const monatsTage = new Date(aktuellesHj.jahr, a.monat, 0).getDate();
-      return {
-        lehrerId: a.lehrerId,
-        monat: a.monat,
-        altGesamt: Number(a.deputatGesamtAlt ?? 0),
-        altGes: Number(a.deputatGesAlt ?? 0),
-        altGym: Number(a.deputatGymAlt ?? 0),
-        altBk: Number(a.deputatBkAlt ?? 0),
-        neuGesamt: Number(a.deputatGesamtNeu ?? 0),
-        neuGes: Number(a.deputatGesNeu ?? 0),
-        neuGym: Number(a.deputatGymNeu ?? 0),
-        neuBk: Number(a.deputatBkNeu ?? 0),
-        aenderungTag: tag,
-        monatsTage,
-        stammschuleCode: a.stammschuleCode,
-      };
-    });
-
-    // Pauschale Lehrer-Monat-Werte fuer die Korrekturformel laden
-    // (gewichtet - pauschal). Nur fuer Lehrer mit einer Aenderung mit Datum.
-    const betroffeneLehrerIds = [...new Set(tagesgenauInput.map((t) => t.lehrerId))];
-    const pauschaleRows = await getPauschaleDeputateByLehrer(aktuellesHj.id, betroffeneLehrerIds);
-    const pauschaleLehrerWerte = new Map<string, PauschalLehrerMonat>(
-      pauschaleRows.map((p) => [
-        `${p.lehrerId}_${p.monat}`,
-        {
-          lehrerId: p.lehrerId,
-          monat: p.monat,
-          deputatGesamt: Number(p.deputatGesamt ?? 0),
-          deputatGes: Number(p.deputatGes ?? 0),
-          deputatGym: Number(p.deputatGym ?? 0),
-          deputatBk: Number(p.deputatBk ?? 0),
-        },
-      ])
-    );
 
     const ergebnisse: Array<{
       schule: string;
@@ -96,20 +56,11 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
       }
 
       const [monatsSummen, mehrarbeitRows] = await Promise.all([
-        getDeputatSummenBySchule(aktuellesHj.id, schule.kurzname),
+        getDeputatSummenBySchuleTagesgenau(aktuellesHj.id, schule.kurzname),
         getMehrarbeitByHaushaltsjahr(aktuellesHj.id, schule.id),
       ]);
 
       if (monatsSummen.length === 0) continue;
-
-      // Tagesgenaue Korrekturen fuer diese Schule berechnen
-      const korrekturen = berechneTagesgenauKorrekturen(
-        tagesgenauInput,
-        schule.kurzname,
-        aktuellesHj.jahr,
-        pauschaleLehrerWerte,
-      );
-      const korrekturByMonat = new Map(korrekturen.map((k) => [k.monat, k.differenzSchulspezifisch]));
 
       // Mehrarbeit aufteilen: Lehrer-bezogene (Stunden) vs. schulweite (Stellenanteile)
       const mehrarbeitStunden = mehrarbeitRows
@@ -119,16 +70,18 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
         .filter((m) => m.lehrerId === null && m.stellenanteil !== null)
         .map((m) => ({ monat: m.monat, stellen: Number(m.stellenanteil) }));
 
-      // Schulspezifische Stunden + tagesgenaue Korrektur
+      // Schulspezifische Stunden direkt aus der tagesgenauen View
       const libResult = berechneStellenist({
         monatlicheStunden: monatsSummen.map((m) => ({
           monat: m.monat,
-          stunden: Number(m.summeSchulspezifisch ?? 0) + (korrekturByMonat.get(m.monat) ?? 0),
+          stunden: Number(m.summeSchulspezifisch ?? 0),
         })),
         regeldeputat,
         mehrarbeitStunden,
         mehrarbeitStellen,
       });
+
+      const hatTagesgenauKorrekturen = monatsSummen.some((m) => m.enthaeltKorrektur);
 
       // Per-Zeitraum Details fuer DB-Speicherung aufbereiten
       const zeitraumDaten = [
@@ -196,20 +149,16 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
             mehrarbeitStellen: String(mehrarbeitStellenGerundet),
             stellenistGesamt: String(gesamtStellen),
             details: {
-              monateImZeitraum: monateImZeitraum.map((m) => {
-                const korrektur = korrekturByMonat.get(m.monat) ?? 0;
-                const pauschal = Number(m.summeSchulspezifisch ?? 0);
-                return {
-                  monat: m.monat,
-                  summeWochenstunden: pauschal + korrektur,
-                  summeWochenstundenPauschal: pauschal,
-                  tagesgenauKorrektur: Math.abs(korrektur) > 0.001 ? Math.round(korrektur * 1000) / 1000 : 0,
-                  anzahlLehrer: m.anzahlLehrer,
-                };
-              }),
+              modell: "periodenmodell-v0.7",
+              monateImZeitraum: monateImZeitraum.map((m) => ({
+                monat: m.monat,
+                summeWochenstunden: Number(m.summeSchulspezifisch ?? 0),
+                anzahlLehrer: m.anzahlLehrer,
+                enthaeltKorrektur: m.enthaeltKorrektur,
+              })),
               mehrarbeitStunden: mehrarbeitStundenSumme,
               mehrarbeitStellenanteile: mehrarbeitStellenSumme,
-              hatTagesgenauKorrekturen: korrekturen.length > 0,
+              hatTagesgenauKorrekturen,
             },
             berechnetVon: session.name,
             istAktuell: true,
@@ -232,6 +181,7 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
     // Audit-Log schreiben
     await writeAuditLog("berechnung_stellenist", 0, "INSERT", null, {
       haushaltsjahrId: aktuellesHj.id,
+      modell: "periodenmodell-v0.7",
       anzahlErgebnisse: ergebnisse.length,
       ergebnisse: ergebnisse.map((e) => ({
         schule: e.schule,
@@ -248,7 +198,7 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
     return {
       success: true,
       ergebnisse,
-      message: `Stellenist fuer ${ergebnisse.length} Zeitraeume berechnet.`,
+      message: `Stellenist fuer ${ergebnisse.length} Zeitraeume berechnet (Periodenmodell, tagesgenau).`,
     };
   } catch (err: unknown) {
     console.error("Stellenist-Berechnung fehlgeschlagen:", err instanceof Error ? err.message : "Unbekannt");

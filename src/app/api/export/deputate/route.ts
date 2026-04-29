@@ -11,14 +11,24 @@ import { getOptionalSession } from "@/lib/auth/permissions";
 import {
   getLehrerMitDeputaten,
   getSchulen,
-  getDeputatAenderungen,
+  getEchteAenderungenAlleLehrer,
+  getLehrerStatistikGruppen,
   getHaushaltsjahrById,
 } from "@/lib/db/queries";
-import { berechneLehrerDeputatEffektiv } from "@/lib/berechnungen/deputatEffektiv";
+import {
+  berechneLehrerDeputatEffektiv,
+  adaptiereEchteAenderungen,
+} from "@/lib/berechnungen/deputatEffektiv";
+import {
+  gruppenSortRank,
+  gruppenLabel,
+  vergleicheLehrerNachSchuleGruppeName,
+} from "@/lib/statistikCode";
 import {
   createWorkbook,
   addHeaderRow,
   addSchulHeader,
+  addGruppenSubHeader,
   setColumnWidths,
   addSummenRow,
   addEmptyRow,
@@ -56,10 +66,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [rawData, schulen, aenderungen, hj] = await Promise.all([
+    const [rawData, schulen, echteAenderungen, lehrerGruppen, hj] = await Promise.all([
       getLehrerMitDeputaten(haushaltsjahrId, schuleId),
       getSchulen(),
-      getDeputatAenderungen(haushaltsjahrId),
+      getEchteAenderungenAlleLehrer(),
+      getLehrerStatistikGruppen(),
       getHaushaltsjahrById(haushaltsjahrId),
     ]);
 
@@ -70,12 +81,18 @@ export async function GET(request: NextRequest) {
     // Schulen-Lookup fuer Farben/Namen
     const schulenMap = new Map(schulen.map((s) => [s.kurzname, s]));
 
-    // Aenderungen pro Lehrer indizieren
-    const aenderungenByLehrer = new Map<number, typeof aenderungen>();
-    for (const a of aenderungen) {
-      const arr = aenderungenByLehrer.get(a.lehrerId) ?? [];
+    // Echte Wertwechsel pro Lehrer indizieren (Periodenmodell + Korrektur-Layer)
+    const aenderungenByLehrer = new Map<number, typeof echteAenderungen>();
+    for (const a of echteAenderungen) {
+      const arr = aenderungenByLehrer.get(a.lehrer_id) ?? [];
       arr.push(a);
-      aenderungenByLehrer.set(a.lehrerId, arr);
+      aenderungenByLehrer.set(a.lehrer_id, arr);
+    }
+
+    // Statistik-Gruppe pro Lehrer (Beamte/Angestellte/Sonstige) fuer Sortierung + Sub-Header
+    const gruppeByLehrer = new Map<number, string | null>();
+    for (const ld of lehrerGruppen) {
+      gruppeByLehrer.set(ld.id, ld.statistikGruppe);
     }
 
     // Daten zu Lehrer-Grid aggregieren
@@ -88,6 +105,7 @@ export async function GET(request: NextRequest) {
           name: row.name,
           stammschule: row.stammschuleCode ?? "-",
           stammschuleId: row.stammschuleId ?? 0,
+          gruppe: gruppeByLehrer.get(row.lehrerId) ?? null,
           monate: new Map(),
           monateGes: new Map(),
           monateGym: new Map(),
@@ -102,7 +120,7 @@ export async function GET(request: NextRequest) {
       l.monateBk.set(row.monat, Number(row.deputatBk) || 0);
     }
 
-    // Taggenaue Korrekturen anwenden
+    // Taggenaue Korrekturen aus dem Periodenmodell anwenden
     for (const l of lehrerMap.values()) {
       const monatsDaten = Array.from(l.monate.entries()).map(([monat, gesamt]) => ({
         monat,
@@ -111,11 +129,11 @@ export async function GET(request: NextRequest) {
         deputatGym: l.monateGym.get(monat) ?? 0,
         deputatBk: l.monateBk.get(monat) ?? 0,
       }));
-      const eff = berechneLehrerDeputatEffektiv(
-        monatsDaten,
+      const adaptiert = adaptiereEchteAenderungen(
         aenderungenByLehrer.get(l.id) ?? [],
         hj.jahr,
       );
+      const eff = berechneLehrerDeputatEffektiv(monatsDaten, adaptiert, hj.jahr);
       for (const [monat, r] of eff) {
         if (!r.hatKorrektur) continue;
         l.monate.set(monat, r.effektiv.gesamt);
@@ -128,19 +146,33 @@ export async function GET(request: NextRequest) {
 
     const lehrerListe = Array.from(lehrerMap.values());
 
-    // Nach Stammschule sortieren, dann nach Name
-    lehrerListe.sort((a, b) => {
-      const schulCompare = a.stammschule.localeCompare(b.stammschule, "de");
-      if (schulCompare !== 0) return schulCompare;
-      return a.name.localeCompare(b.name, "de");
-    });
+    // Sortierung: Schule -> Gruppe (Beamte vor Angestellten vor Sonstigen) -> Name
+    lehrerListe.sort((a, b) =>
+      vergleicheLehrerNachSchuleGruppeName(
+        { stammschule: a.stammschule, gruppe: a.gruppe, name: a.name },
+        { stammschule: b.stammschule, gruppe: b.gruppe, name: b.name },
+      ),
+    );
 
-    // Gruppieren nach Stammschule
-    const gruppen = new Map<string, LehrerRow[]>();
+    // Gruppieren in zwei Ebenen: Stammschule -> Statistik-Gruppe
+    const gruppen = new Map<string, Map<string, LehrerRow[]>>();
     for (const l of lehrerListe) {
-      const key = l.stammschule;
-      if (!gruppen.has(key)) gruppen.set(key, []);
-      gruppen.get(key)!.push(l);
+      const schulKey = l.stammschule;
+      if (!gruppen.has(schulKey)) gruppen.set(schulKey, new Map());
+      const schulGruppen = gruppen.get(schulKey)!;
+      // Schluessel "beamter" | "angestellter" | "sonstiges" (null wird zu "sonstiges")
+      const gruppeKey = l.gruppe ?? "sonstiges";
+      if (!schulGruppen.has(gruppeKey)) schulGruppen.set(gruppeKey, []);
+      schulGruppen.get(gruppeKey)!.push(l);
+    }
+    // Gruppen-Reihenfolge innerhalb einer Schule sortieren
+    for (const [schule, schulGruppen] of gruppen) {
+      const sortiert = new Map(
+        [...schulGruppen.entries()].sort(
+          ([a], [b]) => gruppenSortRank(a) - gruppenSortRank(b),
+        ),
+      );
+      gruppen.set(schule, sortiert);
     }
 
     // Schul-Kurzname fuer Dateinamen
@@ -169,6 +201,8 @@ interface LehrerRow {
   name: string;
   stammschule: string;
   stammschuleId: number;
+  /** "beamter" | "angestellter" | "sonstiges" | null */
+  gruppe: string | null;
   monate: Map<number, number>;
   monateGes: Map<number, number>;
   monateGym: Map<number, number>;
@@ -218,7 +252,7 @@ function rund2(n: number): number {
 }
 
 /** PDF-sichere Zahlenformatierung */
-function fmtDE(n: number, decimals = 1): string {
+function fmtDE(n: number, decimals = 2): string {
   if (n === 0) return "-";
   return n.toLocaleString("de-DE", {
     minimumFractionDigits: decimals,
@@ -231,7 +265,7 @@ function fmtDE(n: number, decimals = 1): string {
 // ============================================================
 
 async function generateExcel(
-  gruppen: Map<string, LehrerRow[]>,
+  gruppen: Map<string, Map<string, LehrerRow[]>>,
   schulenMap: Map<string, { kurzname: string; name: string; farbe: string }>,
   gesamtAnzahl: number,
   haushaltsjahrId: number,
@@ -252,78 +286,85 @@ async function generateExcel(
   let gesamtDurchschnitt = 0;
   let laufendeNr = 0;
 
-  for (const [stammschuleCode, lehrerInGruppe] of gruppen) {
+  for (const [stammschuleCode, schulGruppen] of gruppen) {
     // Stammschul-Header
     const schule = schulenMap.get(stammschuleCode);
     const farbe = schule?.farbe ?? "#575756";
     const schulName = schule?.name ?? stammschuleCode;
     addSchulHeader(ws, stammschuleCode, `Stammschule: ${schulName}`, farbe, colCount);
 
-    let gruppenDurchschnitt = 0;
-    const gruppenMonatsSummen = new Array(12).fill(0);
+    let schulDurchschnitt = 0;
+    const schulMonatsSummen = new Array(12).fill(0);
+    let schulAnzahl = 0;
 
-    for (const l of lehrerInGruppe) {
-      laufendeNr++;
-      const multiSchule = istMultiSchule(l);
+    for (const [gruppeKey, lehrerInGruppe] of schulGruppen) {
+      // Sub-Header pro Statistik-Gruppe (Beamte / Angestellte / Sonstige)
+      addGruppenSubHeader(ws, `${gruppenLabel(gruppeKey)} (${lehrerInGruppe.length})`, colCount);
 
-      // Hauptzeile: Gesamt-Deputat
-      const monatswerte: (number | string)[] = [];
-      for (let m = 1; m <= 12; m++) {
-        const val = l.monate.get(m) ?? 0;
-        monatswerte.push(val > 0 ? rund2(val) : "");
-        if (val > 0) {
-          monatsSummen[m - 1] += val;
-          gruppenMonatsSummen[m - 1] += val;
-        }
-      }
-      const avg = monatsDurchschnitt(l.monate);
-      gesamtDurchschnitt += avg;
-      gruppenDurchschnitt += avg;
+      for (const l of lehrerInGruppe) {
+        laufendeNr++;
+        schulAnzahl++;
+        const multiSchule = istMultiSchule(l);
 
-      const row = ws.addRow([
-        laufendeNr,
-        l.name,
-        l.stammschule,
-        ...monatswerte,
-        avg > 0 ? rund2(avg) : "",
-      ]);
-
-      // Bei Multi-Schul-Lehrern: fett markieren
-      if (multiSchule) {
-        row.eachCell((cell) => {
-          cell.font = { bold: true, size: 10, name: "Calibri" };
-        });
-
-        // Unterzeilen pro Schule
-        for (const s of getAktiveSchulen(l)) {
-          const subWerte: (number | string)[] = [];
-          for (let m = 1; m <= 12; m++) {
-            const val = s.monate.get(m) ?? 0;
-            subWerte.push(val > 0 ? rund2(val) : "");
+        // Hauptzeile: Gesamt-Deputat
+        const monatswerte: (number | string)[] = [];
+        for (let m = 1; m <= 12; m++) {
+          const val = l.monate.get(m) ?? 0;
+          monatswerte.push(val > 0 ? rund2(val) : "");
+          if (val > 0) {
+            monatsSummen[m - 1] += val;
+            schulMonatsSummen[m - 1] += val;
           }
-          const subAvg = monatsDurchschnitt(s.monate);
-          const subRow = ws.addRow([
-            "",
-            `  davon ${s.kuerzel}`,
-            s.kuerzel,
-            ...subWerte,
-            subAvg > 0 ? rund2(subAvg) : "",
-          ]);
-          // Unterzeilen in Grau und kleiner
-          subRow.eachCell((cell) => {
-            cell.font = { size: 9, name: "Calibri", color: { argb: "FF6B7280" } };
+        }
+        const avg = monatsDurchschnitt(l.monate);
+        gesamtDurchschnitt += avg;
+        schulDurchschnitt += avg;
+
+        const row = ws.addRow([
+          laufendeNr,
+          l.name,
+          l.stammschule,
+          ...monatswerte,
+          avg > 0 ? rund2(avg) : "",
+        ]);
+
+        // Bei Multi-Schul-Lehrern: fett markieren
+        if (multiSchule) {
+          row.eachCell((cell) => {
+            cell.font = { bold: true, size: 10, name: "Calibri" };
           });
+
+          // Unterzeilen pro Schule
+          for (const s of getAktiveSchulen(l)) {
+            const subWerte: (number | string)[] = [];
+            for (let m = 1; m <= 12; m++) {
+              const val = s.monate.get(m) ?? 0;
+              subWerte.push(val > 0 ? rund2(val) : "");
+            }
+            const subAvg = monatsDurchschnitt(s.monate);
+            const subRow = ws.addRow([
+              "",
+              `  davon ${s.kuerzel}`,
+              s.kuerzel,
+              ...subWerte,
+              subAvg > 0 ? rund2(subAvg) : "",
+            ]);
+            // Unterzeilen in Grau und kleiner
+            subRow.eachCell((cell) => {
+              cell.font = { size: 9, name: "Calibri", color: { argb: "FF6B7280" } };
+            });
+          }
         }
       }
     }
 
-    // Gruppen-Summe
+    // Schul-Gesamtsumme (alle Statistik-Gruppen zusammen)
     addSummenRow(ws, [
       "",
-      `Summe ${stammschuleCode} (${lehrerInGruppe.length})`,
+      `Summe ${stammschuleCode} (${schulAnzahl})`,
       "",
-      ...gruppenMonatsSummen.map((s) => rund2(s)),
-      rund2(gruppenDurchschnitt),
+      ...schulMonatsSummen.map((s) => rund2(s)),
+      rund2(schulDurchschnitt),
     ]);
 
     addEmptyRow(ws);
@@ -357,7 +398,7 @@ async function generateExcel(
 // ============================================================
 
 function generatePdf(
-  gruppen: Map<string, LehrerRow[]>,
+  gruppen: Map<string, Map<string, LehrerRow[]>>,
   schulenMap: Map<string, { kurzname: string; name: string; farbe: string }>,
   gesamtAnzahl: number,
   haushaltsjahrId: number,
@@ -368,14 +409,14 @@ function generatePdf(
   let y = addPdfHeader(
     doc,
     `Deputatsuebersicht - ${schuleName}`,
-    `Haushaltsjahr ${haushaltsjahrId} | ${gesamtAnzahl} Lehrkraefte | Gruppiert nach Stammschule`
+    `Haushaltsjahr ${haushaltsjahrId} | ${gesamtAnzahl} Lehrkraefte | Schule -> Beamte/Angestellte`
   );
 
   const monatsSummen = new Array(12).fill(0);
   let gesamtDurchschnitt = 0;
   let laufendeNr = 0;
 
-  for (const [stammschuleCode, lehrerInGruppe] of gruppen) {
+  for (const [stammschuleCode, schulGruppen] of gruppen) {
     const schule = schulenMap.get(stammschuleCode);
     const farbe = schule?.farbe ?? "#575756";
     const schulName = schule?.name ?? stammschuleCode;
@@ -392,68 +433,85 @@ function generatePdf(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body: any[][] = [];
 
-    const gruppenMonatsSummen = new Array(12).fill(0);
-    let gruppenDurchschnitt = 0;
+    const schulMonatsSummen = new Array(12).fill(0);
+    let schulDurchschnitt = 0;
+    let schulAnzahl = 0;
 
-    for (const l of lehrerInGruppe) {
-      laufendeNr++;
-      const multiSchule = istMultiSchule(l);
+    for (const [gruppeKey, lehrerInGruppe] of schulGruppen) {
+      // Sub-Header-Zeile pro Statistik-Gruppe — colSpan ueber alle Spalten
+      // (insgesamt 16: Nr, Name, Schule, 12 Monate, Schnitt)
+      body.push([
+        {
+          content: `${gruppenLabel(gruppeKey)} (${lehrerInGruppe.length})`,
+          colSpan: 16,
+          styles: {
+            fillColor: [229, 231, 235] as [number, number, number],
+            textColor: [55, 65, 81] as [number, number, number],
+            fontStyle: "italic" as const,
+            fontSize: 7,
+          },
+        },
+      ]);
 
-      const monatswerte: string[] = [];
-      for (let m = 1; m <= 12; m++) {
-        const val = l.monate.get(m) ?? 0;
-        monatswerte.push(fmtDE(val));
-        if (val > 0) {
-          monatsSummen[m - 1] += val;
-          gruppenMonatsSummen[m - 1] += val;
-        }
-      }
-      const avg = monatsDurchschnitt(l.monate);
-      gesamtDurchschnitt += avg;
-      gruppenDurchschnitt += avg;
+      for (const l of lehrerInGruppe) {
+        laufendeNr++;
+        schulAnzahl++;
+        const multiSchule = istMultiSchule(l);
 
-      if (multiSchule) {
-        // Hauptzeile fett
-        body.push([
-          { content: String(laufendeNr), styles: { fontStyle: "bold" } },
-          { content: l.name, styles: { fontStyle: "bold" } },
-          { content: l.stammschule, styles: { fontStyle: "bold" } },
-          ...monatswerte.map((v) => ({ content: v, styles: { fontStyle: "bold" as const } })),
-          { content: fmtDE(avg), styles: { fontStyle: "bold" } },
-        ]);
-
-        // Unterzeilen je Schule
-        for (const s of getAktiveSchulen(l)) {
-          const subWerte: string[] = [];
-          for (let m = 1; m <= 12; m++) {
-            subWerte.push(fmtDE(s.monate.get(m) ?? 0));
+        const monatswerte: string[] = [];
+        for (let m = 1; m <= 12; m++) {
+          const val = l.monate.get(m) ?? 0;
+          monatswerte.push(fmtDE(val));
+          if (val > 0) {
+            monatsSummen[m - 1] += val;
+            schulMonatsSummen[m - 1] += val;
           }
-          const subAvg = monatsDurchschnitt(s.monate);
+        }
+        const avg = monatsDurchschnitt(l.monate);
+        gesamtDurchschnitt += avg;
+        schulDurchschnitt += avg;
+
+        if (multiSchule) {
           body.push([
-            "",
-            { content: `  davon ${s.kuerzel}`, styles: { textColor: [107, 114, 128], fontSize: 7 } },
-            { content: s.kuerzel, styles: { textColor: [107, 114, 128], fontSize: 7 } },
-            ...subWerte.map((v) => ({ content: v, styles: { textColor: [107, 114, 128] as [number, number, number], fontSize: 7 } })),
-            { content: fmtDE(subAvg), styles: { textColor: [107, 114, 128], fontSize: 7 } },
+            { content: String(laufendeNr), styles: { fontStyle: "bold" } },
+            { content: l.name, styles: { fontStyle: "bold" } },
+            { content: l.stammschule, styles: { fontStyle: "bold" } },
+            ...monatswerte.map((v) => ({ content: v, styles: { fontStyle: "bold" as const } })),
+            { content: fmtDE(avg), styles: { fontStyle: "bold" } },
+          ]);
+
+          for (const s of getAktiveSchulen(l)) {
+            const subWerte: string[] = [];
+            for (let m = 1; m <= 12; m++) {
+              subWerte.push(fmtDE(s.monate.get(m) ?? 0));
+            }
+            const subAvg = monatsDurchschnitt(s.monate);
+            body.push([
+              "",
+              { content: `  davon ${s.kuerzel}`, styles: { textColor: [107, 114, 128], fontSize: 7 } },
+              { content: s.kuerzel, styles: { textColor: [107, 114, 128], fontSize: 7 } },
+              ...subWerte.map((v) => ({ content: v, styles: { textColor: [107, 114, 128] as [number, number, number], fontSize: 7 } })),
+              { content: fmtDE(subAvg), styles: { textColor: [107, 114, 128], fontSize: 7 } },
+            ]);
+          }
+        } else {
+          body.push([
+            String(laufendeNr), l.name, l.stammschule,
+            ...monatswerte, fmtDE(avg),
           ]);
         }
-      } else {
-        body.push([
-          String(laufendeNr), l.name, l.stammschule,
-          ...monatswerte, fmtDE(avg),
-        ]);
       }
     }
 
-    // Gruppensum
+    // Schul-Gesamtsumme
     body.push([
       { content: "", styles: { fontStyle: "bold" } },
-      { content: `Summe ${stammschuleCode} (${lehrerInGruppe.length})`, styles: { fontStyle: "bold" } },
+      { content: `Summe ${stammschuleCode} (${schulAnzahl})`, styles: { fontStyle: "bold" } },
       "",
-      ...gruppenMonatsSummen.map((s) => ({
+      ...schulMonatsSummen.map((s) => ({
         content: fmtDE(rund2(s)), styles: { fontStyle: "bold" as const },
       })),
-      { content: fmtDE(rund2(gruppenDurchschnitt)), styles: { fontStyle: "bold" } },
+      { content: fmtDE(rund2(schulDurchschnitt)), styles: { fontStyle: "bold" } },
     ]);
 
     y = addPdfTable(doc, y, head, body, {
