@@ -1,5 +1,96 @@
 # Changelog — Stellenistberechnung
 
+## [0.7.0] — 2026-04-30
+
+### Periodenmodell v0.7 (Phase 2 + Finalisierung)
+
+**Konzept**: Untis-Perioden 1:1 spiegeln statt Monatswerte aggregieren.
+Tagesgenaue Berechnung pro Lehrer × Monat aus den echten Periodenwerten —
+inklusive Sachbearbeiter-Korrekturen fuer abweichende Stichtage.
+
+**Neue DB-Migrationen**:
+- `0008_deputat_pro_periode.sql` — Tabelle `untis_terms` (Periodenmaster) +
+  Tabelle `deputat_pro_periode` (Lehrer-Wert pro Periode, 1:1 aus Untis) +
+  View `v_deputat_pro_tag` (Tag-genaue Aufloesung) + View
+  `v_deputat_monat_tagesgenau` (Monatsdurchschnitt) + View
+  `v_deputat_aenderungen` (echte Wertwechsel)
+- `0009_view_pro_tag_range.sql` — View-Range erweitert auf Haushaltsjahres-
+  ende (spaeter durch 0011/0012 ersetzt)
+- `0010_korrektur_layer.sql` — Tabelle `deputat_aenderung_korrekturen`
+  (Sachbearbeiter-Korrekturen ohne Untis-Spiegel anzutasten) + View-Update
+  mit `effektiv_von` Logik + Backfill aus `deputat_aenderungen.tatsaechliches_datum`
+- `0011_view_no_phantom_fill.sql` — Pro-Lehrer-Cap im LATERAL-Pick: Lehrer
+  die die Schule verlassen verschwinden 60 Tage spaeter aus dem View
+  (statt bis Jahresende fortgeschrieben zu werden)
+- `0012_view_no_buffer.sql` — 60-Tage-Puffer komplett entfernt: Daten enden
+  exakt mit der letzten bekannten `gueltig_bis`. Sobald der naechste SY
+  synct ist, fuellt sich der Bereich automatisch
+
+**Neue API-Routen**:
+- `POST /api/untis-terms/sync` — Spiegelt den Untis-Term-Master
+- `POST /api/deputate/sync-v2` — Schreibt Lehrer-Werte ins Periodenmodell
+  (max 5000 Eintraege pro Call, batched)
+- `GET /api/export/lehrer-detail` — DIN-A4-Detail-PDF inkl. Periodenverlauf
+  + Tagesgenau-Berechnung (Mitarbeiter-Rolle erforderlich, Audit-Log)
+- `GET /api/export/stellenist-drilldown` — CSV-Export des Drilldowns
+  (Lehrer × Monat, schulspezifisch)
+
+**Neue UI**:
+- Periodenmodell-Card auf Lehrer-Detailseite: Wechsel-Tabelle mit
+  Inline-Korrektur des tatsaechlichen Wirksamkeitsdatums + Periodenverlauf
+- Wechsel-Typen farblich differenziert: rot fuer **gehaltsrelevant**
+  (Gesamt-WS aendert sich), gelb fuer **Verteilung** (nur GES/GYM/BK
+  Aufteilung aendert sich)
+- Stellenist-Drilldown: Inline-Expand pro Schule × Zeitraum mit Lehrer-
+  Tabelle (Stunden je Monat tagesgenau, Σ, ⌀ WS, Stellen-Anteil),
+  Mehrarbeit-Block, CSV-Export
+
+**Webhook-Erweiterung**:
+- Neuer Event-Typ `verteilung.changed` (sync v1 + sync-v2): wird gefeuert
+  wenn nur die Schul-Verteilung sich aendert, ohne Hauptdeputat-Aenderung
+- sync-v2 feuert jetzt alle Events (`lehrer.created`,
+  `hauptdeputat.changed`, `verteilung.changed`, `sync.completed/failed`)
+  monatsaggregiert: pro (Lehrer × Monat) ein Bucket, gehaltsrelevant
+  uebersteuert reine Verteilung
+
+**Server-Actions / Auth-Haertung**:
+- `korrigierePeriodeWirksamkeitAction`: Plausibilitaetsvalidation gegen
+  `[periode_alt.dateFrom, periode_neu.dateTo]` — verhindert Datenkorruption
+  durch absurde Datumswerte
+- `getStellenistDrilldownAction`: erfordert Mitarbeiter-Rolle (DSGVO,
+  PII-Schutz)
+- `lehrer-detail`-Export: Mitarbeiter-Rolle + Audit-Log pro Download
+  (DSGVO Art. 30)
+
+**Security-Fixes**:
+- `scripts/*.mjs`: API-Key-Fallback entfernt (process.exit(1) wenn ENV
+  fehlt) — verhindert Secret-Leak in Git
+- CSV-Export: filename-Sanitization gegen Header-Injection
+- CSV-Escape: Excel-Formula-Injection-Schutz (=+-@-Praefix wird quoted)
+- sync-v2 500-Response leakt `err.message` nicht mehr
+
+**UI-Query-Migration auf Periodenmodell** (nach Reset noetig, da
+`deputat_monatlich` leer ist):
+- `getDeputatSummenByMonat` → `v_deputat_monat_tagesgenau`
+- `getLehrerMitDeputaten` → `v_deputat_monat_tagesgenau`
+- `getLehrerDetail.monatsDaten` → `v_deputat_monat_tagesgenau`
+
+**n8n-Workflows v0.7**:
+- `#223_v07` — Sync ueber zwei Endpoints (`/untis-terms/sync` →
+  `/deputate/sync-v2`), MSSQL-Query mit Term_Name + IsBPeriode +
+  StatisticCodes, Chunking 4000 Eintraege
+- `#224_v07` — Notifications mit drittem Branch fuer
+  `verteilung.changed`, HMAC-Pruefung mit Length-Check, Hauptdeputat-Mail
+  tolerant gegenueber v1- und v2-Payload-Struktur
+
+**Initial-Seed-SQL** (`docs/sql/seed_initial.sql`):
+- Idempotentes Skript zum Initialisieren einer leeren DB
+- Schulen, Schul-Stufen, Schuljahre, Haushaltsjahre, SLR-Werte,
+  Zuschlagsarten, Regeldeputate, Beispiel-Schuelerzahlen, Admin-Benutzer,
+  Statistik-Codes, Stellenarten
+
+---
+
 ## [0.5.0] — 2026-04-22
 
 ### Taggenau-Fix + HJ-Selektor auf Lehrer-Detailseite
