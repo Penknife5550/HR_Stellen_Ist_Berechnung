@@ -52,6 +52,18 @@ interface AenderungZeile {
   gesamt_alt: string;
   gesamt_neu: string;
   delta_gesamt: string;
+  ges_alt?: string;
+  ges_neu?: string;
+  gym_alt?: string;
+  gym_neu?: string;
+  bk_alt?: string;
+  bk_neu?: string;
+}
+
+type WechselTyp = "gehalt" | "verteilung";
+
+function wechselTypOf(a: AenderungZeile): WechselTyp {
+  return Math.abs(Number(a.delta_gesamt)) > 0.001 ? "gehalt" : "verteilung";
 }
 
 const WOCHENTAG = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -81,10 +93,18 @@ export function PeriodenModellCard({
 
   const keyOf = (a: AenderungZeile) => `${a.sy_alt}_${a.term_alt}_${a.sy_neu}_${a.term_neu}`;
 
-  // Perioden, in denen ein Wertwechsel beginnt (= die neue Periode des Wechsels).
-  const wechselPerioden = new Set(
-    echteAenderungen.map((a) => `${a.sy_neu}-${a.term_neu}`),
-  );
+  // Perioden, in denen ein Wertwechsel beginnt — getrennt nach Typ.
+  // Gehaltsrelevant (Gesamt-WS aendert sich) → rot dezent
+  // Verteilung (nur GES/GYM/BK-Aufteilung) → gelb dezent
+  const wechselTypByPeriode = new Map<string, WechselTyp>();
+  for (const a of echteAenderungen) {
+    const key = `${a.sy_neu}-${a.term_neu}`;
+    const typ = wechselTypOf(a);
+    // Gehalt uebersteuert Verteilung wenn beides auf gleicher Periode
+    if (typ === "gehalt" || !wechselTypByPeriode.has(key)) {
+      wechselTypByPeriode.set(key, typ);
+    }
+  }
 
   async function handleSave(formData: FormData) {
     setSaving(true);
@@ -136,12 +156,24 @@ export function PeriodenModellCard({
       <h4 className="font-bold text-[15px] text-[#1A1A1A] mt-2 mb-2">
         Echte Wertwechsel im Schuljahresverlauf
       </h4>
-      <p className="text-xs text-[#6B7280] mb-3">
+      <p className="text-xs text-[#6B7280] mb-2">
         Untis erlaubt Periodenwechsel nur zum Montag. Wenn der echte Stichtag im
         Personalbestand abweicht, in der Spalte <strong>&quot;Tats. Datum&quot;</strong> korrigieren —
         die tagesgenaue Berechnung verwendet dann das echte Datum
         (§ 3 Abs. 1 FESchVO).
       </p>
+      {echteAenderungen.length > 0 && (
+        <div className="flex items-center gap-3 mb-3 text-[11px] text-[#575756]">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm bg-[#FEE7E9] border border-[#E2001A]" />
+            <strong className="text-[#E2001A]">Gehaltsrelevant</strong> — Gesamt-WS aendert sich
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm bg-[#FEF9E7] border border-[#FBC900]" />
+            <strong className="text-[#92400E]">Verteilung</strong> — nur Aufteilung GES/GYM/BK
+          </span>
+        </div>
+      )}
       {echteAenderungen.length === 0 ? (
         <p className="text-sm text-[#6B7280] italic mb-4">Keine Wertwechsel — Deputat war im erfassten Zeitraum konstant.</p>
       ) : (
@@ -164,9 +196,35 @@ export function PeriodenModellCard({
                 const delta = Number(a.delta_gesamt);
                 const k = keyOf(a);
                 const editing = editingKey === k;
+                const typ = wechselTypOf(a);
+                const rowBg =
+                  typ === "gehalt"
+                    ? "bg-[#FEE7E9] hover:bg-[#FCD9DC]"      // dezentes Rot
+                    : "bg-[#FEF9E7] hover:bg-[#FDF3D0]";     // dezentes Gelb
                 return (
-                  <tr key={k} className="border-b border-[#E5E7EB]">
-                    <td className="py-2.5 px-3 font-mono text-xs">{fmtDatum(a.wirksam_ab)}</td>
+                  <tr
+                    key={k}
+                    className={`border-b border-[#E5E7EB] ${rowBg}`}
+                    title={
+                      typ === "gehalt"
+                        ? "Gehaltsrelevant: Gesamt-Wochenstunden aendern sich"
+                        : "Verteilungsaenderung zwischen Schulen (Gesamt unveraendert)"
+                    }
+                  >
+                    <td className="py-2.5 px-3 font-mono text-xs">
+                      <div className="flex items-center gap-2">
+                        {typ === "gehalt" ? (
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-[#E2001A] text-white text-[9px] font-bold tracking-wider">
+                            GEHALT
+                          </span>
+                        ) : (
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-[#FBC900] text-[#1A1A1A] text-[9px] font-bold tracking-wider">
+                            VERT.
+                          </span>
+                        )}
+                        <span>{fmtDatum(a.wirksam_ab)}</span>
+                      </div>
+                    </td>
                     <td className="py-2.5 px-3">
                       {editing ? (
                         <form action={handleSave} className="flex items-center gap-1">
@@ -273,12 +331,24 @@ export function PeriodenModellCard({
             </thead>
             <tbody>
               {periodenverlauf.map((p) => {
-                const istWechsel = wechselPerioden.has(`${p.schoolYearId}-${p.termId}`);
+                const wTyp = wechselTypByPeriode.get(`${p.schoolYearId}-${p.termId}`);
+                const rowBg =
+                  wTyp === "gehalt"
+                    ? "bg-[#FEE7E9]"
+                    : wTyp === "verteilung"
+                    ? "bg-[#FEF9E7]"
+                    : "";
                 return (
                 <tr
                   key={`${p.schoolYearId}-${p.termId}`}
-                  className={`border-b border-[#E5E7EB] ${istWechsel ? "bg-[#FEF9E7]" : ""}`}
-                  title={istWechsel ? "Periode mit Wertwechsel" : undefined}
+                  className={`border-b border-[#E5E7EB] ${rowBg}`}
+                  title={
+                    wTyp === "gehalt"
+                      ? "Gehaltsrelevanter Wertwechsel beginnt hier"
+                      : wTyp === "verteilung"
+                      ? "Verteilungsaenderung zwischen Schulen beginnt hier"
+                      : undefined
+                  }
                 >
                   <td className="py-2 px-3 font-mono text-xs text-[#6B7280]">
                     {p.schoolYearId} · T{p.termId}
