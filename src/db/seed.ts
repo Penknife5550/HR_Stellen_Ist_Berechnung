@@ -199,7 +199,7 @@ async function seed() {
     },
     {
       schulformCode: "GSH",
-      schulformName: "Grundschule Herford",
+      schulformName: "Grundschule Haddenhausen",
       regeldeputat: "28.0",
       rechtsgrundlage: "§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW",
       bassFundstelle: "BASS 11-11 Nr. 1",

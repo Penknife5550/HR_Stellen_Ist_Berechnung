@@ -95,7 +95,7 @@ INSERT INTO regeldeputate (schulform_code, schulform_name, regeldeputat, rechtsg
   ('GES', 'Gesamtschule',         25.5, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', 'Auf-/Abrundung ueber 3 Schuljahre (§ 2 Abs. 1 Satz 2)'),
   ('GYM', 'Gymnasium',             25.5, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', 'Auf-/Abrundung ueber 3 Schuljahre (§ 2 Abs. 1 Satz 2)'),
   ('BK',  'Berufskolleg',          25.5, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', 'Auf-/Abrundung ueber 3 Schuljahre (§ 2 Abs. 1 Satz 2)'),
-  ('GSH', 'Grundschule Herford',   28.0, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', NULL),
+  ('GSH', 'Grundschule Haddenhausen', 28.0, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', NULL),
   ('GSM', 'Grundschule Minden',    28.0, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', NULL),
   ('GSS', 'Grundschule Stemwede',  28.0, '§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW', 'BASS 11-11 Nr. 1', '2025-05-13', NULL)
 ON CONFLICT (schulform_code) DO NOTHING;
