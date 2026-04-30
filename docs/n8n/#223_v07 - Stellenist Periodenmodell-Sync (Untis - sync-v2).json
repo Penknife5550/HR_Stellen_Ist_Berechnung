@@ -1,0 +1,286 @@
+{
+  "name": "#223 v0.7 - Stellenist Periodenmodell-Sync (Untis → sync-v2)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 8 }
+          ]
+        }
+      },
+      "id": "49780480-de8f-47e3-b1e7-ffca7b9d4d56",
+      "name": "Taeglich 08:00 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [400, 600]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ========================================================================\n-- v0.7 Periodenmodell — ALLE Perioden + Lehrer-Werte beider Schuljahre\n--\n-- Zwei Schuljahre (Haushaltsjahr-komplett):\n--   Aug-Dez = neues Schuljahr, Jan-Jul = altes Schuljahr.\n--\n-- Felder:\n--   Term-Master: SCHOOLYEAR_ID, TERM_ID, Term_Name, DateFrom, DateTo, IsBPeriode\n--   Lehrer-Werte: Pro (Lehrer × Periode) ein Datensatz mit Deputaten + StatistikCode\n--\n-- Rechtsgrundlage: § 3 Abs. 1 FESchVO\n-- ========================================================================\n\nWITH RelevanteSJ AS (\n    SELECT DISTINCT SCHOOLYEAR_ID\n    FROM Teacher\n    WHERE Deleted = 0\n      AND SCHOOLYEAR_ID IN (\n          (SELECT MAX(SCHOOLYEAR_ID) FROM Teacher WHERE Deleted = 0),\n          (SELECT MAX(SCHOOLYEAR_ID) - 10001 FROM Teacher WHERE Deleted = 0)\n      )\n),\nAllePerioden AS (\n    SELECT\n        tr.SCHOOLYEAR_ID,\n        tr.TERM_ID,\n        tr.DateFrom,\n        tr.DateTo,\n        tr.Name AS Term_Name,\n        ROW_NUMBER() OVER (\n            PARTITION BY tr.SCHOOLYEAR_ID\n            ORDER BY tr.TERM_ID\n        ) AS rn\n    FROM Terms tr\n    INNER JOIN RelevanteSJ rsj ON tr.SCHOOLYEAR_ID = rsj.SCHOOLYEAR_ID\n    WHERE tr.Deleted = 0\n),\nMitNaechster AS (\n    SELECT\n        ap.*,\n        LEAD(ap.DateFrom) OVER (\n            PARTITION BY ap.SCHOOLYEAR_ID\n            ORDER BY ap.TERM_ID\n        ) AS NextDateFrom\n    FROM AllePerioden ap\n)\nSELECT\n    t.TEACHER_ID,\n    t.SCHOOLYEAR_ID,\n    t.TERM_ID,\n    t.Name,\n    t.PNumber AS Personalnummer,\n    t.StatisticCodes AS Statistik_Code,\n    t.OwnSchool AS Stammschule,\n    CONCAT(t.Longname, ' ', t.FirstName) AS Vollname,\n    ISNULL(TRY_CAST(t.PlannedWeek AS DECIMAL(10,2)), 0) / 1000.0 AS Deputat,\n    CONCAT(\n        RIGHT('0000' + CAST(t.SCHOOLYEAR_ID / 10000 AS VARCHAR), 4),\n        '/',\n        RIGHT('0000' + CAST(t.SCHOOLYEAR_ID % 10000 AS VARCHAR), 4)\n    ) AS Schuljahr_Text,\n    mn.Term_Name,\n    -- DateFrom: Periodenstart\n    CONVERT(VARCHAR(10), DATEFROMPARTS(\n        mn.DateFrom / 10000,\n        (mn.DateFrom / 100) % 100,\n        mn.DateFrom % 100\n    ), 104) AS DateFrom_Formatted,\n    -- DateTo: Tag vor naechster Periode (oder Schuljahresende)\n    CONVERT(VARCHAR(10), DATEADD(DAY, -1,\n        CASE\n            WHEN mn.NextDateFrom IS NOT NULL THEN\n                DATEFROMPARTS(mn.NextDateFrom / 10000, (mn.NextDateFrom / 100) % 100, mn.NextDateFrom % 100)\n            ELSE\n                DATEFROMPARTS(mn.DateTo / 10000, (mn.DateTo / 100) % 100, mn.DateTo % 100)\n        END\n    ), 104) AS DateTo_Formatted,\n    -- b-Periode-Erkennung anhand des Term-Namens (z.B. \"Periode12b\")\n    CASE WHEN mn.Term_Name LIKE '%b' THEN 1 ELSE 0 END AS IsBPeriode,\n    -- Deputat GES (Department 1)\n    CASE\n        WHEN CHARINDEX('1~', t.PlannedPerDept) > 0 THEN\n            ISNULL(\n                TRY_CAST(\n                    LEFT(\n                        SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20),\n                        CASE\n                            WHEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20)) > 0\n                            THEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20)) - 1\n                            ELSE LEN(SUBSTRING(t.PlannedPerDept, CHARINDEX('1~', t.PlannedPerDept) + 2, 20))\n                        END\n                    ) AS DECIMAL(10,2)\n                ), 0\n            ) / 1000.0\n        ELSE 0\n    END AS Deputat_GES,\n    -- Deputat GYM (Department 2)\n    CASE\n        WHEN CHARINDEX('2~', t.PlannedPerDept) > 0 THEN\n            ISNULL(\n                TRY_CAST(\n                    LEFT(\n                        SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20),\n                        CASE\n                            WHEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20)) > 0\n                            THEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20)) - 1\n                            ELSE LEN(SUBSTRING(t.PlannedPerDept, CHARINDEX('2~', t.PlannedPerDept) + 2, 20))\n                        END\n                    ) AS DECIMAL(10,2)\n                ), 0\n            ) / 1000.0\n        ELSE 0\n    END AS Deputat_GYM,\n    -- Deputat BK (Department 3)\n    CASE\n        WHEN CHARINDEX('3~', t.PlannedPerDept) > 0 THEN\n            ISNULL(\n                TRY_CAST(\n                    LEFT(\n                        SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20),\n                        CASE\n                            WHEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20)) > 0\n                            THEN PATINDEX('%[^0-9]%', SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20)) - 1\n                            ELSE LEN(SUBSTRING(t.PlannedPerDept, CHARINDEX('3~', t.PlannedPerDept) + 2, 20))\n                        END\n                    ) AS DECIMAL(10,2)\n                ), 0\n            ) / 1000.0\n        ELSE 0\n    END AS Deputat_BK\nFROM Teacher t\nINNER JOIN MitNaechster mn\n    ON t.SCHOOLYEAR_ID = mn.SCHOOLYEAR_ID\n    AND t.TERM_ID = mn.TERM_ID\nWHERE\n    t.Deleted = 0\n    AND t.Longname IS NOT NULL\n    AND t.Longname != ''\nORDER BY\n    mn.SCHOOLYEAR_ID,\n    mn.TERM_ID,\n    t.Longname,\n    t.FirstName;"
+      },
+      "id": "1659315d-7c10-4c1c-9d54-751077ad8bc5",
+      "name": "Untis MSSQL Abfrage v0.7",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [620, 600],
+      "credentials": {
+        "microsoftSql": {
+          "id": "HzjHGkJk19cln1C7",
+          "name": "Untis"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Liefert Term-Master + alle Lehrer-Periodenwerte + Statistik-Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================================================\n// v0.7 — Aufbereitung in zwei Output-Streams:\n//   1) terms-Payload (genau 1 Item) → /api/untis-terms/sync\n//   2) eintraege-Chunks (gechunked, max 4000 pro Call) → /api/deputate/sync-v2\n//\n// Der Workflow ruft (1) sequenziell vor (2) auf, damit der Untis-Terms-Master\n// existiert bevor sync-v2 die FK-Constraint prueft.\n// ========================================================================\n\nconst CONFIG = {\n  apiKey: $env.STELLENIST_API_KEY || 'whk_55bc015c4fe7d9e3a7b9f4bcb6aad3b9fd5c4846cbd59662afc09f46d5708259',\n  chunkSize: 4000, // sync-v2 erlaubt max 5000 — 4000 lassen Puffer\n};\n\nconst inputItems = $input.all();\nif (!inputItems || inputItems.length === 0) {\n  return [{ json: { skip: true, reason: 'Keine Daten von MSSQL.' } }];\n}\n\nconst today = new Date();\nconst sync_datum = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;\n\n// ---- 1) Eindeutige Terms ableiten ----------------------------------------\nconst termsMap = new Map();\nfor (const item of inputItems) {\n  const d = item.json;\n  if (!d.SCHOOLYEAR_ID || !d.TERM_ID) continue;\n  const key = `${d.SCHOOLYEAR_ID}_${d.TERM_ID}`;\n  if (termsMap.has(key)) continue;\n  termsMap.set(key, {\n    school_year_id: parseInt(d.SCHOOLYEAR_ID, 10),\n    term_id: parseInt(d.TERM_ID, 10),\n    term_name: d.Term_Name ? String(d.Term_Name).substring(0, 50) : null,\n    date_from: d.DateFrom_Formatted,\n    date_to: d.DateTo_Formatted,\n    is_b_period: d.IsBPeriode === 1 || d.IsBPeriode === true,\n  });\n}\nconst terms = [...termsMap.values()].sort((a, b) => {\n  if (a.school_year_id !== b.school_year_id) return a.school_year_id - b.school_year_id;\n  return a.term_id - b.term_id;\n});\n\n// ---- 2) Eintraege bauen (pro Lehrer × Periode) ---------------------------\nconst eintraege = [];\nlet schuljahrText = null;\nfor (const item of inputItems) {\n  const d = item.json;\n  if (!d.TEACHER_ID || !d.Vollname) continue;\n  if (!schuljahrText) schuljahrText = d.Schuljahr_Text;\n  eintraege.push({\n    teacher_id: parseInt(d.TEACHER_ID, 10),\n    name: String(d.Name).substring(0, 50),\n    vollname: String(d.Vollname).substring(0, 200),\n    personalnummer: d.Personalnummer ? String(d.Personalnummer).substring(0, 20).trim() : null,\n    stammschule: String(d.Stammschule ?? '').substring(0, 10),\n    statistik_code: d.Statistik_Code\n      ? String(d.Statistik_Code).substring(0, 5).trim().toUpperCase()\n      : null,\n    school_year_id: parseInt(d.SCHOOLYEAR_ID, 10),\n    term_id: parseInt(d.TERM_ID, 10),\n    deputat_gesamt: Math.round((parseFloat(d.Deputat) || 0) * 1000) / 1000,\n    deputat_ges: Math.round((parseFloat(d.Deputat_GES) || 0) * 1000) / 1000,\n    deputat_gym: Math.round((parseFloat(d.Deputat_GYM) || 0) * 1000) / 1000,\n    deputat_bk: Math.round((parseFloat(d.Deputat_BK) || 0) * 1000) / 1000,\n  });\n}\n\nif (terms.length === 0 || eintraege.length === 0) {\n  return [{ json: { skip: true, reason: 'Keine Terms oder Eintraege nach Aufbereitung.' } }];\n}\n\n// ---- Chunking der Eintraege ----------------------------------------------\nconst chunks = [];\nfor (let i = 0; i < eintraege.length; i += CONFIG.chunkSize) {\n  chunks.push(eintraege.slice(i, i + CONFIG.chunkSize));\n}\n\nconst outputs = [];\n\n// (a) Erstes Item: Terms-Sync\noutputs.push({\n  json: {\n    kind: 'terms',\n    api_key: CONFIG.apiKey,\n    sync_datum,\n    terms,\n    _info: {\n      anzahl_terms: terms.length,\n      anzahl_lehrer_eintraege_total: eintraege.length,\n      anzahl_chunks: chunks.length,\n    },\n  },\n});\n\n// (b) Folgende Items: Eintraege-Chunks\nchunks.forEach((chunk, idx) => {\n  outputs.push({\n    json: {\n      kind: 'eintraege',\n      api_key: CONFIG.apiKey,\n      sync_datum,\n      schuljahr_text: schuljahrText,\n      eintraege: chunk,\n      _info: {\n        chunk_nr: idx + 1,\n        chunk_total: chunks.length,\n        anzahl_in_chunk: chunk.length,\n      },\n    },\n  });\n});\n\nreturn outputs;"
+      },
+      "id": "e7dc01bc-05f5-40f9-b705-740a0ae04cd1",
+      "name": "Aufbereiten v0.7 (Terms + Eintraege)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 600],
+      "notesInFlow": true,
+      "notes": "Item 0 = Terms (zuerst), Items 1..N = Eintraege-Chunks"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0115a370-ebe5-4a27-a47f-dbe1ebe1d7f9",
+      "name": "Daten vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1060, 600]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "1e9c6e7d-b2a9-460a-83f8-698c699ae08c",
+      "name": "Uebersprungen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1280, 380],
+      "notes": "Keine Daten"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "b1111111-1111-1111-1111-111111111111",
+      "name": "Sequenziell (Batch=1)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1280, 760],
+      "notes": "Erst Terms, dann Eintraege-Chunks — strikt seriell"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "is-terms",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "terms",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "terms"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "is-eintraege",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "eintraege",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "eintraege"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1111111-2222-3333-4444-555555555555",
+      "name": "Switch nach kind",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1500, 760]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://deputat.fes-credo.de/api/untis-terms/sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ api_key: $json.api_key, sync_datum: $json.sync_datum, terms: $json.terms }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "a7230db0-dc43-4c5a-b477-c57e83c52d0a",
+      "name": "POST untis-terms/sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1720, 660],
+      "continueOnFail": true,
+      "notes": "Master-Daten zuerst — sync-v2 prueft FK gegen untis_terms"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://deputat.fes-credo.de/api/deputate/sync-v2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ api_key: $json.api_key, sync_datum: $json.sync_datum, schuljahr_text: $json.schuljahr_text, eintraege: $json.eintraege }) }}",
+        "options": { "timeout": 180000 }
+      },
+      "id": "a7230db0-dc43-4c5a-b477-c57e83c52d0b",
+      "name": "POST deputate/sync-v2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1720, 880],
+      "continueOnFail": true,
+      "notes": "Periodenwerte hochladen (4000 Eintraege pro Chunk)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "sync-success-check",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3caeb902-b513-404e-a006-86a929bb7fa3",
+      "name": "Sync erfolgreich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1940, 760]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "2a93f2fc-cecc-431d-993e-7294b8b36e8f",
+      "name": "Erfolg",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2160, 660]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "42f09177-2e92-4cb0-bb60-95658b95b9c6",
+      "name": "Fehler",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2160, 860]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "b2222222-2222-2222-2222-222222222222",
+      "name": "Pause 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2380, 760],
+      "webhookId": "sync-v07-pause"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Taeglich 08:00 Uhr": {
+      "main": [[{ "node": "Untis MSSQL Abfrage v0.7", "type": "main", "index": 0 }]]
+    },
+    "Untis MSSQL Abfrage v0.7": {
+      "main": [[{ "node": "Aufbereiten v0.7 (Terms + Eintraege)", "type": "main", "index": 0 }]]
+    },
+    "Aufbereiten v0.7 (Terms + Eintraege)": {
+      "main": [[{ "node": "Daten vorhanden?", "type": "main", "index": 0 }]]
+    },
+    "Daten vorhanden?": {
+      "main": [
+        [{ "node": "Uebersprungen", "type": "main", "index": 0 }],
+        [{ "node": "Sequenziell (Batch=1)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sequenziell (Batch=1)": {
+      "main": [
+        [],
+        [{ "node": "Switch nach kind", "type": "main", "index": 0 }]
+      ]
+    },
+    "Switch nach kind": {
+      "main": [
+        [{ "node": "POST untis-terms/sync", "type": "main", "index": 0 }],
+        [{ "node": "POST deputate/sync-v2", "type": "main", "index": 0 }]
+      ]
+    },
+    "POST untis-terms/sync": {
+      "main": [[{ "node": "Sync erfolgreich?", "type": "main", "index": 0 }]]
+    },
+    "POST deputate/sync-v2": {
+      "main": [[{ "node": "Sync erfolgreich?", "type": "main", "index": 0 }]]
+    },
+    "Sync erfolgreich?": {
+      "main": [
+        [{ "node": "Erfolg", "type": "main", "index": 0 }],
+        [{ "node": "Fehler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Erfolg": {
+      "main": [[{ "node": "Pause 2s", "type": "main", "index": 0 }]]
+    },
+    "Fehler": {
+      "main": [[{ "node": "Pause 2s", "type": "main", "index": 0 }]]
+    },
+    "Pause 2s": {
+      "main": [[{ "node": "Sequenziell (Batch=1)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "UBadcLmQWUlnrAoE",
+    "callerPolicy": "any"
+  },
+  "tags": [
+    { "id": "HziHP6sLLHoqfKur", "name": "APP StellenISTBerechnung" },
+    { "id": "nualZJvTDI4BtE7m", "name": "Business Critical" },
+    { "id": "4qprOIUXRIw77bj9", "name": "Deputat" }
+  ]
+}

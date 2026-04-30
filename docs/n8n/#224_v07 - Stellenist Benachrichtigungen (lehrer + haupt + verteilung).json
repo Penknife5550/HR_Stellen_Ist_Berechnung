@@ -1,0 +1,207 @@
+{
+  "name": "#224 v0.7 - Stellenist Benachrichtigungen (lehrer + haupt + verteilung)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stellenist-lehrer-created",
+        "options": { "rawBody": true }
+      },
+      "id": "a1000001-0001-4000-8000-000000000001",
+      "name": "Webhook: Neuer Lehrer",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [400, 360],
+      "webhookId": "stellenist-lehrer-created"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stellenist-hauptdeputat-changed",
+        "options": { "rawBody": true }
+      },
+      "id": "a1000001-0001-4000-8000-000000000002",
+      "name": "Webhook: Hauptdeputat geaendert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [400, 720],
+      "webhookId": "stellenist-hauptdeputat-changed"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stellenist-verteilung-changed",
+        "options": { "rawBody": true }
+      },
+      "id": "a1000001-0001-4000-8000-000000000009",
+      "name": "Webhook: Verteilung geaendert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [400, 1080],
+      "webhookId": "stellenist-verteilung-changed",
+      "notes": "Neuer Event ab v0.7 — Schulverteilung GES/GYM/BK geaendert ohne Hauptdeputat-Aenderung"
+    },
+    {
+      "parameters": {
+        "jsCode": "// HMAC-Signaturpruefung (X-Signature: sha256=<hex>) — generischer Helper\nconst crypto = require('crypto');\nconst WEBHOOK_SECRET = $env.STELLENIST_WEBHOOK_SECRET || '';\nconst body = $input.first().json;\nconst sig = body.headers?.['x-signature'] || '';\nif (!WEBHOOK_SECRET) {\n  return [{ json: { ...body, _signatureValid: true, _signatureSkipped: true } }];\n}\nif (!sig.startsWith('sha256=')) throw new Error('Fehlende oder ungueltige X-Signature');\nconst expected = sig.replace('sha256=', '');\nconst rawBody = $input.first().binary?.data\n  ? Buffer.from($input.first().binary.data, 'base64').toString('utf-8')\n  : JSON.stringify(body.body || body);\nconst computed = crypto.createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');\nconst valid = expected.length === computed.length\n  && crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(computed, 'hex'));\nif (!valid) throw new Error('Ungueltige HMAC-Signatur');\nreturn [{ json: { ...body, _signatureValid: true } }];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000003",
+      "name": "Signatur (Lehrer)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HMAC-Signaturpruefung — selbe Logik wie oben\nconst crypto = require('crypto');\nconst WEBHOOK_SECRET = $env.STELLENIST_WEBHOOK_SECRET || '';\nconst body = $input.first().json;\nconst sig = body.headers?.['x-signature'] || '';\nif (!WEBHOOK_SECRET) {\n  return [{ json: { ...body, _signatureValid: true, _signatureSkipped: true } }];\n}\nif (!sig.startsWith('sha256=')) throw new Error('Fehlende oder ungueltige X-Signature');\nconst expected = sig.replace('sha256=', '');\nconst rawBody = $input.first().binary?.data\n  ? Buffer.from($input.first().binary.data, 'base64').toString('utf-8')\n  : JSON.stringify(body.body || body);\nconst computed = crypto.createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');\nconst valid = expected.length === computed.length\n  && crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(computed, 'hex'));\nif (!valid) throw new Error('Ungueltige HMAC-Signatur');\nreturn [{ json: { ...body, _signatureValid: true } }];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000004",
+      "name": "Signatur (Hauptdeputat)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 720]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HMAC-Signaturpruefung — selbe Logik\nconst crypto = require('crypto');\nconst WEBHOOK_SECRET = $env.STELLENIST_WEBHOOK_SECRET || '';\nconst body = $input.first().json;\nconst sig = body.headers?.['x-signature'] || '';\nif (!WEBHOOK_SECRET) {\n  return [{ json: { ...body, _signatureValid: true, _signatureSkipped: true } }];\n}\nif (!sig.startsWith('sha256=')) throw new Error('Fehlende oder ungueltige X-Signature');\nconst expected = sig.replace('sha256=', '');\nconst rawBody = $input.first().binary?.data\n  ? Buffer.from($input.first().binary.data, 'base64').toString('utf-8')\n  : JSON.stringify(body.body || body);\nconst computed = crypto.createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');\nconst valid = expected.length === computed.length\n  && crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(computed, 'hex'));\nif (!valid) throw new Error('Ungueltige HMAC-Signatur');\nreturn [{ json: { ...body, _signatureValid: true } }];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000010",
+      "name": "Signatur (Verteilung)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 1080]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HTML-Mail: Neuer Lehrer angelegt\n// Format-Tolerant: payload entweder direkt oder unter body.payload (n8n-Webhook)\nconst data = $input.first().json;\nconst payload = data.body?.payload || data.payload || data;\nconst lehrer = payload.lehrer || [];\nconst count = payload.count || lehrer.length;\nconst timestamp = data.body?.timestamp || data.timestamp;\nconst tsFormatted = timestamp\n  ? new Date(timestamp).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })\n  : new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\n\nconst schulfarben = {\n  GES: { farbe: '#6BAA24', hell: '#E8F5D6' },\n  GYM: { farbe: '#FBC900', hell: '#FEF7CC' },\n  BK:  { farbe: '#5C82A5', hell: '#DFE8EF' },\n  GSH: { farbe: '#E2001A', hell: '#FCE4E8' },\n  GSM: { farbe: '#009AC6', hell: '#CCF0FA' },\n  GSS: { farbe: '#8B5E3C', hell: '#F0E6DC' },\n};\n\nconst rows = lehrer.map(l => {\n  const sch = schulfarben[l.stammschule] || { farbe: '#575756', hell: '#F0F0F0' };\n  return `<tr>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#333;\">${l.vollname}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;text-align:center;\"><span style=\"display:inline-block;padding:3px 10px;border-radius:4px;background:${sch.hell};color:${sch.farbe};font-weight:600;font-size:12px;font-family:Segoe UI,Arial,sans-serif;\">${l.stammschule || '-'}</span></td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#777;text-align:center;\">${l.teacherId}</td>\n  </tr>`;\n}).join('');\n\nconst html = `<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\"></head><body style=\"margin:0;padding:0;background:#F4F4F4;\">\n<table align=\"center\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:600px;margin:20px auto;background:#FFF;border-collapse:collapse;\">\n<tr><td style=\"background:#575756;padding:24px 30px;font-family:Segoe UI,Arial,sans-serif;font-size:20px;font-weight:700;color:#FFF;\">CREDO Stellenist</td></tr>\n<tr><td style=\"background:#6BAA24;padding:12px 30px;font-family:Segoe UI,Arial,sans-serif;font-size:13px;font-weight:600;color:#FFF;\">${count} neue${count===1?'r':''} Lehrer angelegt</td></tr>\n<tr><td style=\"padding:24px 30px 12px;\">\n  <p style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#575756;margin:0 0 16px;\">Beim Untis-Sync wurden <strong>${count}</strong> neue Lehrkr&auml;fte erkannt:</p>\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;border:1px solid #E5E5E5;\">\n    <tr style=\"background:#F7F7F7;\">\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:left;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #E0E0E0;\">Name</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #E0E0E0;\">Stammschule</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #E0E0E0;\">Untis-ID</th>\n    </tr>\n    ${rows}\n  </table>\n</td></tr>\n<tr><td style=\"padding:16px 30px 24px;text-align:center;\">\n  <a href=\"https://deputat.fes-credo.de/admin/lehrer\" style=\"display:inline-block;padding:10px 28px;background:#575756;color:#FFF;font-family:Segoe UI,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:4px;\">In Stellenist &ouml;ffnen</a>\n</td></tr>\n<tr><td style=\"background:#F7F7F7;padding:16px 30px;border-top:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:11px;color:#999;\">Gesendet am ${tsFormatted} &middot; CREDO Stellenist-Berechnung</td></tr>\n</table></body></html>`;\n\nreturn [{ json: { html, subject: `Stellenist: ${count} neue Lehrkraft${count===1?'':'e'} angelegt`, count } }];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000005",
+      "name": "Mail: Neuer Lehrer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HTML-Mail: Hauptdeputat geaendert (gehaltsrelevant)\n// Tolerant gegenueber v1- (flat alt/neu) und v2-Payload (perioden[]).\nconst data = $input.first().json;\nconst payload = data.body?.payload || data.payload || data;\nconst aenderungen = payload.aenderungen || [];\nconst count = payload.count || aenderungen.length;\nconst timestamp = data.body?.timestamp || data.timestamp;\nconst tsFormatted = timestamp\n  ? new Date(timestamp).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })\n  : new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\n\nconst monatsnamen = ['','Januar','Februar','M\\u00e4rz','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];\n\n// Pro Eintrag aggregierte alt/neu-Werte ermitteln (v1: flat; v2: aus erstem/letztem perioden[])\nfunction monatsAggregat(a) {\n  if (typeof a.alt === 'number' && typeof a.neu === 'number') {\n    return { alt: a.alt, neu: a.neu };\n  }\n  if (Array.isArray(a.perioden) && a.perioden.length > 0) {\n    const first = a.perioden[0];\n    const last  = a.perioden[a.perioden.length - 1];\n    return { alt: Number(first.alt?.gesamt ?? 0), neu: Number(last.neu?.gesamt ?? 0) };\n  }\n  return { alt: 0, neu: 0 };\n}\n\nconst rows = aenderungen.map(a => {\n  const { alt, neu } = monatsAggregat(a);\n  const diff = neu - alt;\n  const diffStr = (diff > 0 ? '+' : '') + diff.toFixed(1);\n  const diffColor = diff > 0 ? '#6BAA24' : '#E2001A';\n  const monat = monatsnamen[a.monat] || a.monat;\n  return `<tr>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#333;\">${a.vollname}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#777;text-align:center;\">${monat} ${a.jahr}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:14px;text-align:center;color:#575756;\">${alt.toFixed(1)}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:14px;text-align:center;font-weight:700;color:#575756;\">${neu.toFixed(1)}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:14px;text-align:center;font-weight:700;color:${diffColor};\">${diffStr}</td>\n  </tr>`;\n}).join('');\n\nconst html = `<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\"></head><body style=\"margin:0;padding:0;background:#F4F4F4;\">\n<table align=\"center\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:620px;margin:20px auto;background:#FFF;border-collapse:collapse;\">\n<tr><td style=\"background:#575756;padding:24px 30px;font-family:Segoe UI,Arial,sans-serif;font-size:20px;font-weight:700;color:#FFF;\">CREDO Stellenist</td></tr>\n<tr><td style=\"background:#E2001A;padding:12px 30px;font-family:Segoe UI,Arial,sans-serif;font-size:13px;font-weight:600;color:#FFF;\">${count} gehaltsrelevante Deputat-&Auml;nderung${count===1?'':'en'}</td></tr>\n<tr><td style=\"padding:24px 30px 12px;\">\n  <p style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#575756;margin:0 0 6px;\">Beim Untis-Sync wurden <strong>${count}</strong> &Auml;nderung${count===1?'':'en'} am Hauptdeputat erkannt.</p>\n  <p style=\"font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#E2001A;margin:0 0 16px;font-weight:600;\">Diese &Auml;nderungen sind gehaltsrelevant und erfordern ggf. eine Anpassung der Verg&uuml;tung.</p>\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;border:1px solid #E5E5E5;\">\n    <tr style=\"background:#F7F7F7;\">\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:left;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Name</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Zeitraum</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Alt</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Neu</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Diff</th>\n    </tr>\n    ${rows}\n  </table>\n</td></tr>\n<tr><td style=\"padding:16px 30px 24px;text-align:center;\">\n  <a href=\"https://deputat.fes-credo.de/deputate\" style=\"display:inline-block;padding:10px 28px;background:#575756;color:#FFF;font-family:Segoe UI,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:4px;\">&Auml;nderungen pr&uuml;fen</a>\n</td></tr>\n<tr><td style=\"background:#F7F7F7;padding:16px 30px;border-top:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:11px;color:#999;\">Gesendet am ${tsFormatted} &middot; CREDO Stellenist-Berechnung</td></tr>\n</table></body></html>`;\n\nreturn [{ json: { html, subject: `Stellenist: ${count} Deputat-\\u00c4nderung${count===1?'':'en'} (gehaltsrelevant)`, count } }];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000006",
+      "name": "Mail: Hauptdeputat",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 720]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HTML-Mail: Verteilung zwischen Schulen geaendert (NICHT gehaltsrelevant)\n// Sync-v2-only Event — Payload hat aenderungen[].perioden[] mit alt/neu pro Schule.\nconst data = $input.first().json;\nconst payload = data.body?.payload || data.payload || data;\nconst aenderungen = payload.aenderungen || [];\nconst count = payload.count || aenderungen.length;\nconst timestamp = data.body?.timestamp || data.timestamp;\nconst tsFormatted = timestamp\n  ? new Date(timestamp).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })\n  : new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\n\nconst monatsnamen = ['','Januar','Februar','M\\u00e4rz','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];\n\nfunction summe(a, schule) {\n  if (!Array.isArray(a.perioden) || a.perioden.length === 0) return { alt: 0, neu: 0 };\n  const first = a.perioden[0];\n  const last  = a.perioden[a.perioden.length - 1];\n  return {\n    alt: Number(first.alt?.[schule] ?? 0),\n    neu: Number(last.neu?.[schule] ?? 0),\n  };\n}\nfunction zelle(s) {\n  const diff = s.neu - s.alt;\n  if (Math.abs(diff) < 0.001) return `<span style=\"color:#999;\">${s.alt.toFixed(1)}</span>`;\n  const arrow = diff > 0 ? '\\u25B2' : '\\u25BC';\n  const color = diff > 0 ? '#6BAA24' : '#E2001A';\n  return `<span style=\"color:#575756;\">${s.alt.toFixed(1)}</span> <span style=\"color:${color};font-weight:700;\">${arrow} ${s.neu.toFixed(1)}</span>`;\n}\n\nconst rows = aenderungen.map(a => {\n  const ges = summe(a, 'ges');\n  const gym = summe(a, 'gym');\n  const bk  = summe(a, 'bk');\n  const monat = monatsnamen[a.monat] || a.monat;\n  return `<tr>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#333;\">${a.vollname}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#777;text-align:center;\">${monat} ${a.jahr}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:13px;text-align:center;\">${zelle(ges)}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:13px;text-align:center;\">${zelle(gym)}</td>\n    <td style=\"padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:13px;text-align:center;\">${zelle(bk)}</td>\n  </tr>`;\n}).join('');\n\nconst html = `<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\"></head><body style=\"margin:0;padding:0;background:#F4F4F4;\">\n<table align=\"center\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:680px;margin:20px auto;background:#FFF;border-collapse:collapse;\">\n<tr><td style=\"background:#575756;padding:24px 30px;font-family:Segoe UI,Arial,sans-serif;font-size:20px;font-weight:700;color:#FFF;\">CREDO Stellenist</td></tr>\n<tr><td style=\"background:#009AC6;padding:12px 30px;font-family:Segoe UI,Arial,sans-serif;font-size:13px;font-weight:600;color:#FFF;\">${count} Verteilungs&auml;nderung${count===1?'':'en'} zwischen Schulen</td></tr>\n<tr><td style=\"padding:24px 30px 12px;\">\n  <p style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#575756;margin:0 0 6px;\">Beim Untis-Sync wurden <strong>${count}</strong> Verteilungswechsel zwischen den Schulen erkannt &mdash; das Hauptdeputat des Lehrers ist <em>unver&auml;ndert</em>, aber die Aufteilung zwischen Gesamtschule, Gymnasium und Berufskolleg hat sich verschoben.</p>\n  <p style=\"font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#777;margin:0 0 16px;\">Nicht gehaltsrelevant &mdash; Information f&uuml;r Stundenplanung und Schulleitungen.</p>\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;border:1px solid #E5E5E5;\">\n    <tr style=\"background:#F7F7F7;\">\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:left;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Name</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#575756;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">Zeitraum</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#6BAA24;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">GES</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#FBC900;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">GYM</th>\n      <th style=\"padding:10px 14px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#5C82A5;text-align:center;text-transform:uppercase;border-bottom:2px solid #E0E0E0;\">BK</th>\n    </tr>\n    ${rows}\n  </table>\n</td></tr>\n<tr><td style=\"padding:16px 30px 24px;text-align:center;\">\n  <a href=\"https://deputat.fes-credo.de/deputate\" style=\"display:inline-block;padding:10px 28px;background:#575756;color:#FFF;font-family:Segoe UI,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:4px;\">Verteilung pr&uuml;fen</a>\n</td></tr>\n<tr><td style=\"background:#F7F7F7;padding:16px 30px;border-top:1px solid #E5E5E5;font-family:Segoe UI,Arial,sans-serif;font-size:11px;color:#999;\">Gesendet am ${tsFormatted} &middot; CREDO Stellenist-Berechnung</td></tr>\n</table></body></html>`;\n\nreturn [{ json: { html, subject: `Stellenist: ${count} Verteilungs\\u00e4nderung${count===1?'':'en'}`, count } }];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000011",
+      "name": "Mail: Verteilung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 1080]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.STELLENIST_MAIL_EMPFAENGER || 'dimitri.riesen@fes-minden.de' }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": { "replyTo": "noreply@fes-credo.de" }
+      },
+      "id": "a1000001-0001-4000-8000-000000000007",
+      "name": "Outlook: Neuer Lehrer",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [1080, 360],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "DEINE_CREDENTIAL_ID",
+          "name": "Microsoft Outlook (CREDO)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.STELLENIST_MAIL_EMPFAENGER || 'dimitri.riesen@fes-minden.de' }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": { "replyTo": "noreply@fes-credo.de" }
+      },
+      "id": "a1000001-0001-4000-8000-000000000008",
+      "name": "Outlook: Hauptdeputat",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [1080, 720],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "DEINE_CREDENTIAL_ID",
+          "name": "Microsoft Outlook (CREDO)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.STELLENIST_MAIL_EMPFAENGER || 'dimitri.riesen@fes-minden.de' }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": { "replyTo": "noreply@fes-credo.de" }
+      },
+      "id": "a1000001-0001-4000-8000-000000000012",
+      "name": "Outlook: Verteilung",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [1080, 1080],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "DEINE_CREDENTIAL_ID",
+          "name": "Microsoft Outlook (CREDO)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook: Neuer Lehrer": {
+      "main": [[{ "node": "Signatur (Lehrer)", "type": "main", "index": 0 }]]
+    },
+    "Webhook: Hauptdeputat geaendert": {
+      "main": [[{ "node": "Signatur (Hauptdeputat)", "type": "main", "index": 0 }]]
+    },
+    "Webhook: Verteilung geaendert": {
+      "main": [[{ "node": "Signatur (Verteilung)", "type": "main", "index": 0 }]]
+    },
+    "Signatur (Lehrer)": {
+      "main": [[{ "node": "Mail: Neuer Lehrer", "type": "main", "index": 0 }]]
+    },
+    "Signatur (Hauptdeputat)": {
+      "main": [[{ "node": "Mail: Hauptdeputat", "type": "main", "index": 0 }]]
+    },
+    "Signatur (Verteilung)": {
+      "main": [[{ "node": "Mail: Verteilung", "type": "main", "index": 0 }]]
+    },
+    "Mail: Neuer Lehrer": {
+      "main": [[{ "node": "Outlook: Neuer Lehrer", "type": "main", "index": 0 }]]
+    },
+    "Mail: Hauptdeputat": {
+      "main": [[{ "node": "Outlook: Hauptdeputat", "type": "main", "index": 0 }]]
+    },
+    "Mail: Verteilung": {
+      "main": [[{ "node": "Outlook: Verteilung", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "UBadcLmQWUlnrAoE",
+    "callerPolicy": "any"
+  },
+  "tags": [
+    { "id": "HziHP6sLLHoqfKur", "name": "APP StellenISTBerechnung" },
+    { "id": "nualZJvTDI4BtE7m", "name": "Business Critical" },
+    { "id": "4qprOIUXRIw77bj9", "name": "Deputat" },
+    { "id": "SqCqoGMqm7pwfJeP", "name": "Personal" }
+  ]
+}
