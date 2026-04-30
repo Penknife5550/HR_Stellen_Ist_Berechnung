@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Card, KPICard } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { berechneStellenisteAction } from "./actions";
+import { StellenistDrilldown } from "./StellenistDrilldown";
 
 type Schule = { id: number; kurzname: string; farbe: string };
 
@@ -71,6 +72,16 @@ export function StellenistClient({
   const [activeSchule, setActiveSchule] = useState<number | null>(
     schulStelleniste.length > 0 ? schulStelleniste[0].schuleId : schulen[0]?.id ?? null
   );
+  const [expandedDrilldowns, setExpandedDrilldowns] = useState<Set<string>>(new Set());
+
+  function toggleDrilldown(key: string) {
+    setExpandedDrilldowns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function handleBerechnen() {
     setResult(null);
@@ -336,11 +347,28 @@ export function StellenistClient({
           </div>
 
           {/* Details pro Zeitraum */}
-          {aktuelleSchulDaten.zeitraeume.map((zr) => (
-            <Card key={zr.zeitraum} className="mb-4">
-              <h3 className="text-lg font-bold text-[#1A1A1A] mb-3">
-                {zr.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember"}
-              </h3>
+          {aktuelleSchulDaten.zeitraeume.map((zr) => {
+            const drilldownKey = `${aktuelleSchulDaten.schuleId}_${zr.zeitraum}`;
+            const isExpanded = expandedDrilldowns.has(drilldownKey);
+            const istKurzname = aktuelleSchulDaten.schulKurzname;
+            return (
+            <Card key={zr.zeitraum} className="mb-4 !p-0 overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-bold text-[#1A1A1A]">
+                  {zr.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => toggleDrilldown(drilldownKey)}
+                  className="text-xs px-3 py-1.5 rounded border border-[#D1D5DB] bg-white text-[#1A1A1A] hover:bg-[#F3F4F6] inline-flex items-center gap-1"
+                  aria-expanded={isExpanded}
+                  aria-label="Drilldown auf Lehrer-Ebene"
+                >
+                  <span>{isExpanded ? "▴" : "▾"}</span>
+                  <span>Lehrer-Drilldown</span>
+                </button>
+              </div>
               <div className="space-y-2 text-[15px]">
                 <div className="flex justify-between p-3 bg-blue-50 rounded border border-blue-200">
                   <span className="font-medium">Tatsaechliche Wochenstunden (Durchschnitt)</span>
@@ -413,8 +441,16 @@ export function StellenistClient({
                   </span>
                 </div>
               </div>
+            </div>
+            <StellenistDrilldown
+              schuleKurzname={istKurzname}
+              haushaltsjahrId={haushaltsjahrId}
+              zeitraum={zr.zeitraum as "aug-dez" | "jan-jul"}
+              open={isExpanded}
+            />
             </Card>
-          ))}
+            );
+          })}
         </>
       ) : (
         <>

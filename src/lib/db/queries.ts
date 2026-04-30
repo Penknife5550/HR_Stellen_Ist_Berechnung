@@ -812,6 +812,82 @@ export async function getDeputatSummenBySchuleTagesgenau(
   return rows as unknown as Row[];
 }
 
+/**
+ * Drilldown fuer die Stellenist-Karten: Pro Lehrer × Monat den
+ * tagesgenauen schulspezifischen Wochenstunden-Wert plus Korrektur-Flag.
+ *
+ * Liest aus derselben View v_deputat_monat_tagesgenau, die auch die
+ * Schul-Aggregat-Summen befuellt — damit stimmen Drilldown-Summen by
+ * construction mit der Karte ueberein.
+ *
+ * GES/GYM/BK: schulspezifische Spalte (deputat_*_tagesgenau) ueber alle
+ * aktiven Lehrer mit positivem Wert in dieser Schule.
+ * Grundschulen: deputat_gesamt_tagesgenau, gefiltert auf Stammschule.
+ */
+export async function getStellenistDrilldownByLehrer(
+  haushaltsjahrId: number,
+  schulKurzname: string,
+  monate: number[],
+) {
+  if (monate.length === 0) return [];
+
+  type Row = {
+    lehrerId: number;
+    vollname: string;
+    stammschuleCode: string | null;
+    monat: number;
+    wochenstunden: string;
+    enthaeltKorrektur: boolean;
+  };
+
+  const isCrossSchool = schulKurzname === "GES" || schulKurzname === "GYM" || schulKurzname === "BK";
+  const spalte =
+    schulKurzname === "GES" ? sql.raw("deputat_ges_tagesgenau") :
+    schulKurzname === "GYM" ? sql.raw("deputat_gym_tagesgenau") :
+    schulKurzname === "BK"  ? sql.raw("deputat_bk_tagesgenau")  :
+    sql.raw("deputat_gesamt_tagesgenau");
+
+  const monateLiteral = sql.raw(monate.map((m) => Number(m)).join(","));
+
+  const rows = await db.execute<Row>(
+    isCrossSchool
+      ? sql`
+        SELECT
+          v.lehrer_id                                  AS "lehrerId",
+          l.vollname                                   AS "vollname",
+          l.stammschule_code                           AS "stammschuleCode",
+          v.monat                                      AS "monat",
+          ${spalte}::text                              AS "wochenstunden",
+          v.enthaelt_korrektur                         AS "enthaeltKorrektur"
+        FROM v_deputat_monat_tagesgenau v
+        INNER JOIN lehrer l ON l.id = v.lehrer_id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+          AND ${spalte} > 0
+          AND v.monat IN (${monateLiteral})
+        ORDER BY l.vollname, v.monat
+      `
+      : sql`
+        SELECT
+          v.lehrer_id                                  AS "lehrerId",
+          l.vollname                                   AS "vollname",
+          l.stammschule_code                           AS "stammschuleCode",
+          v.monat                                      AS "monat",
+          v.deputat_gesamt_tagesgenau::text            AS "wochenstunden",
+          v.enthaelt_korrektur                         AS "enthaeltKorrektur"
+        FROM v_deputat_monat_tagesgenau v
+        INNER JOIN lehrer l ON l.id = v.lehrer_id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+          AND l.stammschule_code = ${schulKurzname}
+          AND v.deputat_gesamt_tagesgenau > 0
+          AND v.monat IN (${monateLiteral})
+        ORDER BY l.vollname, v.monat
+      `,
+  );
+  return rows as unknown as Row[];
+}
+
 // ============================================================
 // SYNC-LOG
 // ============================================================

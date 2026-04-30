@@ -10,12 +10,19 @@ import {
   getDeputatSummenBySchuleTagesgenau,
   getMehrarbeitByHaushaltsjahr,
   getRegeldeputateMap,
+  getStellenistDrilldownByLehrer,
 } from "@/lib/db/queries";
 import { berechneStellenist } from "@/lib/berechnungen/stellenist";
 import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
 import { writeAuditLog } from "@/lib/audit";
-import { requireWriteAccess } from "@/lib/auth/permissions";
+import { requireRole, requireWriteAccess } from "@/lib/auth/permissions";
 import { eq, and } from "drizzle-orm";
+
+const ZEITRAUM_MONATE = {
+  "aug-dez": [8, 9, 10, 11, 12],
+  "jan-jul": [1, 2, 3, 4, 5, 6, 7],
+} as const;
+type ZeitraumKey = keyof typeof ZEITRAUM_MONATE;
 
 /**
  * Stellen-IST-Berechnung im Periodenmodell (v0.7+).
@@ -203,5 +210,156 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
   } catch (err: unknown) {
     console.error("Stellenist-Berechnung fehlgeschlagen:", err instanceof Error ? err.message : "Unbekannt");
     return { error: "Berechnung fehlgeschlagen. Bitte erneut versuchen." };
+  }
+}
+
+/**
+ * Drilldown fuer eine Stellenist-Karte: Zeigt pro Lehrer die tagesgenauen
+ * Wochenstunden je Monat im gewaehlten Zeitraum, plus separater Mehrarbeit-Block.
+ *
+ * Datenquelle ist v_deputat_monat_tagesgenau (gleiche View wie das Karten-Aggregat),
+ * damit Drilldown-Summen by construction stimmen.
+ */
+export async function getStellenistDrilldownAction(
+  schuleKurzname: string,
+  haushaltsjahrId: number,
+  zeitraum: ZeitraumKey,
+) {
+  // DSGVO: Drilldown enthaelt Lehrer-Klartextnamen + Stundenraster (PII).
+  // Konsistent mit dem CSV-Export: nur Mitarbeiter-Rolle und hoeher.
+  await requireRole("mitarbeiter");
+  try {
+    const monate: number[] = [...ZEITRAUM_MONATE[zeitraum]];
+    if (!monate || monate.length === 0) {
+      return { error: "Ungueltiger Zeitraum." };
+    }
+
+    const [hj, regelMap, schulen] = await Promise.all([
+      getHaushaltsjahrById(haushaltsjahrId),
+      getRegeldeputateMap(),
+      getSchulen(),
+    ]);
+    if (!hj) return { error: "Haushaltsjahr nicht gefunden." };
+
+    const schule = schulen.find((s) => s.kurzname === schuleKurzname);
+    if (!schule) return { error: "Schule nicht gefunden." };
+
+    const regeldeputat = regelMap.get(schuleKurzname);
+    if (regeldeputat === undefined) return { error: "Regeldeputat fehlt." };
+
+    const [lehrerRows, mehrarbeitAlle] = await Promise.all([
+      getStellenistDrilldownByLehrer(haushaltsjahrId, schuleKurzname, monate),
+      getMehrarbeitByHaushaltsjahr(haushaltsjahrId, schule.id),
+    ]);
+
+    // Lehrer-Aggregation: pro Lehrer Map<monat, stunden> + Korrektur-Set + Summe
+    type LehrerAgg = {
+      lehrerId: number;
+      vollname: string;
+      stammschuleCode: string | null;
+      stundenProMonat: Record<number, number>;
+      korrekturMonate: number[];
+      summeStunden: number;
+    };
+    const lehrerMap = new Map<number, LehrerAgg>();
+    for (const r of lehrerRows) {
+      let agg = lehrerMap.get(r.lehrerId);
+      if (!agg) {
+        agg = {
+          lehrerId: r.lehrerId,
+          vollname: r.vollname,
+          stammschuleCode: r.stammschuleCode,
+          stundenProMonat: {},
+          korrekturMonate: [],
+          summeStunden: 0,
+        };
+        lehrerMap.set(r.lehrerId, agg);
+      }
+      const ws = Number(r.wochenstunden);
+      agg.stundenProMonat[r.monat] = ws;
+      agg.summeStunden += ws;
+      if (r.enthaeltKorrektur) agg.korrekturMonate.push(r.monat);
+    }
+
+    // Stellen-Anteil pro Lehrer = (durchschnittliche WS im Zeitraum) / regeldeputat
+    const lehrer = Array.from(lehrerMap.values())
+      .map((l) => {
+        const durchschnitt = l.summeStunden / monate.length;
+        return {
+          ...l,
+          durchschnittWS: Math.round(durchschnitt * 100) / 100,
+          stellenAnteil: Math.round((durchschnitt / regeldeputat) * 10000) / 10000,
+        };
+      })
+      .sort((a, b) => b.summeStunden - a.summeStunden);
+
+    // Mehrarbeit aufteilen
+    const mehrarbeitImZr = mehrarbeitAlle.filter((m) => monate.includes(m.monat));
+    const mehrarbeitLehrerMap = new Map<
+      number,
+      { lehrerId: number; vollname: string; summeStunden: number }
+    >();
+    for (const m of mehrarbeitImZr) {
+      if (m.lehrerId === null) continue;
+      const std = Number(m.stunden ?? 0);
+      if (std === 0) continue;
+      const ex = mehrarbeitLehrerMap.get(m.lehrerId);
+      if (ex) ex.summeStunden += std;
+      else
+        mehrarbeitLehrerMap.set(m.lehrerId, {
+          lehrerId: m.lehrerId,
+          vollname: m.lehrerName ?? "—",
+          summeStunden: std,
+        });
+    }
+    const mehrarbeitLehrer = Array.from(mehrarbeitLehrerMap.values())
+      .map((m) => ({
+        ...m,
+        // Mehrarbeit-Stunden sind Jahresstunden (nicht Wochenstunden) → Stellenanteil
+        // = stunden / (regeldeputat * 40 Wochen). Wir richten uns hier nach dem
+        // bestehenden Modell aus berechneStellenist: stellen = stunden / regeldeputat / monateImZeitraum.length
+        stellenAnteil:
+          Math.round(((m.summeStunden / regeldeputat) / monate.length) * 10000) / 10000,
+      }))
+      .sort((a, b) => b.summeStunden - a.summeStunden);
+
+    // Schulweite Mehrarbeit: durch Anzahl Monate teilen — die Hauptberechnung
+    // in lib/berechnungen/stellenist.ts mittelt die monatlichen Stellenanteile
+    // ueber die Monate des Zeitraums. Sonst Faktor 5/7 zuviel im Drilldown.
+    const mehrarbeitSchuleStellenSumme = mehrarbeitImZr
+      .filter((m) => m.lehrerId === null && m.stellenanteil !== null)
+      .reduce((acc, m) => acc + Number(m.stellenanteil ?? 0), 0);
+    const mehrarbeitSchuleStellen = mehrarbeitSchuleStellenSumme / monate.length;
+
+    // Gesamtsummen fuer Plausibilitaetsabgleich mit der Karte
+    const summeStundenGesamt = lehrer.reduce((acc, l) => acc + l.summeStunden, 0);
+    const durchschnittGesamt = summeStundenGesamt / monate.length;
+    const stellenAusStunden = durchschnittGesamt / regeldeputat;
+    const mehrarbeitStellenSumme =
+      mehrarbeitLehrer.reduce((acc, m) => acc + m.stellenAnteil, 0) + mehrarbeitSchuleStellen;
+    const gesamtStellen = stellenAusStunden + mehrarbeitStellenSumme;
+
+    return {
+      success: true,
+      data: {
+        schuleKurzname,
+        zeitraum,
+        monate,
+        regeldeputat,
+        lehrer,
+        mehrarbeitLehrer,
+        mehrarbeitSchuleStellen: Math.round(mehrarbeitSchuleStellen * 10000) / 10000,
+        summen: {
+          stunden: Math.round(summeStundenGesamt * 100) / 100,
+          durchschnittWS: Math.round(durchschnittGesamt * 100) / 100,
+          stellenAusStunden: Math.round(stellenAusStunden * 10000) / 10000,
+          mehrarbeitStellen: Math.round(mehrarbeitStellenSumme * 10000) / 10000,
+          gesamt: Math.round(gesamtStellen * 10000) / 10000,
+        },
+      },
+    };
+  } catch (err) {
+    console.error("Drilldown fehlgeschlagen:", err);
+    return { error: "Drilldown fehlgeschlagen." };
   }
 }
