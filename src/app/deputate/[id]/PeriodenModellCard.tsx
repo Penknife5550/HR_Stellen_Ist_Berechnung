@@ -81,6 +81,11 @@ export function PeriodenModellCard({
 
   const keyOf = (a: AenderungZeile) => `${a.sy_alt}_${a.term_alt}_${a.sy_neu}_${a.term_neu}`;
 
+  // Perioden, in denen ein Wertwechsel beginnt (= die neue Periode des Wechsels).
+  const wechselPerioden = new Set(
+    echteAenderungen.map((a) => `${a.sy_neu}-${a.term_neu}`),
+  );
+
   async function handleSave(formData: FormData) {
     setSaving(true);
     setMessage(null);
@@ -110,7 +115,7 @@ export function PeriodenModellCard({
     <Card className="mb-6 border-l-4 border-[#009AC6]">
       <div className="flex items-baseline justify-between mb-3">
         <h3 className="text-lg font-bold text-[#1A1A1A]">
-          Periodenmodell <span className="text-sm font-normal text-[#6B7280]">(v0.7 — Untis-Wahrheit, tagesgenau)</span>
+          Periodenmodell
         </h3>
         <span className="text-xs text-[#6B7280]">
           {periodenverlauf.length} Perioden · {echteAenderungen.length} echte Wertwechsel
@@ -267,8 +272,14 @@ export function PeriodenModellCard({
               </tr>
             </thead>
             <tbody>
-              {periodenverlauf.map((p) => (
-                <tr key={`${p.schoolYearId}-${p.termId}`} className="border-b border-[#E5E7EB]">
+              {periodenverlauf.map((p) => {
+                const istWechsel = wechselPerioden.has(`${p.schoolYearId}-${p.termId}`);
+                return (
+                <tr
+                  key={`${p.schoolYearId}-${p.termId}`}
+                  className={`border-b border-[#E5E7EB] ${istWechsel ? "bg-[#FEF9E7]" : ""}`}
+                  title={istWechsel ? "Periode mit Wertwechsel" : undefined}
+                >
                   <td className="py-2 px-3 font-mono text-xs text-[#6B7280]">
                     {p.schoolYearId} · T{p.termId}
                   </td>
@@ -287,7 +298,8 @@ export function PeriodenModellCard({
                   <td className="py-2 px-3 text-right tabular-nums">{Number(p.deputatGym).toFixed(2)}</td>
                   <td className="py-2 px-3 text-right tabular-nums">{Number(p.deputatBk).toFixed(2)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
