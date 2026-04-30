@@ -24,6 +24,27 @@ import { syncV2PayloadSchema } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
 import { normalizeStatistikCode, detectStatistikCodeChange } from "@/lib/statistikCode";
+import { notify } from "@/lib/notifications";
+
+/** Liefert alle (jahr, monat)-Buckets, die ein [dateFrom, dateTo]-Intervall beruehrt. */
+function monthsInRange(
+  dateFromIso: string,
+  dateToIso: string,
+): Array<{ jahr: number; monat: number }> {
+  const yF = Number(dateFromIso.slice(0, 4));
+  const mF = Number(dateFromIso.slice(5, 7));
+  const yT = Number(dateToIso.slice(0, 4));
+  const mT = Number(dateToIso.slice(5, 7));
+  const out: Array<{ jahr: number; monat: number }> = [];
+  let y = yF;
+  let m = mF;
+  while (y < yT || (y === yT && m <= mT)) {
+    out.push({ jahr: y, monat: m });
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -133,6 +154,28 @@ export async function POST(request: NextRequest) {
       .where(inArray(schema.lehrer.untisTeacherId, teacherIds));
     const lehrerMap = new Map(existingLehrer.map((l) => [l.untisTeacherId, l]));
 
+    // 5b. Bestehende deputat_pro_periode-Werte vorladen — fuer Diff-Erkennung
+    //     (Hauptdeputat- vs. Verteilungs-Aenderung). Nur sinnvoll fuer existing
+    //     Lehrer; neu angelegte Lehrer haben naturgemaess keine Vorgaengerwerte.
+    const existingLehrerIds = existingLehrer.map((l) => l.id);
+    type DppRow = typeof schema.deputatProPeriode.$inferSelect;
+    let existingDpp: DppRow[] = [];
+    if (existingLehrerIds.length > 0) {
+      existingDpp = await db
+        .select()
+        .from(schema.deputatProPeriode)
+        .where(
+          and(
+            inArray(schema.deputatProPeriode.lehrerId, existingLehrerIds),
+            inArray(schema.deputatProPeriode.untisSchoolyearId, benoetigteSyIds),
+            inArray(schema.deputatProPeriode.untisTermId, benoetigteTermIds),
+          ),
+        );
+    }
+    const dppMap = new Map<string, DppRow>(
+      existingDpp.map((r) => [`${r.lehrerId}_${r.untisSchoolyearId}_${r.untisTermId}`, r]),
+    );
+
     // 6. Verarbeiten — pro Eintrag: Lehrer upserten + deputat_pro_periode upserten
     let verarbeitet = 0;
     let lehrerNeu = 0;
@@ -146,6 +189,19 @@ export async function POST(request: NextRequest) {
       alt: string | null;
       neu: string | null;
     }> = [];
+
+    // Sammler fuer ausgehende Webhook-Events
+    const lehrerCreatedEvents: Array<{
+      lehrerId: number; teacherId: number; vollname: string; stammschule: string | null;
+    }> = [];
+    type DppChange = {
+      lehrerId: number; teacherId: number; vollname: string;
+      sy: number; termId: number; dateFrom: string; dateTo: string;
+      alt: { gesamt: number; ges: number; gym: number; bk: number };
+      neu: { gesamt: number; ges: number; gym: number; bk: number };
+      type: "haupt" | "verteilung";
+    };
+    const dppChanges: DppChange[] = [];
 
     // Lehrer-Upsert nur EINMAL pro teacher_id pro Sync (nicht 18x bei 18 Perioden)
     const lehrerVerarbeitet = new Set<number>();
@@ -213,10 +269,49 @@ export async function POST(request: NextRequest) {
               lehrerId = inserted.id;
               lehrerMap.set(e.teacher_id, inserted);
               lehrerNeu++;
+              lehrerCreatedEvents.push({
+                lehrerId: inserted.id,
+                teacherId: e.teacher_id,
+                vollname: e.vollname,
+                stammschule: e.stammschule ?? null,
+              });
             }
             lehrerVerarbeitet.add(e.teacher_id);
           } else {
             lehrerId = lehrerMap.get(e.teacher_id)!.id;
+          }
+
+          // Diff gegen vorhandenen Periodenwert (fuer Webhook-Events)
+          const dppKey = `${lehrerId}_${e.school_year_id}_${e.term_id}`;
+          const dppOld = dppMap.get(dppKey);
+          if (dppOld) {
+            const altGesamt = Number(dppOld.deputatGesamt);
+            const altGes = Number(dppOld.deputatGes);
+            const altGym = Number(dppOld.deputatGym);
+            const altBk = Number(dppOld.deputatBk);
+            const neuGesamt = e.deputat_gesamt;
+            const neuGes = e.deputat_ges;
+            const neuGym = e.deputat_gym;
+            const neuBk = e.deputat_bk;
+            const gesamtGeaendert = Math.abs(altGesamt - neuGesamt) > 0.001;
+            const verteilungGeaendert =
+              Math.abs(altGes - neuGes) > 0.001 ||
+              Math.abs(altGym - neuGym) > 0.001 ||
+              Math.abs(altBk - neuBk) > 0.001;
+            if (gesamtGeaendert || verteilungGeaendert) {
+              dppChanges.push({
+                lehrerId,
+                teacherId: e.teacher_id,
+                vollname: e.vollname,
+                sy: e.school_year_id,
+                termId: e.term_id,
+                dateFrom: term.dateFrom,
+                dateTo: term.dateTo,
+                alt: { gesamt: altGesamt, ges: altGes, gym: altGym, bk: altBk },
+                neu: { gesamt: neuGesamt, ges: neuGes, gym: neuGym, bk: neuBk },
+                type: gesamtGeaendert ? "haupt" : "verteilung",
+              });
+            }
           }
 
           // deputat_pro_periode upserten
@@ -312,6 +407,78 @@ export async function POST(request: NextRequest) {
       "n8n",
     );
 
+    // Webhook-Events: Periodendiffs auf Monatsebene aggregieren.
+    // Pro (lehrer × jahr × monat) maximal ein Event. Wenn in einem Monat
+    // mindestens eine Periode den Hauptwert aendert, wird der Bucket als
+    // "haupt" markiert (gehaltsrelevant uebersteuert reine Verteilung).
+    type MonthBucket = {
+      lehrerId: number; teacherId: number; vollname: string;
+      jahr: number; monat: number;
+      type: "haupt" | "verteilung";
+      perioden: Array<{
+        sy: number; termId: number; dateFrom: string; dateTo: string;
+        alt: { gesamt: number; ges: number; gym: number; bk: number };
+        neu: { gesamt: number; ges: number; gym: number; bk: number };
+      }>;
+    };
+    const monthMap = new Map<string, MonthBucket>();
+    for (const ch of dppChanges) {
+      for (const { jahr, monat } of monthsInRange(ch.dateFrom, ch.dateTo)) {
+        const key = `${ch.lehrerId}_${jahr}_${monat}`;
+        let bucket = monthMap.get(key);
+        if (!bucket) {
+          bucket = {
+            lehrerId: ch.lehrerId, teacherId: ch.teacherId, vollname: ch.vollname,
+            jahr, monat,
+            type: ch.type,
+            perioden: [],
+          };
+          monthMap.set(key, bucket);
+        } else if (ch.type === "haupt" && bucket.type === "verteilung") {
+          bucket.type = "haupt";
+        }
+        bucket.perioden.push({
+          sy: ch.sy, termId: ch.termId, dateFrom: ch.dateFrom, dateTo: ch.dateTo,
+          alt: ch.alt, neu: ch.neu,
+        });
+      }
+    }
+    const hauptBuckets: MonthBucket[] = [];
+    const verteilBuckets: MonthBucket[] = [];
+    for (const b of monthMap.values()) {
+      if (b.type === "haupt") hauptBuckets.push(b);
+      else verteilBuckets.push(b);
+    }
+
+    if (lehrerCreatedEvents.length > 0) {
+      void notify("lehrer.created", {
+        count: lehrerCreatedEvents.length,
+        lehrer: lehrerCreatedEvents,
+      });
+    }
+    if (hauptBuckets.length > 0) {
+      void notify("hauptdeputat.changed", {
+        count: hauptBuckets.length,
+        aenderungen: hauptBuckets,
+      });
+    }
+    if (verteilBuckets.length > 0) {
+      void notify("verteilung.changed", {
+        count: verteilBuckets.length,
+        aenderungen: verteilBuckets,
+      });
+    }
+    void notify(verworfenFehlenderTerm > 0 ? "sync.failed" : "sync.completed", {
+      schuljahr: payload.schuljahr_text ?? null,
+      verarbeitet,
+      lehrer_neu: lehrerNeu,
+      lehrer_aktualisiert: lehrerAktualisiert,
+      perioden_neu: dppInserted,
+      perioden_aktualisiert: dppUpdated,
+      verworfen_stammschule: verworfeneAusStammschule,
+      verworfen_fehlender_term: verworfenFehlenderTerm,
+    });
+
     return NextResponse.json({
       success: true,
       verarbeitet,
@@ -327,6 +494,10 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unbekannter Fehler.";
     console.error("[/api/deputate/sync-v2] Fehler:", err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    void notify("sync.failed", {
+      error: msg,
+      schuljahr: null,
+    });
+    return NextResponse.json({ error: "Interner Serverfehler." }, { status: 500 });
   }
 }

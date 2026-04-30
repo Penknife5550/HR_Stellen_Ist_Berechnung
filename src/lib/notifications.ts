@@ -7,7 +7,8 @@
  *   damit parallele Laeufe keine Duplikate senden). Wird vom Cron-Endpoint
  *   /api/notifications/dispatch aufgerufen.
  *
- * Events: sync.completed, sync.failed, lehrer.created, hauptdeputat.changed
+ * Events: sync.completed, sync.failed, lehrer.created, hauptdeputat.changed,
+ *         verteilung.changed
  */
 
 import crypto from "crypto";
@@ -26,13 +27,15 @@ export type EventType =
   | "sync.completed"
   | "sync.failed"
   | "lehrer.created"
-  | "hauptdeputat.changed";
+  | "hauptdeputat.changed"
+  | "verteilung.changed";
 
 export const ALL_EVENT_TYPES: EventType[] = [
   "sync.completed",
   "sync.failed",
   "lehrer.created",
   "hauptdeputat.changed",
+  "verteilung.changed",
 ];
 
 export const EVENT_LABELS: Record<EventType, string> = {
@@ -40,6 +43,7 @@ export const EVENT_LABELS: Record<EventType, string> = {
   "sync.failed": "Sync fehlgeschlagen",
   "lehrer.created": "Neuer Lehrer angelegt",
   "hauptdeputat.changed": "Hauptdeputat geaendert",
+  "verteilung.changed": "Verteilung zwischen Schulen geaendert",
 };
 
 /**

@@ -267,6 +267,14 @@ export async function POST(request: NextRequest) {
       jahr: number; monat: number;
       alt: number; neu: number;
     }> = [];
+    const verteilungEvents: Array<{
+      lehrerId: number; teacherId: number; vollname: string;
+      jahr: number; monat: number;
+      gesamt: number;
+      ges: { alt: number; neu: number };
+      gym: { alt: number; neu: number };
+      bk: { alt: number; neu: number };
+    }> = [];
     // Statistik-Code-Wechsel — fuer Audit-Log nach Transaktion (arbeitsrechtlich relevant)
     const statistikCodeChanges: Array<{
       lehrerId: number; vollname: string;
@@ -435,6 +443,18 @@ export async function POST(request: NextRequest) {
                         alt: altGesamt,
                         neu: neuGesamt,
                       });
+                    } else if (verteilungGeaendert) {
+                      verteilungEvents.push({
+                        lehrerId,
+                        teacherId: lehrerData.teacher_id,
+                        vollname: lehrerData.vollname,
+                        jahr: m.jahr,
+                        monat: m.monat,
+                        gesamt: neuGesamt,
+                        ges: { alt: altGes, neu: neuGes },
+                        gym: { alt: altGym, neu: neuGym },
+                        bk: { alt: altBk, neu: neuBk },
+                      });
                     }
                   }
                 }
@@ -552,6 +572,12 @@ export async function POST(request: NextRequest) {
       void notify("hauptdeputat.changed", {
         count: hauptdeputatEvents.length,
         aenderungen: hauptdeputatEvents,
+      });
+    }
+    if (verteilungEvents.length > 0) {
+      void notify("verteilung.changed", {
+        count: verteilungEvents.length,
+        aenderungen: verteilungEvents,
       });
     }
     void notify(fehler > 0 ? "sync.failed" : "sync.completed", {
