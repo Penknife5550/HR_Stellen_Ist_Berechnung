@@ -611,61 +611,108 @@ export async function upsertZuschlag(data: {
 // ============================================================
 
 export async function getLehrerMitDeputaten(haushaltsjahrId: number, schuleId?: number) {
-  const baseQuery = db
-    .select({
-      lehrerId: lehrer.id,
-      name: lehrer.vollname,
-      stammschuleCode: lehrer.stammschuleCode,
-      stammschuleId: lehrer.stammschuleId,
-      monat: deputatMonatlich.monat,
-      deputatGesamt: deputatMonatlich.deputatGesamt,
-      deputatGes: deputatMonatlich.deputatGes,
-      deputatGym: deputatMonatlich.deputatGym,
-      deputatBk: deputatMonatlich.deputatBk,
-    })
-    .from(lehrer)
-    .innerJoin(deputatMonatlich, eq(lehrer.id, deputatMonatlich.lehrerId))
-    .where(
-      schuleId
-        ? and(
-            eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId),
-            eq(lehrer.stammschuleId, schuleId),
-            eq(lehrer.aktiv, true)
-          )
-        : and(eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId), eq(lehrer.aktiv, true))
-    )
-    .orderBy(asc(lehrer.vollname), asc(deputatMonatlich.monat));
+  // Liest aus v_deputat_monat_tagesgenau (Periodenmodell v0.7+) statt aus
+  // der alten deputat_monatlich-Tabelle. Tagesgenaue Werte inkl. Korrekturen.
+  type Row = {
+    lehrerId: number;
+    name: string;
+    stammschuleCode: string | null;
+    stammschuleId: number | null;
+    monat: number;
+    deputatGesamt: string;
+    deputatGes: string;
+    deputatGym: string;
+    deputatBk: string;
+  };
 
-  return baseQuery;
+  const rows = await db.execute<Row>(
+    schuleId
+      ? sql`
+        SELECT
+          l.id                                  AS "lehrerId",
+          l.vollname                            AS "name",
+          l.stammschule_code                    AS "stammschuleCode",
+          l.stammschule_id                      AS "stammschuleId",
+          v.monat                               AS "monat",
+          v.deputat_gesamt_tagesgenau::text     AS "deputatGesamt",
+          v.deputat_ges_tagesgenau::text        AS "deputatGes",
+          v.deputat_gym_tagesgenau::text        AS "deputatGym",
+          v.deputat_bk_tagesgenau::text         AS "deputatBk"
+        FROM lehrer l
+        INNER JOIN v_deputat_monat_tagesgenau v ON v.lehrer_id = l.id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+          AND l.stammschule_id = ${schuleId}
+        ORDER BY l.vollname, v.monat
+      `
+      : sql`
+        SELECT
+          l.id                                  AS "lehrerId",
+          l.vollname                            AS "name",
+          l.stammschule_code                    AS "stammschuleCode",
+          l.stammschule_id                      AS "stammschuleId",
+          v.monat                               AS "monat",
+          v.deputat_gesamt_tagesgenau::text     AS "deputatGesamt",
+          v.deputat_ges_tagesgenau::text        AS "deputatGes",
+          v.deputat_gym_tagesgenau::text        AS "deputatGym",
+          v.deputat_bk_tagesgenau::text         AS "deputatBk"
+        FROM lehrer l
+        INNER JOIN v_deputat_monat_tagesgenau v ON v.lehrer_id = l.id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+        ORDER BY l.vollname, v.monat
+      `,
+  );
+  return rows as unknown as Row[];
 }
 
 export async function getDeputatSummenByMonat(haushaltsjahrId: number, schuleId?: number) {
-  // Monatliche Summen aller Wochenstunden (fuer Stellenist-Berechnung)
-  // OHNE Schul-Filter: Wird nur fuer Uebersicht/Vorschau genutzt
-  const rows = await db
-    .select({
-      monat: deputatMonatlich.monat,
-      summeGesamt: sql<string>`sum(${deputatMonatlich.deputatGesamt}::numeric)`,
-      summeGes: sql<string>`sum(${deputatMonatlich.deputatGes}::numeric)`,
-      summeGym: sql<string>`sum(${deputatMonatlich.deputatGym}::numeric)`,
-      summeBk: sql<string>`sum(${deputatMonatlich.deputatBk}::numeric)`,
-      anzahlLehrer: sql<number>`count(distinct ${deputatMonatlich.lehrerId})`,
-    })
-    .from(deputatMonatlich)
-    .innerJoin(lehrer, eq(deputatMonatlich.lehrerId, lehrer.id))
-    .where(
-      schuleId
-        ? and(
-            eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId),
-            eq(lehrer.stammschuleId, schuleId),
-            eq(lehrer.aktiv, true)
-          )
-        : and(eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId), eq(lehrer.aktiv, true))
-    )
-    .groupBy(deputatMonatlich.monat)
-    .orderBy(asc(deputatMonatlich.monat));
+  // Monatliche Summen aus dem Periodenmodell (v0.7+) — tagesgenau, inkl. Korrekturen.
+  // Liest aus v_deputat_monat_tagesgenau statt aus der alten deputat_monatlich-Tabelle.
+  type Row = {
+    monat: number;
+    summeGesamt: string;
+    summeGes: string;
+    summeGym: string;
+    summeBk: string;
+    anzahlLehrer: number;
+  };
 
-  return rows;
+  const rows = await db.execute<Row>(
+    schuleId
+      ? sql`
+        SELECT
+          v.monat                                                  AS "monat",
+          SUM(v.deputat_gesamt_tagesgenau)::text                   AS "summeGesamt",
+          SUM(v.deputat_ges_tagesgenau)::text                      AS "summeGes",
+          SUM(v.deputat_gym_tagesgenau)::text                      AS "summeGym",
+          SUM(v.deputat_bk_tagesgenau)::text                       AS "summeBk",
+          COUNT(DISTINCT v.lehrer_id)::int                         AS "anzahlLehrer"
+        FROM v_deputat_monat_tagesgenau v
+        INNER JOIN lehrer l ON l.id = v.lehrer_id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+          AND l.stammschule_id = ${schuleId}
+        GROUP BY v.monat
+        ORDER BY v.monat
+      `
+      : sql`
+        SELECT
+          v.monat                                                  AS "monat",
+          SUM(v.deputat_gesamt_tagesgenau)::text                   AS "summeGesamt",
+          SUM(v.deputat_ges_tagesgenau)::text                      AS "summeGes",
+          SUM(v.deputat_gym_tagesgenau)::text                      AS "summeGym",
+          SUM(v.deputat_bk_tagesgenau)::text                       AS "summeBk",
+          COUNT(DISTINCT v.lehrer_id)::int                         AS "anzahlLehrer"
+        FROM v_deputat_monat_tagesgenau v
+        INNER JOIN lehrer l ON l.id = v.lehrer_id
+        WHERE v.haushaltsjahr_id = ${haushaltsjahrId}
+          AND l.aktiv = true
+        GROUP BY v.monat
+        ORDER BY v.monat
+      `,
+  );
+  return rows as unknown as Row[];
 }
 
 /**
