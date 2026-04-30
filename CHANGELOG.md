@@ -25,6 +25,12 @@ inklusive Sachbearbeiter-Korrekturen fuer abweichende Stichtage.
 - `0012_view_no_buffer.sql` — 60-Tage-Puffer komplett entfernt: Daten enden
   exakt mit der letzten bekannten `gueltig_bis`. Sobald der naechste SY
   synct ist, fuellt sich der Bereich automatisch
+- `0013_aenderungen_filter_zero.sql` — `v_deputat_aenderungen` filtert
+  Pseudo-Wechsel ohne tatsaechliche Wertaenderung. Vorher zeigte die View
+  fuer JEDEN Periodenuebergang eine Zeile — auch wenn alle vier Werte
+  (gesamt/ges/gym/bk) gleich blieben. UI zeigte dann z.B. 33 "VERT."-
+  Wechsel mit Delta 0,00. WHERE-Klausel verlangt jetzt mind. einen Wert
+  mit Diff > 0,001
 
 **Neue API-Routen**:
 - `POST /api/untis-terms/sync` — Spiegelt den Untis-Term-Master
