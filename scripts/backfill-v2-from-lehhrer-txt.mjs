@@ -15,7 +15,11 @@ import fs from "node:fs";
 const INPUT = process.argv[2] ?? "C:/Users/driesen.FES/Downloads/lehhrer.txt";
 const ENDPOINT_TERMS = "http://localhost:3001/api/untis-terms/sync";
 const ENDPOINT_SYNC2 = "http://localhost:3001/api/deputate/sync-v2";
-const API_KEY = process.env.API_SYNC_KEY ?? "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
+const API_KEY = process.env.API_SYNC_KEY;
+if (!API_KEY) {
+  console.error("FEHLER: API_SYNC_KEY env var nicht gesetzt.");
+  process.exit(1);
+}
 const BATCH_SIZE = 2000;
 
 const raw = JSON.parse(fs.readFileSync(INPUT, "utf8"));

@@ -14,7 +14,8 @@
  */
 
 import { NextRequest } from "next/server";
-import { getOptionalSession } from "@/lib/auth/permissions";
+import { getOptionalSession, ROLE_LEVEL } from "@/lib/auth/permissions";
+import { writeAuditLog } from "@/lib/audit";
 import {
   getLehrerDetail,
   getSchulen,
@@ -71,6 +72,11 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return new Response("Nicht authentifiziert.", { status: 401 });
   }
+  // DSGVO: PII-Export (Personalnummer, Statistik-Code, Gehaltshistorie)
+  // erfordert Mitarbeiter-Rolle. Betrachter haben keinen Zugriff.
+  if (ROLE_LEVEL[session.rolle] < ROLE_LEVEL["mitarbeiter"]) {
+    return new Response("Keine Berechtigung fuer Lehrer-Detail-Export.", { status: 403 });
+  }
 
   const { searchParams } = request.nextUrl;
   const lehrerId = Number(searchParams.get("lehrerId"));
@@ -82,6 +88,16 @@ export async function GET(request: NextRequest) {
   if (!haushaltsjahrId || haushaltsjahrId <= 0) {
     return new Response("hj (haushaltsjahrId) fehlt.", { status: 400 });
   }
+
+  // DSGVO Art. 30: Verarbeitungsverzeichnis — jeder PII-Export wird protokolliert.
+  await writeAuditLog(
+    "export_lehrer_detail",
+    lehrerId,
+    "INSERT",
+    null,
+    { haushaltsjahrId, format: "pdf" },
+    session.name,
+  );
 
   try {
     const [detail, schulen, hj] = await Promise.all([

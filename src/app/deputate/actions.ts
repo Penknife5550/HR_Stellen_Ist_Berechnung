@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { deputatAenderungen, deputatAenderungKorrekturen } from "@/db/schema";
+import { deputatAenderungen, deputatAenderungKorrekturen, untisTerms } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
@@ -114,6 +114,32 @@ export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
 
   const data = parsed.data;
   const now = new Date();
+
+  // Plausibilitaetsbereich pruefen: tatsaechlichesDatum muss innerhalb
+  // [periode_alt.dateFrom, periode_neu.dateTo] liegen. Sonst kann eine
+  // verschobene Wirksamkeit fruehere/spaetere Perioden ueberschreiben
+  // (LATERAL-Pick in v_deputat_pro_tag) -> Datenkorruption in der Berechnung.
+  const [periodeAlt] = await db
+    .select({ dateFrom: untisTerms.dateFrom, dateTo: untisTerms.dateTo })
+    .from(untisTerms)
+    .where(and(eq(untisTerms.schoolYearId, data.syAlt), eq(untisTerms.termId, data.termIdAlt)));
+  const [periodeNeu] = await db
+    .select({ dateFrom: untisTerms.dateFrom, dateTo: untisTerms.dateTo })
+    .from(untisTerms)
+    .where(and(eq(untisTerms.schoolYearId, data.syNeu), eq(untisTerms.termId, data.termIdNeu)));
+
+  if (!periodeAlt || !periodeNeu) {
+    return { error: "Periode (alt oder neu) nicht im Untis-Terms-Master gefunden." };
+  }
+
+  if (
+    data.tatsaechlichesDatum < periodeAlt.dateFrom ||
+    data.tatsaechlichesDatum > periodeNeu.dateTo
+  ) {
+    return {
+      error: `Datum muss zwischen ${periodeAlt.dateFrom} und ${periodeNeu.dateTo} liegen (Periode alt bis neu).`,
+    };
+  }
 
   // Bestehende Korrektur fuer Audit-Vorher-Wert laden
   const [existing] = await db
