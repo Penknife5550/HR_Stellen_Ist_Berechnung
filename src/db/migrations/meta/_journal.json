@@ -78,6 +78,13 @@
       "when": 1782002000000,
       "tag": "0010_korrektur_layer",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782003000000,
+      "tag": "0011_view_no_phantom_fill",
+      "breakpoints": true
     }
   ]
 }
