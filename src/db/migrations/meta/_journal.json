@@ -92,6 +92,13 @@
       "when": 1782004000000,
       "tag": "0012_view_no_buffer",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782005000000,
+      "tag": "0013_aenderungen_filter_zero",
+      "breakpoints": true
     }
   ]
 }
