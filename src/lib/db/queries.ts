@@ -1493,16 +1493,29 @@ export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number)
     }
   }
 
-  const monatsDaten = await db
-    .select()
-    .from(deputatMonatlich)
-    .where(
-      and(
-        eq(deputatMonatlich.lehrerId, lehrerId),
-        eq(deputatMonatlich.haushaltsjahrId, haushaltsjahrId)
-      )
-    )
-    .orderBy(asc(deputatMonatlich.monat));
+  // Monatswerte aus dem Periodenmodell (v0.7+) — tagesgenau, inkl. Korrekturen.
+  // Liest aus v_deputat_monat_tagesgenau statt aus der alten deputat_monatlich-Tabelle.
+  type MonatRow = {
+    monat: number;
+    deputatGesamt: string;
+    deputatGes: string;
+    deputatGym: string;
+    deputatBk: string;
+    untisTermId: number | null;
+  };
+  const monatsDaten = (await db.execute<MonatRow>(sql`
+    SELECT
+      v.monat                            AS "monat",
+      v.deputat_gesamt_tagesgenau::text  AS "deputatGesamt",
+      v.deputat_ges_tagesgenau::text     AS "deputatGes",
+      v.deputat_gym_tagesgenau::text     AS "deputatGym",
+      v.deputat_bk_tagesgenau::text      AS "deputatBk",
+      v.dominante_term_id                AS "untisTermId"
+    FROM v_deputat_monat_tagesgenau v
+    WHERE v.lehrer_id = ${lehrerId}
+      AND v.haushaltsjahr_id = ${haushaltsjahrId}
+    ORDER BY v.monat
+  `)) as unknown as MonatRow[];
 
   const aenderungen = await getDeputatAenderungenByLehrer(lehrerId, haushaltsjahrId);
 
