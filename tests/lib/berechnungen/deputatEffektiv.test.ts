@@ -67,6 +67,43 @@ describe("berechneLehrerDeputatEffektiv — Einfachfall (eine Aenderung)", () =>
     expect(mar.korrektur.gesamt).toBe(0);
   });
 
+  it("v0.7: monatsDaten kommt taggenau aus View (pauschal == effektiv) — hatKorrektur trotzdem true", () => {
+    // Seit Migration 0010-0012 liest die Detailseite monatsDaten aus
+    // v_deputat_monat_tagesgenau. Der pauschale Wert ist also bereits
+    // taggenau gerechnet. effektiv − pauschal ergibt 0 — das ist KEIN
+    // Anlass, die Herleitung-Card auszublenden (sie zeigt ja exakt diese
+    // Berechnung).
+    const monatsDaten = [{
+      monat: 1,
+      // 24.855 = (20.5 * 4 + 25.5 * 27) / 31  (siehe Bergen-Memory)
+      deputatGesamt: "24.855",
+      deputatGes: "24.855",
+      deputatGym: "0",
+      deputatBk: "0",
+    }];
+    const aenderungen = [{
+      monat: 1,
+      deputatGesamtAlt: "20.500",
+      deputatGesAlt: "20.500",
+      deputatGymAlt: "0",
+      deputatBkAlt: "0",
+      deputatGesamtNeu: "25.500",
+      deputatGesNeu: "25.500",
+      deputatGymNeu: "0",
+      deputatBkNeu: "0",
+      tatsaechlichesDatum: "2026-01-05",
+      bemerkung: "Vertrag verlängert",
+    }];
+    const result = berechneLehrerDeputatEffektiv(monatsDaten, aenderungen, 2026);
+    const jan = result.get(1)!;
+    expect(jan.pauschal.gesamt).toBeCloseTo(24.855, 3);
+    expect(jan.effektiv.gesamt).toBeCloseTo(24.855, 3);
+    expect(Math.abs(jan.korrektur.gesamt)).toBeLessThan(0.001);
+    expect(jan.hatKorrektur).toBe(true); // <-- Kern des Bugfixes
+    expect(jan.aenderungen).toHaveLength(1);
+    expect(jan.aenderungen[0].bemerkung).toBe("Vertrag verlängert");
+  });
+
   it("Aenderung ohne tatsaechlichesDatum wird ignoriert", () => {
     const monatsDaten = [{ monat: 4, deputatGesamt: 20, deputatGes: 20, deputatGym: 0, deputatBk: 0 }];
     const aenderungen = [{

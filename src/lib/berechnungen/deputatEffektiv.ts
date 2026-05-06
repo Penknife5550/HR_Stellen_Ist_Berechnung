@@ -51,6 +51,8 @@ export interface AenderungInput {
   deputatBkNeu: number | string | null;
   /** ISO-Datum (YYYY-MM-DD) oder null */
   tatsaechlichesDatum: string | null;
+  /** Optionale Sachbearbeiter-Bemerkung zur Korrektur */
+  bemerkung?: string | null;
 }
 
 export interface DeputatWerte {
@@ -75,6 +77,8 @@ export interface KorrekturAnteil {
   anteilAlt: DeputatWerte;
   /** Beitrag der "Neu"-Werte zum effektiven Monatswert (neu / monatsTage * tageNach). Wie anteilAlt: bei Mehrfachaenderungen nur Anzeige-Helfer. */
   anteilNeu: DeputatWerte;
+  /** Optionale Sachbearbeiter-Bemerkung zur Korrektur */
+  bemerkung: string | null;
 }
 
 export interface MonatsDeputatErgebnis {
@@ -279,14 +283,17 @@ export function berechneLehrerDeputatEffektiv(
           gym: (neu.gym / monatsTage) * tageNach,
           bk: (neu.bk / monatsTage) * tageNach,
         },
+        bemerkung: a.bemerkung ?? null,
       };
     });
 
-    const hatKorrektur =
-      Math.abs(korrektur.gesamt) > 0.001 ||
-      Math.abs(korrektur.ges) > 0.001 ||
-      Math.abs(korrektur.gym) > 0.001 ||
-      Math.abs(korrektur.bk) > 0.001;
+    // Es liegt eine Korrektur vor, wenn im Monat ueberhaupt ein echter
+    // Wertwechsel mit gesetztem Datum existiert. Frueher wurde dies an
+    // der Differenz pauschal vs. effektiv festgemacht — das funktioniert
+    // seit v0.7 nicht mehr, weil monatsDaten bereits aus dem
+    // taggenauen View kommen (pauschal == effektiv) und die Anzeige
+    // damit genau dann verschwindet, wenn sie erscheinen sollte.
+    const hatKorrektur = monatsAenderungen.length > 0;
 
     result.set(md.monat, {
       monat: md.monat,
@@ -329,6 +336,7 @@ export interface EchterWertwechselInput {
   ges_neu: number | string | null;
   gym_neu: number | string | null;
   bk_neu: number | string | null;
+  bemerkung?: string | null;
 }
 
 /**
@@ -359,6 +367,7 @@ export function adaptiereEchteAenderungen(
       deputatGymNeu: a.gym_neu,
       deputatBkNeu: a.bk_neu,
       tatsaechlichesDatum: a.effektiv_wirksam_ab,
+      bemerkung: a.bemerkung ?? null,
     });
   }
   return result;

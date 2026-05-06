@@ -227,29 +227,39 @@ export function PeriodenModellCard({
                     </td>
                     <td className="py-2.5 px-3">
                       {editing ? (
-                        <form action={handleSave} className="flex items-center gap-1">
+                        <form action={handleSave} className="flex flex-col gap-1.5">
                           <input type="hidden" name="lehrerId" value={lehrerId} />
                           <input type="hidden" name="syAlt" value={a.sy_alt} />
                           <input type="hidden" name="termIdAlt" value={a.term_alt} />
                           <input type="hidden" name="syNeu" value={a.sy_neu} />
                           <input type="hidden" name="termIdNeu" value={a.term_neu} />
-                          <input
-                            type="date"
-                            name="tatsaechlichesDatum"
-                            defaultValue={a.tatsaechliches_datum ?? a.wirksam_ab}
-                            className="border border-[#D1D5DB] rounded px-2 py-1 text-xs"
-                            required
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="date"
+                              name="tatsaechlichesDatum"
+                              defaultValue={a.tatsaechliches_datum ?? a.wirksam_ab}
+                              className="border border-[#D1D5DB] rounded px-2 py-1 text-xs"
+                              required
+                            />
+                            <Button type="submit" disabled={saving} className="!px-2 !py-1 !text-xs">
+                              ✓
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingKey(null)}
+                              className="px-2 py-1 text-xs text-[#6B7280] hover:text-[#1A1A1A]"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <textarea
+                            name="bemerkung"
+                            defaultValue={a.bemerkung ?? ""}
+                            placeholder="Bemerkung / Grund (optional)"
+                            maxLength={500}
+                            rows={2}
+                            className="border border-[#D1D5DB] rounded px-2 py-1 text-xs w-full min-w-[220px] resize-y"
                           />
-                          <Button type="submit" disabled={saving} className="!px-2 !py-1 !text-xs">
-                            ✓
-                          </Button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingKey(null)}
-                            className="px-2 py-1 text-xs text-[#6B7280] hover:text-[#1A1A1A]"
-                          >
-                            ✕
-                          </button>
                         </form>
                       ) : a.tatsaechliches_datum ? (
                         <div className="flex items-center gap-1.5">
@@ -260,10 +270,20 @@ export function PeriodenModellCard({
                             type="button"
                             onClick={() => setEditingKey(k)}
                             className="text-[#6B7280] hover:text-[#009AC6]"
-                            aria-label="Tatsaechliches Datum bearbeiten"
+                            aria-label="Tatsaechliches Datum / Bemerkung bearbeiten"
+                            title="Datum und Bemerkung bearbeiten"
                           >
                             ✎
                           </button>
+                          {a.bemerkung && (
+                            <span
+                              className="text-[#6B7280] cursor-help"
+                              title={a.bemerkung}
+                              aria-label={`Bemerkung: ${a.bemerkung}`}
+                            >
+                              💬
+                            </span>
+                          )}
                           {a.korrektur_id != null && (
                             <button
                               type="button"

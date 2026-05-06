@@ -96,6 +96,9 @@ export default async function LehrerDetailPage({
       parts.push(
         `Aenderung am ${a.datum}: ${a.alt[col]} x ${a.tageVor}T + ${a.neu[col]} x ${a.tageNach}T / ${e.monatsTage}T = ${(a.anteilAlt[col] + a.anteilNeu[col]).toFixed(3)}`
       );
+      if (a.bemerkung) {
+        parts.push(`  Bemerkung: ${a.bemerkung}`);
+      }
     }
     return parts.join("\n");
   };
@@ -374,6 +377,12 @@ export default async function LehrerDetailPage({
                           Aenderung am <strong>{new Date(a.datum).toLocaleDateString("de-DE")}</strong>{" "}
                           (Tag {a.tag}/{e.monatsTage}):
                         </div>
+                        {a.bemerkung && (
+                          <div className="text-[12px] mb-2 italic text-[#575756] font-sans bg-[#FEF7CC] border-l-2 border-[#FBC900] px-2 py-1 rounded-sm">
+                            <span className="not-italic mr-1">💬</span>
+                            {a.bemerkung}
+                          </div>
+                        )}
                         <div className="text-[13px] space-y-0.5">
                           <div>
                             <span className="text-[#6B7280]">Vor Aenderung:</span>{" "}

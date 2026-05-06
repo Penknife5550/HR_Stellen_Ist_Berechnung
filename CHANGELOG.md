@@ -1,5 +1,41 @@
 # Changelog — Stellenistberechnung
 
+## [Unreleased]
+
+### Bug-Fixes
+
+- **Taggenaue Card erscheint im aktuellen Haushaltsjahr wieder** — Seit v0.7
+  liest die Detailseite `monatsDaten` aus `v_deputat_monat_tagesgenau`. Damit
+  ist der "Pauschal"-Wert bereits taggenau, der bisherige
+  `hatKorrektur`-Trigger (`effektiv − pauschal > 0`) wurde nie wahr und die
+  Herleitung-Card verschwand genau dort, wo sie haette erscheinen sollen.
+  Trigger jetzt: existiert ein Wertwechsel mit gesetztem Datum im Monat?
+  (`src/lib/berechnungen/deputatEffektiv.ts`)
+
+- **Stichtag-Korrektur "nach hinten" lieferte falschen Pauschal-Wert** —
+  Migration `0014_view_close_korrektur_lueck.sql`. Wenn der Sachbearbeiter
+  den Wirksamkeitsstichtag NACH dem Untis-Montag eintrug (z.B. Untis-Mo
+  Mo 19.05., Korrektur Mi 21.05.), entstand in `v_deputat_pro_tag` eine
+  Luecke (alte Periode endete bei Untis-`gueltig_bis`, neue erst bei
+  `effektiv_von`). Der `AVG` in `v_deputat_monat_tagesgenau` war dadurch
+  zu niedrig — und die Refinanzierungs-Berechnung damit untersaetzig.
+
+  Beispiel 10 → 0 ab 21.05.2025:
+  - Vor Fix: 180 / 29 Tage = **6.21** (Tage 19./20.05. fehlten)
+  - Nach Fix: 200 / 31 Tage = **6.45** (alte Periode bis 20.05. verlaengert)
+
+  Echte Untis-Pausen (Beurlaubung etc., kein Korrektur-Datum) werden NICHT
+  geschlossen.
+
+### Features
+
+- **Bemerkung beim Tats. Datum** — Inline-Edit-Form im Periodenmodell hat
+  jetzt ein optionales Bemerkungsfeld (max 500 Zeichen). Im Anzeige-Modus
+  erscheint ein 💬-Icon mit Tooltip; in der Taggenau-Detail-Card und im
+  Hover-Tooltip der Monatstabelle wird der Text mit ausgegeben. Datenbank-
+  Schicht (`deputat_aenderung_korrekturen.bemerkung`) und Server-Action
+  waren bereits vorhanden, nur das UI fehlte.
+
 ## [0.7.0] — 2026-04-30
 
 ### Periodenmodell v0.7 (Phase 2 + Finalisierung)

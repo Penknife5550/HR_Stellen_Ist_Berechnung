@@ -99,6 +99,13 @@
       "when": 1782005000000,
       "tag": "0013_aenderungen_filter_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782006000000,
+      "tag": "0014_view_close_korrektur_lueck",
+      "breakpoints": true
     }
   ]
 }
