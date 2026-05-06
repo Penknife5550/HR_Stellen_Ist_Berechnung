@@ -19,6 +19,9 @@
 
 ## 📚 Konzepte
 
+### Word-Vorlagen-Bibliothek (Plan, in Arbeit)
+[`konzepte/word_vorlagen/konzept.md`](konzepte/word_vorlagen/konzept.md) — Hardcoded `.docx`-Templates durch DB-verwaltete Vorlagen ersetzen, Admin-UI, dynamische Kategorien.
+
 ### Periodenmodell v0.7 (aktuell)
 [`konzepte/periodenmodell_v0.7/`](konzepte/periodenmodell_v0.7/)
 
