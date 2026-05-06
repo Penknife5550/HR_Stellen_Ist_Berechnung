@@ -1,44 +1,21 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
-import {
-  getAktuellesHaushaltsjahr,
-  getHaushaltsjahre,
-  getGehaltsrelevanteAenderungen,
-} from "@/lib/db/queries";
+import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
+import { getGehaltsrelevanteWertwechsel } from "@/lib/db/queries";
+import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
 import { NachtraegeClient } from "./NachtraegeClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function NachtraegePage() {
-  const [haushaltsjahre, aktuellesHj] = await Promise.all([
-    getHaushaltsjahre(),
-    getAktuellesHaushaltsjahr(),
-  ]);
+export default async function NachtraegePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { hj, hjOptions } = await getSelectedHaushaltsjahr(await searchParams);
 
-  const hjId = aktuellesHj?.id;
-  const aenderungen = hjId ? await getGehaltsrelevanteAenderungen(hjId) : [];
-
-  // Daten serialisieren (Timestamps → Strings)
-  const serialized = aenderungen.map((a) => ({
-    ...a,
-    geaendertAm: a.geaendertAm.toLocaleDateString("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }),
-    nachtragErstelltAm: a.nachtragErstelltAm
-      ? a.nachtragErstelltAm.toLocaleDateString("de-DE", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null,
-  }));
-
-  if (!aktuellesHj) {
+  if (!hj) {
     return (
       <PageContainer>
         <Header
@@ -58,21 +35,38 @@ export default async function NachtraegePage() {
     );
   }
 
+  const wechsel = await getGehaltsrelevanteWertwechsel(hj.id);
+
+  // Daten serialisieren (Date → String)
+  const serialized = wechsel.map((w) => ({
+    ...w,
+    erstelltAm: w.erstelltAm
+      ? w.erstelltAm.toLocaleDateString("de-DE", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null,
+  }));
+
   return (
     <PageContainer>
       <Header
         title="Nachtraege"
-        subtitle={`Vertragsnachtraege — Haushaltsjahr ${aktuellesHj.jahr}`}
+        subtitle={`Vertragsnachtraege — Haushaltsjahr ${hj.jahr}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Nachtraege" },
         ]}
       />
-      <NachtraegeClient
-        aenderungen={serialized}
-        haushaltsjahre={haushaltsjahre.map((h) => ({ id: h.id, jahr: h.jahr }))}
-        aktuellesHaushaltsjahrId={hjId}
-      />
+      {hjOptions.length > 1 && (
+        <div className="flex justify-end mb-4">
+          <HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} />
+        </div>
+      )}
+      <NachtraegeClient wechsel={serialized} jahr={hj.jahr} />
     </PageContainer>
   );
 }

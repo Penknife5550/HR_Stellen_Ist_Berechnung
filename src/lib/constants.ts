@@ -77,6 +77,13 @@ export const MONATE_KURZ = [
 // Primaer aus DB laden via getRegeldeputateMap() (queries.ts)
 export const REGELSTUNDEN_DEFAULT = "25.5";
 
+/**
+ * Schwelle, ab der eine Wochenstunden-Differenz als gehaltsrelevant gilt.
+ * Wird in v_deputat_aenderungen (SQL: 0.001 hardcoded) und in TS-Code
+ * verwendet — beim Aendern hier auch die Migration anpassen.
+ */
+export const GEHALTSRELEVANT_DELTA = 0.001;
+
 // Schulform-Langbezeichnung fuer Vertragsunterlagen
 export function getSchulformLang(schulform: string | null): string {
   switch (schulform) {

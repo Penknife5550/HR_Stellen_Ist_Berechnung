@@ -19,6 +19,7 @@ import {
   deputatAenderungen,
   deputatProPeriode,
   deputatAenderungKorrekturen,
+  deputatNachtraege,
   untisTerms,
   mehrarbeit,
   mehrarbeitSchuleBemerkung,
@@ -1722,65 +1723,259 @@ export async function getAenderungenZusammenfassung(haushaltsjahrId: number) {
 }
 
 // ============================================================
-// NACHTRAEGE (gehaltsrelevante Aenderungen mit Nachtrag-Status)
+// NACHTRAEGE v0.7 (Periodenmodell-Quelle: v_deputat_aenderungen)
 // ============================================================
 
-/** Alle gehaltsrelevanten Aenderungen fuer Nachtrags-Uebersicht */
-export async function getGehaltsrelevanteAenderungen(haushaltsjahrId: number) {
-  return db
-    .select({
-      id: deputatAenderungen.id,
-      lehrerId: deputatAenderungen.lehrerId,
-      lehrerName: lehrer.vollname,
-      personalnummer: lehrer.personalnummer,
-      stammschuleCode: lehrer.stammschuleCode,
-      stammschuleId: lehrer.stammschuleId,
-      schuleName: schulen.name,
-      monat: deputatAenderungen.monat,
-      deputatGesamtAlt: deputatAenderungen.deputatGesamtAlt,
-      deputatGesamtNeu: deputatAenderungen.deputatGesamtNeu,
-      geaendertAm: deputatAenderungen.geaendertAm,
-      tatsaechlichesDatum: deputatAenderungen.tatsaechlichesDatum,
-      nachtragStatus: deputatAenderungen.nachtragStatus,
-      nachtragErstelltAm: deputatAenderungen.nachtragErstelltAm,
-      nachtragErstelltVon: deputatAenderungen.nachtragErstelltVon,
-    })
-    .from(deputatAenderungen)
-    .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))
-    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
-    .where(
-      and(
-        eq(deputatAenderungen.haushaltsjahrId, haushaltsjahrId),
-        eq(deputatAenderungen.istGehaltsrelevant, true)
-      )
-    )
-    .orderBy(desc(deputatAenderungen.geaendertAm));
+export type GehaltsrelevanterWertwechsel = {
+  lehrerId: number;
+  lehrerName: string;
+  personalnummer: string | null;
+  stammschuleCode: string | null;
+  schuleName: string | null;
+  schulform: string | null;
+  syAlt: number;
+  termAlt: number;
+  syNeu: number;
+  termNeu: number;
+  wirksamAb: string;
+  tatsaechlichesDatum: string | null;
+  effektivWirksamAb: string;
+  hatKorrektur: boolean;
+  gesamtAlt: string;
+  gesamtNeu: string;
+  deltaGesamt: string;
+  status: string | null;
+  erstelltAm: Date | null;
+  erstelltVon: string | null;
+};
+
+/**
+ * Liefert alle gehaltsrelevanten Wertwechsel (|delta_gesamt| > 0,001) im
+ * angegebenen Haushaltsjahr aus v_deputat_aenderungen, joined mit
+ * lehrer/schulen und dem Bearbeitungsstatus aus deputat_nachtraege.
+ *
+ * Eine Zeile = ein Vertragsnachtrag.
+ */
+export async function getGehaltsrelevanteWertwechsel(
+  haushaltsjahrId: number,
+): Promise<GehaltsrelevanterWertwechsel[]> {
+  const [hj] = await db
+    .select({ jahr: haushaltsjahre.jahr })
+    .from(haushaltsjahre)
+    .where(eq(haushaltsjahre.id, haushaltsjahrId));
+  if (!hj) return [];
+
+  type Row = {
+    lehrer_id: number;
+    lehrer_name: string;
+    personalnummer: string | null;
+    stammschule_code: string | null;
+    schule_name: string | null;
+    schulform: string | null;
+    sy_alt: number;
+    term_alt: number;
+    sy_neu: number;
+    term_neu: number;
+    wirksam_ab: string;
+    tatsaechliches_datum: string | null;
+    effektiv_wirksam_ab: string;
+    hat_korrektur: boolean;
+    gesamt_alt: string;
+    gesamt_neu: string;
+    delta_gesamt: string;
+    status: string | null;
+    erstellt_am: Date | null;
+    erstellt_von: string | null;
+  };
+
+  const rows = await db.execute<Row>(sql`
+    SELECT
+      v.lehrer_id,
+      l.vollname                                  AS lehrer_name,
+      l.personalnummer,
+      COALESCE(dpp_neu.stammschule_code, l.stammschule_code) AS stammschule_code,
+      s.name                                      AS schule_name,
+      s.schulform                                 AS schulform,
+      v.sy_alt, v.term_alt, v.sy_neu, v.term_neu,
+      v.wirksam_ab,
+      v.tatsaechliches_datum,
+      v.effektiv_wirksam_ab,
+      v.hat_korrektur,
+      v.gesamt_alt, v.gesamt_neu, v.delta_gesamt,
+      n.status,
+      n.erstellt_am,
+      n.erstellt_von
+    FROM v_deputat_aenderungen v
+    INNER JOIN lehrer l ON l.id = v.lehrer_id
+    LEFT JOIN deputat_pro_periode dpp_neu
+      ON dpp_neu.lehrer_id = v.lehrer_id
+     AND dpp_neu.untis_schoolyear_id = v.sy_neu
+     AND dpp_neu.untis_term_id = v.term_neu
+    LEFT JOIN schulen s ON s.kurzname = COALESCE(dpp_neu.stammschule_code, l.stammschule_code)
+    LEFT JOIN deputat_nachtraege n
+      ON n.lehrer_id = v.lehrer_id
+     AND n.sy_alt = v.sy_alt
+     AND n.term_alt = v.term_alt
+     AND n.sy_neu = v.sy_neu
+     AND n.term_neu = v.term_neu
+    WHERE ABS(v.delta_gesamt) > 0.001
+      AND EXTRACT(YEAR FROM v.effektiv_wirksam_ab) = ${hj.jahr}
+    ORDER BY v.effektiv_wirksam_ab DESC, l.vollname ASC
+  `);
+
+  return (rows as unknown as Row[]).map((r) => ({
+    lehrerId: r.lehrer_id,
+    lehrerName: r.lehrer_name,
+    personalnummer: r.personalnummer,
+    stammschuleCode: r.stammschule_code,
+    schuleName: r.schule_name,
+    schulform: r.schulform,
+    syAlt: r.sy_alt,
+    termAlt: r.term_alt,
+    syNeu: r.sy_neu,
+    termNeu: r.term_neu,
+    wirksamAb: r.wirksam_ab,
+    tatsaechlichesDatum: r.tatsaechliches_datum,
+    effektivWirksamAb: r.effektiv_wirksam_ab,
+    hatKorrektur: r.hat_korrektur,
+    gesamtAlt: r.gesamt_alt,
+    gesamtNeu: r.gesamt_neu,
+    deltaGesamt: r.delta_gesamt,
+    status: r.status,
+    erstelltAm: r.erstellt_am,
+    erstelltVon: r.erstellt_von,
+  }));
 }
 
-/** Einzelne Aenderung fuer Nachtrag-Generierung laden */
-export async function getAenderungFuerNachtrag(aenderungId: number) {
-  const [result] = await db
-    .select({
-      id: deputatAenderungen.id,
-      lehrerId: deputatAenderungen.lehrerId,
-      lehrerName: lehrer.vollname,
-      personalnummer: lehrer.personalnummer,
-      stammschuleCode: lehrer.stammschuleCode,
-      schuleName: schulen.name,
-      schulform: schulen.schulform,
-      monat: deputatAenderungen.monat,
-      haushaltsjahrId: deputatAenderungen.haushaltsjahrId,
-      deputatGesamtAlt: deputatAenderungen.deputatGesamtAlt,
-      deputatGesamtNeu: deputatAenderungen.deputatGesamtNeu,
-      geaendertAm: deputatAenderungen.geaendertAm,
-      tatsaechlichesDatum: deputatAenderungen.tatsaechlichesDatum,
-    })
-    .from(deputatAenderungen)
-    .innerJoin(lehrer, eq(deputatAenderungen.lehrerId, lehrer.id))
-    .leftJoin(schulen, eq(lehrer.stammschuleId, schulen.id))
-    .where(eq(deputatAenderungen.id, aenderungId));
+/**
+ * Liefert genau einen Wertwechsel + Lehrer-Stammdaten fuer den Word-Export.
+ * Stammschule kommt aus deputat_pro_periode der NEUEN Periode (faengt
+ * Stammschulwechsel mitten im HJ ab); Fallback auf lehrer.stammschule_code.
+ */
+export async function getWertwechselFuerNachtrag(params: {
+  lehrerId: number;
+  syAlt: number;
+  termAlt: number;
+  syNeu: number;
+  termNeu: number;
+}) {
+  type Row = {
+    lehrer_id: number;
+    lehrer_name: string;
+    personalnummer: string | null;
+    stammschule_code: string | null;
+    schule_name: string | null;
+    schulform: string | null;
+    wirksam_ab: string;
+    tatsaechliches_datum: string | null;
+    effektiv_wirksam_ab: string;
+    gesamt_alt: string;
+    gesamt_neu: string;
+  };
+  const rows = await db.execute<Row>(sql`
+    SELECT
+      v.lehrer_id,
+      l.vollname                                  AS lehrer_name,
+      l.personalnummer,
+      COALESCE(dpp_neu.stammschule_code, l.stammschule_code) AS stammschule_code,
+      s.name                                      AS schule_name,
+      s.schulform                                 AS schulform,
+      v.wirksam_ab,
+      v.tatsaechliches_datum,
+      v.effektiv_wirksam_ab,
+      v.gesamt_alt,
+      v.gesamt_neu
+    FROM v_deputat_aenderungen v
+    INNER JOIN lehrer l ON l.id = v.lehrer_id
+    LEFT JOIN deputat_pro_periode dpp_neu
+      ON dpp_neu.lehrer_id = v.lehrer_id
+     AND dpp_neu.untis_schoolyear_id = v.sy_neu
+     AND dpp_neu.untis_term_id = v.term_neu
+    LEFT JOIN schulen s ON s.kurzname = COALESCE(dpp_neu.stammschule_code, l.stammschule_code)
+    WHERE v.lehrer_id = ${params.lehrerId}
+      AND v.sy_alt = ${params.syAlt}
+      AND v.term_alt = ${params.termAlt}
+      AND v.sy_neu = ${params.syNeu}
+      AND v.term_neu = ${params.termNeu}
+    LIMIT 1
+  `);
+  const list = rows as unknown as Row[];
+  return list[0] ?? null;
+}
 
-  return result ?? null;
+/**
+ * Setzt den Bearbeitungs-Status eines Wertwechsels.
+ *
+ * - status="erstellt"|"versendet": Upsert. Bei "erstellt" wird erstelltAm/Von
+ *   nur gesetzt, wenn noch keiner existiert (COALESCE → first-writer-wins,
+ *   verhindert Race-Verlust der Audit-Spur durch zweiten Klick).
+ * - status=null: DELETE der Statuszeile. Audit-Spur bleibt im audit_log;
+ *   die Tabelle haelt nur den aktiven Bearbeitungs-Status.
+ */
+export async function upsertNachtragStatus(params: {
+  lehrerId: number;
+  syAlt: number;
+  termAlt: number;
+  syNeu: number;
+  termNeu: number;
+  status: "erstellt" | "versendet" | null;
+  erstelltVon?: string | null;
+}) {
+  const { lehrerId, syAlt, termAlt, syNeu, termNeu } = params;
+
+  if (params.status === null) {
+    await db
+      .delete(deputatNachtraege)
+      .where(
+        and(
+          eq(deputatNachtraege.lehrerId, lehrerId),
+          eq(deputatNachtraege.syAlt, syAlt),
+          eq(deputatNachtraege.termAlt, termAlt),
+          eq(deputatNachtraege.syNeu, syNeu),
+          eq(deputatNachtraege.termNeu, termNeu),
+        ),
+      );
+    return;
+  }
+
+  const now = new Date();
+  const istErstellt = params.status === "erstellt";
+  const erstelltVon = params.erstelltVon ?? null;
+
+  await db
+    .insert(deputatNachtraege)
+    .values({
+      lehrerId,
+      syAlt,
+      termAlt,
+      syNeu,
+      termNeu,
+      status: params.status,
+      erstelltAm: istErstellt ? now : null,
+      erstelltVon: istErstellt ? erstelltVon : null,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        deputatNachtraege.lehrerId,
+        deputatNachtraege.syAlt,
+        deputatNachtraege.termAlt,
+        deputatNachtraege.syNeu,
+        deputatNachtraege.termNeu,
+      ],
+      set: {
+        status: params.status,
+        // First-writer-wins fuer Audit-Felder: COALESCE behaelt den ersten
+        // erstelltAm/Von, auch wenn ein zweiter User "Erneut" klickt.
+        erstelltAm: istErstellt
+          ? sql`COALESCE(${deputatNachtraege.erstelltAm}, ${now})`
+          : deputatNachtraege.erstelltAm,
+        erstelltVon: istErstellt
+          ? sql`COALESCE(${deputatNachtraege.erstelltVon}, ${erstelltVon})`
+          : deputatNachtraege.erstelltVon,
+        updatedAt: now,
+      },
+    });
 }
 
 // ============================================================

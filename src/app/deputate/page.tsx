@@ -1,7 +1,7 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
-import { MONATE_KURZ } from "@/lib/constants";
+import { GEHALTSRELEVANT_DELTA } from "@/lib/constants";
 import {
   getSchulen,
   getLehrerMitDeputaten,
@@ -63,10 +63,12 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
   const lehrerMitGehaltsaenderung = new Set<number>();
   const lehrerMitVerteilungsaenderung = new Set<number>();
   const aenderungenByLehrer = new Map<number, typeof echteAenderungen>();
+  let anzahlGehaltsWertwechsel = 0;
   for (const a of echteAenderungen) {
     const deltaGesamt = Math.abs(Number(a.delta_gesamt));
-    if (deltaGesamt > 0.001) {
+    if (deltaGesamt > GEHALTSRELEVANT_DELTA) {
       lehrerMitGehaltsaenderung.add(a.lehrer_id);
+      anzahlGehaltsWertwechsel++;
     } else {
       lehrerMitVerteilungsaenderung.add(a.lehrer_id);
     }
@@ -223,11 +225,13 @@ export default async function DeputatePage({ searchParams }: { searchParams: Pro
               <span className="text-2xl">⚠</span>
               <div>
                 <p className="font-bold text-[#E2001A] text-[15px]">
-                  {lehrerMitGehaltsaenderung.size} Lehrkraft/Lehrkraefte mit gehaltsrelevanter Deputatsaenderung
+                  {lehrerMitGehaltsaenderung.size} Lehrkraft/Lehrkraefte mit insgesamt {anzahlGehaltsWertwechsel} gehaltsrelevanten Wertwechseln
                 </p>
                 <p className="text-sm text-[#575756] mt-1">
                   Bei diesen Lehrkraeften hat sich das Gesamtdeputat (PlannedWeek) geaendert.
-                  Dies beeinflusst die Verguetung. Klicken Sie auf den Namen fuer Details.
+                  Dies beeinflusst die Verguetung — fuer jeden Wertwechsel wird auf{" "}
+                  <a href="/nachtraege" className="underline font-medium">/nachtraege</a>{" "}
+                  ein Vertragsnachtrag angeboten.
                 </p>
               </div>
             </div>

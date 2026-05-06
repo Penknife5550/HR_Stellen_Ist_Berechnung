@@ -4,115 +4,150 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { MONATE_KURZ } from "@/lib/constants";
-import { markiereAlsVersendetAction, resetNachtragStatusAction } from "./actions";
+import {
+  markiereAlsVersendetAction,
+  resetNachtragStatusAction,
+} from "./actions";
 
-type Aenderung = {
-  id: number;
+type Wechsel = {
   lehrerId: number;
   lehrerName: string;
   personalnummer: string | null;
   stammschuleCode: string | null;
   schuleName: string | null;
-  monat: number;
-  deputatGesamtAlt: string | null;
-  deputatGesamtNeu: string | null;
-  geaendertAm: string;
+  schulform: string | null;
+  syAlt: number;
+  termAlt: number;
+  syNeu: number;
+  termNeu: number;
+  wirksamAb: string;
   tatsaechlichesDatum: string | null;
-  nachtragStatus: string | null;
-  nachtragErstelltAm: string | null;
-  nachtragErstelltVon: string | null;
+  effektivWirksamAb: string;
+  hatKorrektur: boolean;
+  gesamtAlt: string;
+  gesamtNeu: string;
+  deltaGesamt: string;
+  status: string | null;
+  erstelltAm: string | null;
+  erstelltVon: string | null;
 };
 
+type Filter = "alle" | "offen" | "erstellt" | "versendet";
+
 interface NachtraegeClientProps {
-  aenderungen: Aenderung[];
-  haushaltsjahre: { id: number; jahr: number }[];
-  aktuellesHaushaltsjahrId: number;
+  wechsel: Wechsel[];
+  jahr: number;
 }
 
-export function NachtraegeClient({
-  aenderungen,
-  aktuellesHaushaltsjahrId,
-}: NachtraegeClientProps) {
-  const router = useRouter();
-  const [filter, setFilter] = useState<"alle" | "offen" | "erstellt" | "versendet">("alle");
-  const [suchtext, setSuchtext] = useState("");
-  const [loadingId, setLoadingId] = useState<number | null>(null);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+function tupelKey(w: Wechsel) {
+  return `${w.lehrerId}_${w.syAlt}_${w.termAlt}_${w.syNeu}_${w.termNeu}`;
+}
 
-  // Status-Zaehler (Single-Pass)
-  const { offen, erstellt, versendet } = aenderungen.reduce(
-    (acc, a) => {
-      if (!a.nachtragStatus) acc.offen++;
-      else if (a.nachtragStatus === "erstellt") acc.erstellt++;
-      else if (a.nachtragStatus === "versendet") acc.versendet++;
+function tupelQuery(w: Wechsel) {
+  const p = new URLSearchParams({
+    lehrerId: String(w.lehrerId),
+    syAlt: String(w.syAlt),
+    termAlt: String(w.termAlt),
+    syNeu: String(w.syNeu),
+    termNeu: String(w.termNeu),
+  });
+  return p.toString();
+}
+
+export function NachtraegeClient({ wechsel, jahr }: NachtraegeClientProps) {
+  const router = useRouter();
+  const [filter, setFilter] = useState<Filter>("alle");
+  const [suchtext, setSuchtext] = useState("");
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const [message, setMessage] = useState<
+    { type: "success" | "error"; text: string } | null
+  >(null);
+
+  const { offen, erstellt, versendet } = wechsel.reduce(
+    (acc, w) => {
+      if (!w.status) acc.offen++;
+      else if (w.status === "erstellt") acc.erstellt++;
+      else if (w.status === "versendet") acc.versendet++;
       return acc;
     },
-    { offen: 0, erstellt: 0, versendet: 0 }
+    { offen: 0, erstellt: 0, versendet: 0 },
   );
 
-  // Filtern
-  const gefiltert = aenderungen.filter((a) => {
-    if (filter === "offen" && a.nachtragStatus) return false;
-    if (filter === "erstellt" && a.nachtragStatus !== "erstellt") return false;
-    if (filter === "versendet" && a.nachtragStatus !== "versendet") return false;
+  const gefiltert = wechsel.filter((w) => {
+    if (filter === "offen" && w.status) return false;
+    if (filter === "erstellt" && w.status !== "erstellt") return false;
+    if (filter === "versendet" && w.status !== "versendet") return false;
     if (suchtext) {
       const s = suchtext.toLowerCase();
       return (
-        a.lehrerName.toLowerCase().includes(s) ||
-        a.personalnummer?.toLowerCase().includes(s) ||
-        a.stammschuleCode?.toLowerCase().includes(s)
+        w.lehrerName.toLowerCase().includes(s) ||
+        (w.personalnummer ?? "").toLowerCase().includes(s) ||
+        (w.stammschuleCode ?? "").toLowerCase().includes(s)
       );
     }
     return true;
   });
 
-  async function handleDownload(aenderungId: number) {
-    setLoadingId(aenderungId);
+  async function handleDownload(w: Wechsel) {
+    const key = tupelKey(w);
+    setLoadingKey(key);
+    setMessage(null);
+    let url: string | null = null;
     try {
-      const res = await fetch(`/api/export/nachtrag?aenderungId=${aenderungId}`);
+      const res = await fetch(`/api/export/nachtrag?${tupelQuery(w)}`);
       if (!res.ok) {
-        setMessage({ type: "error", text: "Fehler beim Erstellen des Nachtrags." });
+        const text = await res.text().catch(() => "");
+        setMessage({
+          type: "error",
+          text: text || "Fehler beim Erstellen des Nachtrags.",
+        });
         return;
       }
-      // DOCX-Download ausloesen
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = res.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ?? "Nachtrag.docx";
+      a.download =
+        res.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ??
+        "Nachtrag.docx";
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setMessage({ type: "success", text: "Nachtrag erstellt — Datei wird heruntergeladen." });
       router.refresh();
+    } catch (err) {
+      console.error("handleDownload", err);
+      setMessage({
+        type: "error",
+        text: "Netzwerkfehler — bitte erneut versuchen.",
+      });
     } finally {
-      setLoadingId(null);
+      if (url) URL.revokeObjectURL(url);
+      setLoadingKey(null);
     }
   }
 
   async function handleMarkVersendet(formData: FormData) {
-    const id = Number(formData.get("aenderungId"));
-    setLoadingId(id);
+    const key = `${formData.get("lehrerId")}_${formData.get("syAlt")}_${formData.get("termAlt")}_${formData.get("syNeu")}_${formData.get("termNeu")}`;
+    setLoadingKey(key);
     setMessage(null);
     const result = await markiereAlsVersendetAction(formData);
-    setLoadingId(null);
-    if (result.error) {
-      setMessage({ type: "error", text: result.error });
-    } else {
-      setMessage({ type: "success", text: result.message ?? "Gespeichert." });
-    }
+    setLoadingKey(null);
+    if (result.error) setMessage({ type: "error", text: result.error });
+    else setMessage({ type: "success", text: result.message ?? "Gespeichert." });
   }
 
   async function handleReset(formData: FormData) {
-    const id = Number(formData.get("aenderungId"));
-    setLoadingId(id);
+    if (!window.confirm("Status wirklich zuruecksetzen? Die Markierung 'Erstellt'/'Versendet' geht verloren.")) {
+      return;
+    }
+    const key = `${formData.get("lehrerId")}_${formData.get("syAlt")}_${formData.get("termAlt")}_${formData.get("syNeu")}_${formData.get("termNeu")}`;
+    setLoadingKey(key);
     setMessage(null);
     const result = await resetNachtragStatusAction(formData);
-    setLoadingId(null);
-    if (result.error) {
-      setMessage({ type: "error", text: result.error });
-    } else {
-      setMessage({ type: "success", text: result.message ?? "Zurueckgesetzt." });
-    }
+    setLoadingKey(null);
+    if (result.error) setMessage({ type: "error", text: result.error });
+    else setMessage({ type: "success", text: result.message ?? "Zurueckgesetzt." });
   }
 
   function getStatusBadge(status: string | null) {
@@ -161,15 +196,17 @@ export function NachtraegeClient({
         </Card>
       </div>
 
-      {/* Filter + Suche */}
       <Card className="mb-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex gap-1">
+          <div className="flex gap-2 flex-wrap" role="tablist" aria-label="Status-Filter">
             {(["alle", "offen", "erstellt", "versendet"] as const).map((f) => (
               <button
                 key={f}
+                role="tab"
+                aria-selected={filter === f}
+                aria-controls="nachtraege-panel"
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                className={`px-4 py-2 min-h-[44px] rounded-lg text-sm font-bold transition-colors ${
                   filter === f
                     ? "bg-[#575756] text-white"
                     : "bg-[#F3F4F6] text-[#575756] hover:bg-[#E5E7EB]"
@@ -182,16 +219,20 @@ export function NachtraegeClient({
               </button>
             ))}
           </div>
+          <label htmlFor="nachtraege-suche" className="sr-only">
+            Suche nach Lehrkraft, Personalnummer oder Schule
+          </label>
           <input
+            id="nachtraege-suche"
             type="text"
             placeholder="Suche nach Name, Personalnr., Schule..."
             value={suchtext}
             onChange={(e) => setSuchtext(e.target.value)}
-            className="flex-1 min-w-[200px] border border-[#E5E7EB] rounded-lg px-4 py-2 text-sm
+            className="flex-1 min-w-[200px] min-h-[44px] border border-[#E5E7EB] rounded-lg px-4 py-2 text-sm
               focus:outline-none focus:ring-2 focus:ring-[#575756] focus:border-transparent"
           />
           <span className="text-sm text-[#6B7280]">
-            {gefiltert.length} von {aenderungen.length} Eintraegen
+            {gefiltert.length} von {wechsel.length} Eintraegen
           </span>
         </div>
       </Card>
@@ -208,11 +249,14 @@ export function NachtraegeClient({
         </div>
       )}
 
-      {/* Tabelle */}
-      <Card>
+      <div id="nachtraege-panel" role="tabpanel"><Card>
         {gefiltert.length === 0 ? (
           <div className="text-center py-12 text-[#6B7280]">
-            <p className="text-lg font-medium">Keine Eintraege gefunden.</p>
+            <p className="text-lg font-medium">
+              {wechsel.length === 0
+                ? `Keine gehaltsrelevanten Wertwechsel im Haushaltsjahr ${jahr}.`
+                : "Keine Eintraege im aktuellen Filter."}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -228,9 +272,6 @@ export function NachtraegeClient({
                   <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
                     Schule
                   </th>
-                  <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                    Monat
-                  </th>
                   <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
                     Alt
                   </th>
@@ -242,7 +283,7 @@ export function NachtraegeClient({
                     Diff
                   </th>
                   <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
-                    Datum
+                    Wirksam ab
                   </th>
                   <th className="text-center py-2 px-3 text-xs uppercase tracking-wider text-[#575756] font-bold">
                     Status
@@ -253,88 +294,118 @@ export function NachtraegeClient({
                 </tr>
               </thead>
               <tbody>
-                {gefiltert.map((a, i) => {
-                  const alt = Number(a.deputatGesamtAlt ?? 0);
-                  const neu = Number(a.deputatGesamtNeu ?? 0);
+                {gefiltert.map((w, i) => {
+                  const alt = Number(w.gesamtAlt ?? 0);
+                  const neu = Number(w.gesamtNeu ?? 0);
                   const diff = neu - alt;
-                  const isLoading = loadingId === a.id;
+                  const key = tupelKey(w);
+                  const isLoading = loadingKey === key;
+                  const datum = new Date(
+                    w.effektivWirksamAb + "T00:00:00",
+                  ).toLocaleDateString("de-DE");
 
                   return (
                     <tr
-                      key={a.id}
+                      key={key}
                       className={`border-b border-[#E5E7EB] ${
                         i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"
                       }`}
                     >
                       <td className="py-2.5 px-3 font-medium">
                         <a
-                          href={`/deputate/${a.lehrerId}`}
+                          href={`/deputate/${w.lehrerId}`}
                           className="text-[#575756] hover:underline"
                         >
-                          {a.lehrerName}
+                          {w.lehrerName}
                         </a>
                       </td>
                       <td className="py-2.5 px-3 tabular-nums text-[#6B7280]">
-                        {a.personalnummer ?? "—"}
+                        {w.personalnummer ?? "—"}
                       </td>
-                      <td className="py-2.5 px-3">{a.stammschuleCode ?? "—"}</td>
-                      <td className="py-2.5 px-3">{MONATE_KURZ[a.monat - 1]}</td>
+                      <td className="py-2.5 px-3">
+                        {w.stammschuleCode ?? "—"}
+                      </td>
                       <td className="py-2.5 px-3 text-right tabular-nums line-through text-[#E2001A]">
                         {alt.toFixed(1)}
                       </td>
-                      <td className="py-2.5 px-3 text-center text-[#6B7280]">→</td>
+                      <td className="py-2.5 px-3 text-center text-[#6B7280]">
+                        →
+                      </td>
                       <td className="py-2.5 px-3 text-right tabular-nums font-bold text-[#22C55E]">
                         {neu.toFixed(1)}
                       </td>
                       <td
                         className={`py-2.5 px-3 text-right tabular-nums font-medium ${
-                          diff > 0 ? "text-[#22C55E]" : diff < 0 ? "text-[#E2001A]" : "text-[#6B7280]"
+                          diff > 0
+                            ? "text-[#22C55E]"
+                            : diff < 0
+                              ? "text-[#E2001A]"
+                              : "text-[#6B7280]"
                         }`}
                       >
-                        {diff > 0 ? "+" : ""}{diff.toFixed(1)}
+                        {diff > 0 ? "+" : ""}
+                        {diff.toFixed(1)}
                       </td>
                       <td className="py-2.5 px-3 tabular-nums text-[#6B7280]">
-                        {a.tatsaechlichesDatum
-                          ? new Date(a.tatsaechlichesDatum + "T00:00:00").toLocaleDateString("de-DE")
-                          : a.geaendertAm}
+                        {datum}
+                        {w.hatKorrektur && (
+                          <span
+                            className="ml-1 text-[#FBC900]"
+                            title="Stichtag durch HR korrigiert"
+                            aria-label="Stichtag durch HR korrigiert"
+                            role="img"
+                          >
+                            ✎
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        {getStatusBadge(a.nachtragStatus)}
+                        {getStatusBadge(w.status)}
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="flex items-center justify-center gap-1">
                           <Button
                             size="sm"
-                            variant={a.nachtragStatus ? "secondary" : "primary"}
-                            onClick={() => handleDownload(a.id)}
+                            variant={w.status ? "secondary" : "primary"}
+                            onClick={() => handleDownload(w)}
                             disabled={isLoading}
                             title="Nachtrag als Word-Dokument herunterladen"
                           >
-                            {a.nachtragStatus ? "Erneut" : "Erstellen"}
+                            {w.status ? "Erneut" : "Erstellen"}
                           </Button>
-                          {a.nachtragStatus === "erstellt" && (
+                          {w.status === "erstellt" && (
                             <form action={handleMarkVersendet}>
-                              <input type="hidden" name="aenderungId" value={a.id} />
+                              <input type="hidden" name="lehrerId" value={w.lehrerId} />
+                              <input type="hidden" name="syAlt" value={w.syAlt} />
+                              <input type="hidden" name="termAlt" value={w.termAlt} />
+                              <input type="hidden" name="syNeu" value={w.syNeu} />
+                              <input type="hidden" name="termNeu" value={w.termNeu} />
                               <Button
                                 type="submit"
                                 size="sm"
                                 variant="ghost"
                                 disabled={isLoading}
                                 title="Als versendet markieren"
+                                aria-label="Als versendet markieren"
                               >
                                 ✓
                               </Button>
                             </form>
                           )}
-                          {a.nachtragStatus && (
+                          {w.status && (
                             <form action={handleReset}>
-                              <input type="hidden" name="aenderungId" value={a.id} />
+                              <input type="hidden" name="lehrerId" value={w.lehrerId} />
+                              <input type="hidden" name="syAlt" value={w.syAlt} />
+                              <input type="hidden" name="termAlt" value={w.termAlt} />
+                              <input type="hidden" name="syNeu" value={w.syNeu} />
+                              <input type="hidden" name="termNeu" value={w.termNeu} />
                               <Button
                                 type="submit"
                                 size="sm"
                                 variant="ghost"
                                 disabled={isLoading}
                                 title="Status zuruecksetzen"
+                                aria-label="Status zuruecksetzen"
                               >
                                 ↺
                               </Button>
@@ -349,7 +420,7 @@ export function NachtraegeClient({
             </table>
           </div>
         )}
-      </Card>
+      </Card></div>
     </>
   );
 }

@@ -546,6 +546,32 @@ export const deputatAenderungKorrekturen = pgTable("deputat_aenderung_korrekture
   index("idx_dak_lehrer").on(table.lehrerId),
 ]);
 
+/**
+ * Status-Tabelle fuer Vertragsnachtraege bei gehaltsrelevanten
+ * Wertwechseln aus dem Periodenmodell (v_deputat_aenderungen).
+ *
+ * Die View ist read-only — daher hier persistent der Bearbeitungsstand
+ * (offen / erstellt / versendet) plus Audit. Schluessel: derselbe Tupel,
+ * der eine Zeile in v_deputat_aenderungen eindeutig macht.
+ */
+export const deputatNachtraege = pgTable("deputat_nachtraege", {
+  id: serial("id").primaryKey(),
+  lehrerId: integer("lehrer_id").notNull().references(() => lehrer.id, { onDelete: "cascade" }),
+  syAlt: integer("sy_alt").notNull(),
+  termAlt: integer("term_alt").notNull(),
+  syNeu: integer("sy_neu").notNull(),
+  termNeu: integer("term_neu").notNull(),
+  /** NULL = offen, "erstellt", "versendet" */
+  status: varchar("status", { length: 20 }),
+  erstelltAm: timestamp("erstellt_am", { withTimezone: true }),
+  erstelltVon: varchar("erstellt_von", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("deputat_nachtraege_unique").on(table.lehrerId, table.syAlt, table.termAlt, table.syNeu, table.termNeu),
+  index("idx_deputat_nachtraege_lehrer").on(table.lehrerId, table.status),
+]);
+
 // ============================================================
 // SYNC-PROTOKOLL
 // ============================================================

@@ -4,6 +4,49 @@
 
 ### Bug-Fixes
 
+- **Nachtraege-Liste haengt am Periodenmodell statt an der alten v1-Tabelle** —
+  Seit v0.7 schreibt nur noch `sync-v2` (Periodenmodell), die alte Tabelle
+  `deputat_aenderungen` bleibt leer und damit zeigte `/nachtraege` 0
+  Eintraege, obwohl `/deputate` korrekt 28+ gehaltsrelevante Wertwechsel
+  meldete. Quelle der Wahrheit fuer Vertragsnachtraege ist jetzt
+  `v_deputat_aenderungen` mit `ABS(delta_gesamt) > 0,001`. Eine Zeile pro
+  Wertwechsel = ein Word-Nachtrag.
+
+  Migration `0015_deputat_nachtraege.sql`: neue Status-Tabelle
+  `deputat_nachtraege` (UNIQUE-Schluessel `lehrer_id, sy_alt, term_alt,
+  sy_neu, term_neu`, FK auf `lehrer` ON DELETE CASCADE, CHECK auf Status
+  `erstellt|versendet|NULL`).
+
+  `/api/export/nachtrag` nimmt jetzt 5 Tupel-Params statt `aenderungId`,
+  liest aus `v_deputat_aenderungen` und upserted den Status. Stammschule
+  fuer das Word-Dokument kommt aus `deputat_pro_periode.stammschule_code`
+  der NEUEN Periode (faengt Stammschulwechsel mitten im HJ ab), Fallback
+  `lehrer.stammschule_code`.
+
+  Bonus: `/nachtraege` hat jetzt einen HJ-Selector (toter Code aufgeraeumt),
+  der `/deputate`-Banner nennt zusaetzlich die Anzahl Wertwechsel
+  ("28 Lehrkraefte mit insgesamt N gehaltsrelevanten Wertwechseln") und
+  verlinkt auf `/nachtraege`.
+
+  Code-Review-Haertung vor GoLive:
+  - `/api/export/nachtrag` erfordert jetzt Mitarbeiter-Rolle (analog zu
+    lehrer-detail/stellenist-drilldown) — DSGVO Art. 30, PII-Schutz.
+  - Filename-Sanitize (Whitelist `[A-Za-z0-9_äöüÄÖÜß-]`) gegen
+    Header-Injection im `Content-Disposition`.
+  - Audit-Log VOR der Doc-Generierung; gesamter Hot-Path in try/catch
+    mit deutscher 503-Meldung statt Stack-Leak.
+  - `upsertNachtragStatus` nutzt `COALESCE` fuer `erstellt_am`/`erstellt_von`
+    (first-writer-wins) — verhindert Audit-Verlust durch Re-Generierung
+    eines zweiten Users. Reset erfolgt jetzt als DELETE statt
+    Status-Wipe; die Spur bleibt im `audit_log`.
+  - Filter-Tabs auf `/nachtraege` mit ARIA `tablist`/`tab`/`aria-selected`,
+    Click-Targets ≥ 44 px, Suchfeld mit `<label>` (sr-only).
+  - Reset-Button mit `window.confirm()` + `aria-label`, Korrektur-Marker
+    `✎` mit `role="img"`+`aria-label`.
+  - Server-Actions in try/catch mit deutschen Fehlermeldungen.
+  - Konstante `GEHALTSRELEVANT_DELTA` (`src/lib/constants.ts`); toter
+    `MONATE_KURZ`-Import in `deputate/page.tsx` entfernt.
+
 - **Taggenaue Card erscheint im aktuellen Haushaltsjahr wieder** — Seit v0.7
   liest die Detailseite `monatsDaten` aus `v_deputat_monat_tagesgenau`. Damit
   ist der "Pauschal"-Wert bereits taggenau, der bisherige
