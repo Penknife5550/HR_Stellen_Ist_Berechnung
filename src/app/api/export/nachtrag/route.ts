@@ -132,8 +132,8 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("nachtrag/route GET", err);
     return new Response(
-      "Datenbank nicht erreichbar — bitte spaeter erneut versuchen.",
-      { status: 503 },
+      "Nachtrag konnte nicht erstellt werden — bitte Admin kontaktieren.",
+      { status: 500 },
     );
   }
 }

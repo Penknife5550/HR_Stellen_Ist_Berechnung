@@ -4,6 +4,14 @@ const nextConfig: NextConfig = {
   // Standalone-Output fuer Docker Deployment (minimales Image)
   output: "standalone",
 
+  // Word-Vorlagen werden zur Laufzeit via fs.readFileSync gelesen — Next.js'
+  // statisches Output-Tracing erkennt das nicht. Ohne diesen Eintrag fehlen
+  // die .docx-Vorlagen im Standalone-Image und die Export-Routen werfen
+  // ENOENT (sichtbar als 503 in /api/export/nachtrag und /api/export/stellenanteil).
+  outputFileTracingIncludes: {
+    "/api/export/**": ["./src/lib/export/vorlagen/**"],
+  },
+
   // Security-Headers fuer On-Premise Deployment
   async headers() {
     return [
