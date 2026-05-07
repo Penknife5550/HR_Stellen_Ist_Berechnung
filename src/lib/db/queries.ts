@@ -1520,6 +1520,24 @@ export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number)
 
   const aenderungen = await getDeputatAenderungenByLehrer(lehrerId, haushaltsjahrId);
 
+  // Stammschule fuer GENAU dieses Haushaltsjahr (haeufigster Wert in den
+  // Perioden, die mit dem Kalenderjahr des HJ ueberlappen). Lehrer.stammschuleCode
+  // ist nur ein Master-Snapshot der zuletzt gesyncten Periode — fuer historische
+  // Detail-Ansichten (HJ-Auswahl) muss die Stammschule des jeweiligen Jahres
+  // herangezogen werden, sonst wird ein Schulwechsel zwischen Schuljahren
+  // (z.B. Elsanowski 2024/25 GYM → 2025/26 BK) im Vorjahr falsch angezeigt.
+  type StammRow = { stammschuleCode: string | null };
+  const [stammRow] = (await db.execute<StammRow>(sql`
+    SELECT mode() WITHIN GROUP (ORDER BY dpp.stammschule_code) AS "stammschuleCode"
+    FROM deputat_pro_periode dpp
+    JOIN haushaltsjahre hj ON hj.id = ${haushaltsjahrId}
+    WHERE dpp.lehrer_id = ${lehrerId}
+      AND dpp.gueltig_von <= make_date(hj.jahr, 12, 31)
+      AND dpp.gueltig_bis >= make_date(hj.jahr, 1, 1)
+      AND dpp.stammschule_code IS NOT NULL
+  `)) as unknown as StammRow[];
+  const stammschuleCodeImHj = stammRow?.stammschuleCode ?? lehrerRow.stammschuleCode;
+
   // Periodenmodell-Daten (v0.7+) — 1:1 aus Untis. Tagesgenaue Monatswerte
   // ueber View v_deputat_monat_tagesgenau.
   const [periodenverlauf, echteAenderungen, tagesgenauMonate] = await Promise.all([
@@ -1533,6 +1551,7 @@ export async function getLehrerDetail(lehrerId: number, haushaltsjahrId: number)
     statistik,
     monatsDaten,
     aenderungen,
+    stammschuleCodeImHj,
     // Periodenmodell — leere Arrays wenn noch keine v2-Daten vorhanden
     periodenverlauf,
     echteAenderungen,

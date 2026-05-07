@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
     if (!detail) return new Response("Lehrer nicht gefunden.", { status: 404 });
     if (!hj) return new Response("Haushaltsjahr nicht gefunden.", { status: 404 });
 
-    const { lehrer: l, statistik, monatsDaten, periodenverlauf, echteAenderungen } = detail;
+    const { lehrer: l, statistik, monatsDaten, periodenverlauf, echteAenderungen, stammschuleCodeImHj } = detail;
     const schulenByCode = new Map(schulen.map((s) => [s.kurzname, s]));
 
     // Effektive Monatswerte berechnen (genau wie auf der Detailseite)
@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
     doc.setTextColor(55, 65, 81);
     const stammdaten = [
       `Personalnr.: ${l.personalnummer ?? "—"}`,
-      `Stammschule: ${l.stammschuleCode ?? "—"}`,
+      `Stammschule: ${stammschuleCodeImHj ?? "—"}`,
       `Statistik-Code: ${statistik ? `${statistik.code} — ${statistik.bezeichnung}` : "—"}`,
       `Untis-Teacher-ID: ${l.untisTeacherId ?? "—"}`,
     ];

@@ -154,6 +154,27 @@ export async function POST(request: NextRequest) {
       .where(inArray(schema.lehrer.untisTeacherId, teacherIds));
     const lehrerMap = new Map(existingLehrer.map((l) => [l.untisTeacherId, l]));
 
+    // 5a. Pro teacher_id den AKTUELLSTEN Eintrag ermitteln (max SY, max term_id).
+    //     Lehrer-Stammdaten (Stammschule, Name, Personalnummer, Statistik-Code)
+    //     koennen sich zwischen Schuljahren aendern. Wenn das Untis-Payload nach
+    //     (SY, term_id) AUFSTEIGEND sortiert kommt, wuerde ein naiver Loop den
+    //     Master-Datensatz aus der AELTESTEN Periode setzen und nie wieder
+    //     aktualisieren — Schulwechsel zum neuen SY wuerde im Master stecken
+    //     bleiben (Beispiel: Elsanowski 2024/25 = GYM, 2025/26 = BK; Master
+    //     blieb auf GYM stehen). Wir picken stattdessen die letzte Periode.
+    type EintragGueltig = (typeof gueltige)[number];
+    const masterPerLehrer = new Map<number, EintragGueltig>();
+    for (const e of gueltige) {
+      const current = masterPerLehrer.get(e.teacher_id);
+      if (
+        !current ||
+        e.school_year_id > current.school_year_id ||
+        (e.school_year_id === current.school_year_id && e.term_id > current.term_id)
+      ) {
+        masterPerLehrer.set(e.teacher_id, e);
+      }
+    }
+
     // 5b. Bestehende deputat_pro_periode-Werte vorladen — fuer Diff-Erkennung
     //     (Hauptdeputat- vs. Verteilungs-Aenderung). Nur sinnvoll fuer existing
     //     Lehrer; neu angelegte Lehrer haben naturgemaess keine Vorgaengerwerte.
@@ -219,13 +240,16 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // Lehrer-Upsert pro teacher_id einmalig
+          // Lehrer-Upsert pro teacher_id einmalig — auf Basis der AKTUELLSTEN
+          // Periode dieses Lehrers (siehe masterPerLehrer-Aufbau oben), nicht
+          // des aktuellen Schleifeneintrags.
           let lehrerId: number;
           if (!lehrerVerarbeitet.has(e.teacher_id)) {
-            const stammschuleId = schulenMap.get(e.stammschule?.toUpperCase()) ?? null;
+            const master = masterPerLehrer.get(e.teacher_id) ?? e;
+            const stammschuleId = schulenMap.get(master.stammschule?.toUpperCase()) ?? null;
             const existing = lehrerMap.get(e.teacher_id);
             const { incomingValid, valueForUpdate } = normalizeStatistikCode(
-              e.statistik_code,
+              master.statistik_code,
               validStatistikCodes,
               existing?.statistikCode,
             );
@@ -234,11 +258,11 @@ export async function POST(request: NextRequest) {
               await tx
                 .update(schema.lehrer)
                 .set({
-                  name: e.name,
-                  vollname: e.vollname,
-                  personalnummer: e.personalnummer ?? null,
+                  name: master.name,
+                  vollname: master.vollname,
+                  personalnummer: master.personalnummer ?? null,
                   stammschuleId,
-                  stammschuleCode: e.stammschule,
+                  stammschuleCode: master.stammschule,
                   statistikCode: valueForUpdate,
                   updatedAt: now,
                 })
@@ -248,7 +272,7 @@ export async function POST(request: NextRequest) {
               if (detectStatistikCodeChange(existing.statistikCode, valueForUpdate)) {
                 statistikCodeChanges.push({
                   lehrerId: existing.id,
-                  vollname: e.vollname,
+                  vollname: master.vollname,
                   alt: existing.statistikCode ?? null,
                   neu: valueForUpdate,
                 });
@@ -258,11 +282,11 @@ export async function POST(request: NextRequest) {
                 .insert(schema.lehrer)
                 .values({
                   untisTeacherId: e.teacher_id,
-                  name: e.name,
-                  vollname: e.vollname,
-                  personalnummer: e.personalnummer ?? null,
+                  name: master.name,
+                  vollname: master.vollname,
+                  personalnummer: master.personalnummer ?? null,
                   stammschuleId,
-                  stammschuleCode: e.stammschule,
+                  stammschuleCode: master.stammschule,
                   statistikCode: incomingValid,
                 })
                 .returning();
@@ -272,8 +296,8 @@ export async function POST(request: NextRequest) {
               lehrerCreatedEvents.push({
                 lehrerId: inserted.id,
                 teacherId: e.teacher_id,
-                vollname: e.vollname,
-                stammschule: e.stammschule ?? null,
+                vollname: master.vollname,
+                stammschule: master.stammschule ?? null,
               });
             }
             lehrerVerarbeitet.add(e.teacher_id);
