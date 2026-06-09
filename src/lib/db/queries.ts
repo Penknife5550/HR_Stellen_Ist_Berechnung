@@ -1986,8 +1986,11 @@ export async function upsertNachtragStatus(params: {
         status: params.status,
         // First-writer-wins fuer Audit-Felder: COALESCE behaelt den ersten
         // erstelltAm/Von, auch wenn ein zweiter User "Erneut" klickt.
+        // now als ISO-String: im rohen sql``-Fragment fehlt der Spaltentyp-
+        // Kontext, daher greift Drizzles timestamptz-Mapper nicht — ein nacktes
+        // Date-Objekt wirft im postgres-Treiber ERR_INVALID_ARG_TYPE.
         erstelltAm: istErstellt
-          ? sql`COALESCE(${deputatNachtraege.erstelltAm}, ${now})`
+          ? sql`COALESCE(${deputatNachtraege.erstelltAm}, ${now.toISOString()})`
           : deputatNachtraege.erstelltAm,
         erstelltVon: istErstellt
           ? sql`COALESCE(${deputatNachtraege.erstelltVon}, ${erstelltVon})`
