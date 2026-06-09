@@ -1764,7 +1764,8 @@ export type GehaltsrelevanterWertwechsel = {
   gesamtNeu: string;
   deltaGesamt: string;
   status: string | null;
-  erstelltAm: Date | null;
+  /** Bereits in SQL formatiert (DD.MM.YYYY, HH:MM, Europe/Berlin) — kein Date. */
+  erstelltAm: string | null;
   erstelltVon: string | null;
 };
 
@@ -1803,7 +1804,9 @@ export async function getGehaltsrelevanteWertwechsel(
     gesamt_neu: string;
     delta_gesamt: string;
     status: string | null;
-    erstellt_am: Date | null;
+    // db.execute (Raw-SQL) liefert timestamptz als String, nicht als Date —
+    // daher direkt in SQL formatieren statt JS-seitig .toLocaleDateString().
+    erstellt_am: string | null;
     erstellt_von: string | null;
   };
 
@@ -1822,7 +1825,7 @@ export async function getGehaltsrelevanteWertwechsel(
       v.hat_korrektur,
       v.gesamt_alt, v.gesamt_neu, v.delta_gesamt,
       n.status,
-      n.erstellt_am,
+      to_char(n.erstellt_am AT TIME ZONE 'Europe/Berlin', 'DD.MM.YYYY, HH24:MI') AS erstellt_am,
       n.erstellt_von
     FROM v_deputat_aenderungen v
     INNER JOIN lehrer l ON l.id = v.lehrer_id

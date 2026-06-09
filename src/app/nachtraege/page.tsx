@@ -35,21 +35,9 @@ export default async function NachtraegePage({
     );
   }
 
+  // erstelltAm kommt bereits in SQL formatiert (DD.MM.YYYY, HH:MM, Berliner
+  // Zeit) — alle Felder sind serialisierbar, direkt an den Client durchreichen.
   const wechsel = await getGehaltsrelevanteWertwechsel(hj.id);
-
-  // Daten serialisieren (Date → String)
-  const serialized = wechsel.map((w) => ({
-    ...w,
-    erstelltAm: w.erstelltAm
-      ? w.erstelltAm.toLocaleDateString("de-DE", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null,
-  }));
 
   return (
     <PageContainer>
@@ -66,7 +54,7 @@ export default async function NachtraegePage({
           <HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} />
         </div>
       )}
-      <NachtraegeClient wechsel={serialized} jahr={hj.jahr} />
+      <NachtraegeClient wechsel={wechsel} jahr={hj.jahr} />
     </PageContainer>
   );
 }
