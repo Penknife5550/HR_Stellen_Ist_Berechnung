@@ -86,6 +86,7 @@ const EVENT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "sync.failed", label: "Sync fehlgeschlagen" },
   { value: "lehrer.created", label: "Neuer Lehrer" },
   { value: "hauptdeputat.changed", label: "Hauptdeputat geaendert" },
+  { value: "verteilung.changed", label: "Verteilung geaendert (GES/GYM/BK)" },
 ];
 
 function formatDatum(date: Date | null): string {
