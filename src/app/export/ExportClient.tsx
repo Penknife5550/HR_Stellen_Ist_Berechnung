@@ -295,6 +295,54 @@ export function ExportClient({ haushaltsjahre, aktuellesHaushaltsjahrId, schulen
             </div>
           </div>
         </div>
+
+        {/* 5. Nachweis Bezirksregierung */}
+        <div className="bg-white rounded-lg border border-[#E5E7EB] p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-[#009AC6]/10 rounded-lg">
+              <FileDown size={28} className="text-[#009AC6]" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-[#1A1A1A] mb-1">
+                Nachweis Bezirksregierung
+              </h3>
+              <p className="text-sm text-[#6B7280] mb-4">
+                Je Schule, Lehrkraefte nach Status (Beamte/Angestellte), getrennt nach Januar–Juli
+                und August–Dezember, inkl. Mehrarbeit und zusaetzlicher Stellenanteile.
+              </p>
+              <div className="flex gap-3">
+                <ExportButton
+                  icon={<FileText size={14} />}
+                  label="PDF"
+                  loading={loading === "nachweis-bezirk-pdf"}
+                  disabled={!haushaltsjahrId}
+                  onClick={() =>
+                    handleDownload(
+                      "nachweis-bezirksregierung",
+                      "pdf",
+                      "nachweis-bezirk-pdf",
+                      `Nachweis_Bezirksregierung_${hjLabel}.pdf`,
+                    )
+                  }
+                />
+                <ExportButton
+                  icon={<FileSpreadsheet size={14} />}
+                  label="Excel"
+                  loading={loading === "nachweis-bezirk-excel"}
+                  disabled={!haushaltsjahrId}
+                  onClick={() =>
+                    handleDownload(
+                      "nachweis-bezirksregierung",
+                      "excel",
+                      "nachweis-bezirk-excel",
+                      `Nachweis_Bezirksregierung_${hjLabel}.xlsx`,
+                    )
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

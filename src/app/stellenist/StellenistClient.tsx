@@ -443,6 +443,7 @@ export function StellenistClient({
               </div>
             </div>
             <StellenistDrilldown
+              key={drilldownKey}
               schuleKurzname={istKurzname}
               haushaltsjahrId={haushaltsjahrId}
               zeitraum={zr.zeitraum as "aug-dez" | "jan-jul"}

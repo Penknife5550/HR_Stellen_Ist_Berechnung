@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
     [
       "Lehrer",
       "Stammschule",
+      "Zugehörigkeit",
       ...monatHeader,
       "Summe WS",
       "Durchschnitt WS",
@@ -73,11 +74,18 @@ export async function GET(request: NextRequest) {
     ].map(csvEscape).join(";"),
   );
 
-  for (const l of d.lehrer) {
+  // Eigene Lehrkraefte zuerst, dann Lehrkraefte anderer Schulen mit Stunden an
+  // dieser Schule (§ 3 FESchVO). Trennung anhand der Stammschule.
+  const eigene = d.lehrer.filter((l) => l.stammschuleCode === schule);
+  const fremde = d.lehrer.filter((l) => l.stammschuleCode !== schule);
+  const sortiert = [...eigene, ...fremde];
+
+  for (const l of sortiert) {
     lines.push(
       [
         l.vollname,
         l.stammschuleCode ?? "",
+        l.stammschuleCode === schule ? "eigen" : "andere Schule",
         ...monate.map((m) => fmtDe(l.stundenProMonat[m] ?? 0)),
         fmtDe(l.summeStunden),
         fmtDe(l.durchschnittWS),
@@ -93,6 +101,7 @@ export async function GET(request: NextRequest) {
   lines.push(
     [
       "Summe Wochenstunden (alle Lehrer)",
+      "",
       "",
       ...monate.map((m) =>
         fmtDe(d.lehrer.reduce((acc, l) => acc + (l.stundenProMonat[m] ?? 0), 0)),
