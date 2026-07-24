@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mehrarbeit → Stellenanteile · CREDO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --grau:#575756;        /* Schulverein / Text */
+    --grau-hell:#DADADA;    /* Verwaltung / Basis */
+    --gelb:#FBC900;         /* Gymnasium */
+    --gruen:#6BAA24;        /* Gesamtschule */
+    --rot:#E2001A;          /* GS Minderheide */
+    --blau:#009AC6;         /* GS Haddenhausen */
+    --bk:#5C82A5;           /* Berufskolleg */
+    --bg:#f4f4f3;
+    --weiss:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--grau);
+    font-family:'Montserrat',Arial,sans-serif; line-height:1.55; font-size:16px;
+  }
+  .seite{max-width:1040px;margin:0 auto;padding:0 20px 60px;}
+
+  /* Kopf */
+  header.hero{background:var(--weiss);border-bottom:6px solid var(--grau-hell);}
+  .hero-inner{max-width:1040px;margin:0 auto;padding:32px 20px 26px;}
+  .marke{display:flex;align-items:center;gap:14px;}
+  .logo-kreis{
+    width:46px;height:46px;border-radius:50%;border:4px solid var(--grau);
+    position:relative;flex:0 0 auto;
+  }
+  .logo-kreis::before{content:"";position:absolute;inset:0;border-radius:50%;
+    border-top:4px solid var(--weiss);transform:rotate(35deg);}
+  .logo-kreis span{position:absolute;top:7px;left:50%;width:4px;height:26px;background:var(--grau);transform:translateX(-50%);}
+  .logo-kreis span::after{content:"";position:absolute;top:9px;left:-7px;width:18px;height:4px;background:var(--grau);}
+  .marke b{font-weight:800;letter-spacing:.12em;font-size:.95rem;color:var(--grau);text-transform:uppercase;}
+  h1{font-size:2.05rem;font-weight:800;color:var(--grau);margin:22px 0 6px;line-height:1.15;}
+  .sub{font-size:1.05rem;font-weight:500;color:#6f6f6e;margin:0;}
+  .claim{margin-top:16px;font-weight:700;letter-spacing:.06em;color:var(--grau);font-size:.82rem;text-transform:uppercase;}
+  .claim i{font-style:normal;}
+  .claim .p{display:inline-block;margin:0 8px;color:var(--gruen);}
+
+  /* Abschnitte */
+  section{background:var(--weiss);border-radius:10px;padding:26px 28px;margin-top:22px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  h2{font-size:1.3rem;font-weight:800;color:var(--grau);margin:0 0 4px;display:flex;align-items:center;gap:12px;}
+  h2 .bal{width:14px;height:26px;border-radius:3px;flex:0 0 auto;}
+  .lead{font-size:1.02rem;color:#5a5a59;margin:6px 0 0;}
+
+  /* Karten */
+  .karten{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:18px;}
+  .karte{border:1px solid #e7e7e6;border-radius:9px;padding:18px;background:#fbfbfb;}
+  .karte h3{margin:0 0 6px;font-size:1rem;font-weight:700;color:var(--grau);}
+  .karte p{margin:0;font-size:.94rem;color:#666;}
+  .karte .ico{width:34px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-weight:800;color:#fff;margin-bottom:10px;font-size:1.05rem;}
+
+  /* Flow */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin-top:20px;}
+  .stufe{flex:1 1 150px;min-width:150px;border-radius:9px;padding:16px 14px;color:#fff;position:relative;}
+  .stufe b{display:block;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;opacity:.9;}
+  .stufe span{display:block;font-weight:700;font-size:1rem;margin-top:3px;}
+  .stufe small{display:block;font-weight:400;font-size:.82rem;margin-top:6px;opacity:.95;}
+  .pfeil{align-self:center;font-size:1.6rem;color:var(--grau-hell);font-weight:800;padding:0 6px;}
+
+  /* Vorher/Nachher */
+  .vn{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;}
+  .vn .box{border-radius:9px;padding:18px 20px;}
+  .vn .heute{background:#f3f0ea;border-left:6px solid var(--grau-hell);}
+  .vn .kuenftig{background:#eef6e6;border-left:6px solid var(--gruen);}
+  .vn h3{margin:0 0 8px;font-size:1rem;color:var(--grau);}
+  .vn ul{margin:0;padding-left:18px;} .vn li{margin:4px 0;font-size:.94rem;color:#5a5a59;}
+
+  /* Stepper */
+  .schritte{margin-top:18px;display:flex;flex-direction:column;gap:12px;}
+  .schritt{display:flex;gap:16px;align-items:flex-start;border:1px solid #ececeb;border-radius:9px;padding:14px 16px;}
+  .schritt .num{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:var(--grau);color:#fff;
+    font-weight:800;display:flex;align-items:center;justify-content:center;}
+  .schritt .txt h3{margin:0 0 2px;font-size:1rem;color:var(--grau);}
+  .schritt .txt p{margin:0;font-size:.92rem;color:#666;}
+  .badge{display:inline-block;font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:20px;margin-left:8px;vertical-align:middle;}
+  .b-da{background:#e6f3da;color:#3f6e16;}
+  .b-tun{background:#fff3cc;color:#8a6d00;}
+  .b-klar{background:#fde0e3;color:#a3121f;}
+
+  /* Entscheidungen */
+  .entsch{border-left:6px solid var(--gelb);background:#fffae6;border-radius:9px;padding:16px 20px;margin-top:14px;}
+  .entsch h3{margin:0 0 4px;font-size:1rem;color:var(--grau);}
+  .entsch p{margin:0;font-size:.94rem;color:#5a5a59;}
+
+  /* Beispielkasten */
+  .beispiel{background:#eef6f9;border-left:6px solid var(--blau);border-radius:9px;padding:16px 20px;margin-top:16px;font-size:.96rem;}
+  .beispiel .formel{font-weight:700;color:var(--grau);}
+
+  /* CREDO-Linie + Footer */
+  .credo-linie{display:flex;height:14px;margin-top:40px;border-radius:3px;overflow:hidden;}
+  .credo-linie .g{flex:2;background:var(--grau-hell);}
+  .credo-linie .s{flex:.5;}
+  footer{margin-top:16px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;
+    font-size:.8rem;color:#8a8a89;}
+  footer b{color:var(--grau);}
+  @media (max-width:720px){ .vn{grid-template-columns:1fr;} h1{font-size:1.6rem;} .flow{flex-direction:column;} .pfeil{transform:rotate(90deg);padding:4px 0;} }
+  @media print{ body{background:#fff;} section{box-shadow:none;border:1px solid #eee;} }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="marke">
+      <div class="logo-kreis"><span></span></div>
+      <b>CREDO&nbsp;Gruppe &nbsp;·&nbsp; Freie Evangelische Schulen Minden</b>
+    </div>
+    <h1>Mehrarbeit automatisch in Stellenanteile überführen</h1>
+    <p class="sub">Was die Anwendung „Stellenist-Berechnung" heute leistet — und was wir ergänzen wollen.<br>Eine Übersicht für die Personalabteilung.</p>
+    <div class="claim"><i>lebensnah</i><span class="p">•</span><i>wegweisend</i><span class="p">•</span><i>christlich</i></div>
+  </div>
+</header>
+
+<div class="seite">
+
+  <!-- Worum geht es -->
+  <section>
+    <h2><span class="bal" style="background:var(--blau)"></span>Worum geht es?</h2>
+    <p class="lead">
+      Die Bezirksregierung refinanziert unsere Schulen nach der Zahl der Lehrer-Stellen, die uns zustehen.
+      Wie viele Stellen wir tatsächlich „besetzen", hängt an den Unterrichtsstunden unserer Lehrkräfte —
+      und dazu zählt auch die <b>Mehrarbeit</b> (z. B. übernommene Vertretungen). Bisher tragen Sie die
+      Mehrarbeit von Hand in die Anwendung ein. Künftig soll sie <b>automatisch aus Untis</b> kommen.
+    </p>
+  </section>
+
+  <!-- Stellenanteil erklärt -->
+  <section>
+    <h2><span class="bal" style="background:var(--gruen)"></span>Kurz erklärt: Was ist ein „Stellenanteil"?</h2>
+    <p class="lead">
+      Eine volle Lehrerstelle entspricht dem vollen wöchentlichen Pflichtdeputat (am Gymnasium z. B. 25,5 Stunden).
+      Jede zusätzlich geleistete Unterrichtsstunde ist nur ein <b>Bruchteil</b> einer Stelle — eben ein Stellenanteil.
+    </p>
+    <div class="beispiel">
+      <span class="formel">Stellenanteil = Mehrarbeitsstunden ÷ (Anzahl Monate × Pflichtdeputat)</span><br>
+      Beispiel: Eine Lehrkraft übernimmt im Schnitt 1 Vertretungsstunde pro Woche zusätzlich. Über das Jahr
+      summiert sich das zu einem kleinen, aber refinanzierungsrelevanten Stellenanteil — der sonst verloren ginge,
+      wenn niemand ihn erfasst.
+    </div>
+    <p class="lead" style="margin-top:14px">
+      <b>Wichtig:</b> Für den Stellenanteil zählen nur die <b>Stunden</b>. Welche Vergütungsstufe (Euro) eine
+      Lehrkraft hat, spielt für die Stellenberechnung <b>keine</b> Rolle — das ist ein getrenntes Thema (Lohnabrechnung).
+    </p>
+  </section>
+
+  <!-- Heute -->
+  <section>
+    <h2><span class="bal" style="background:var(--grau)"></span>Was heute in der Anwendung passiert</h2>
+    <div class="karten">
+      <div class="karte">
+        <div class="ico" style="background:var(--bk)">1</div>
+        <h3>Untis liefert Deputate</h3>
+        <p>Die Wochenstunden und Vertragsänderungen der Lehrkräfte kommen automatisch aus Untis in die Anwendung.</p>
+      </div>
+      <div class="karte">
+        <div class="ico" style="background:var(--gruen)">2</div>
+        <h3>Stellenist wird berechnet</h3>
+        <p>Aus den Deputaten errechnet die Anwendung pro Schule, wie viele Stellen tatsächlich besetzt sind.</p>
+      </div>
+      <div class="karte">
+        <div class="ico" style="background:var(--gelb);color:var(--grau)">3</div>
+        <h3>Mehrarbeit — von Hand</h3>
+        <p>Die Mehrarbeit muss aktuell <b>manuell</b> pro Lehrkraft und Monat eingetippt werden. Aufwendig und fehleranfällig.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Was wir dazucodieren: Flow -->
+  <section>
+    <h2><span class="bal" style="background:var(--rot)"></span>Was wir ergänzen wollen</h2>
+    <p class="lead">Die Mehrarbeit soll denselben automatischen Weg nehmen wie die Deputate — direkt aus den Untis-Vertretungsdaten:</p>
+    <div class="flow">
+      <div class="stufe" style="background:var(--bk)">
+        <b>Quelle</b><span>Untis-Vertretungen</span><small>Wer ist für wen eingesprungen?</small>
+      </div>
+      <div class="pfeil">→</div>
+      <div class="stufe" style="background:var(--blau)">
+        <b>Transport</b><span>Automatik (n8n)</span><small>Übergibt die Daten an die Anwendung</small>
+      </div>
+      <div class="pfeil">→</div>
+      <div class="stufe" style="background:var(--gruen)">
+        <b>Aufbereitung</b><span>Stunden je Lehrkraft</span><small>Vertretungen zusammenzählen, pro Monat &amp; Schule</small>
+      </div>
+      <div class="pfeil">→</div>
+      <div class="stufe" style="background:var(--gelb);color:var(--grau)">
+        <b>Ergebnis</b><span>Stellenanteil</span><small>Fließt automatisch ins Stellenist</small>
+      </div>
+    </div>
+
+    <div class="vn">
+      <div class="box heute">
+        <h3>Heute</h3>
+        <ul>
+          <li>Mehrarbeit wird von Hand eingetippt</li>
+          <li>Zeitaufwendig, je Lehrkraft und Monat</li>
+          <li>Übertragungsfehler möglich</li>
+          <li>Schwer nachvollziehbar für die Bezirksregierung</li>
+        </ul>
+      </div>
+      <div class="box kuenftig">
+        <h3>Künftig</h3>
+        <ul>
+          <li>Mehrarbeit kommt automatisch aus Untis</li>
+          <li>Manuelle Korrektur bleibt jederzeit möglich</li>
+          <li>Jede Zahl ist bis zur Vertretung rückverfolgbar</li>
+          <li>Sauberer Nachweis für die Refinanzierung</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Erkenntnisse -->
+  <section>
+    <h2><span class="bal" style="background:var(--blau)"></span>Was wir aus den Untis-Daten bereits geprüft haben</h2>
+    <div class="karten">
+      <div class="karte">
+        <div class="ico" style="background:var(--gruen)">✓</div>
+        <h3>Datum ist eindeutig</h3>
+        <p>Jede Vertretung trägt ein klares Datum — die Zuordnung zum richtigen Monat ist gesichert.</p>
+      </div>
+      <div class="karte">
+        <div class="ico" style="background:var(--gruen)">✓</div>
+        <h3>„Wer springt ein" ist erkennbar</h3>
+        <p>Wir erkennen zuverlässig, welche Lehrkraft eine Vertretung übernommen hat — und welche Zeilen nur Ausfall ohne Vertretung sind.</p>
+      </div>
+      <div class="karte">
+        <div class="ico" style="background:var(--gelb);color:var(--grau)">!</div>
+        <h3>Wir zählen Stunden, keine Wertspalte</h3>
+        <p>Untis füllt das interne „Wert"-Feld im Export nicht. Wir zählen daher die vertretenen Stunden direkt — jede vertretene Unterrichtsstunde = eine Stunde Mehrarbeit.</p>
+      </div>
+      <div class="karte">
+        <div class="ico" style="background:var(--bk)">i</div>
+        <h3>Vergütungsstufe ≠ Stellen</h3>
+        <p>Für die Stellenberechnung ist die Gehaltsstufe egal. Sie wird nur für die getrennte Lohn-Auswertung gebraucht.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Plan -->
+  <section>
+    <h2><span class="bal" style="background:var(--grau)"></span>Der Plan in Schritten</h2>
+    <div class="schritte">
+      <div class="schritt"><div class="num">0</div><div class="txt">
+        <h3>Letzte Daten-Checks <span class="badge b-da">teils erledigt</span></h3>
+        <p>Datum &amp; Vertretungs-Erkennung sind geprüft. Offen: Abgleich gegen einen bekannten Abrechnungsbogen, damit die Stundenzahlen belastbar sind.</p>
+      </div></div>
+      <div class="schritt"><div class="num">1</div><div class="txt">
+        <h3>Daten-Ablage anlegen <span class="badge b-tun">zu tun</span></h3>
+        <p>Ein Speicherort in der Anwendung, der die Untis-Vertretungen 1:1 aufnimmt — ohne die bestehende Berechnung zu verändern.</p>
+      </div></div>
+      <div class="schritt"><div class="num">2</div><div class="txt">
+        <h3>Automatische Aufbereitung <span class="badge b-tun">zu tun</span></h3>
+        <p>Die Anwendung zählt die Vertretungen je Lehrkraft, Monat und Schule zusammen — fertig als Mehrarbeitsstunden.</p>
+      </div></div>
+      <div class="schritt"><div class="num">3</div><div class="txt">
+        <h3>Automatischer Abgleich (n8n) <span class="badge b-tun">zu tun</span></h3>
+        <p>Derselbe Mechanismus wie beim Deputate-Abgleich überträgt die Daten regelmäßig aus Untis.</p>
+      </div></div>
+      <div class="schritt"><div class="num">4</div><div class="txt">
+        <h3>Anzeige &amp; Korrektur <span class="badge b-tun">zu tun</span></h3>
+        <p>In der Mehrarbeits-Übersicht sind automatische Einträge gekennzeichnet; Sie können bei Bedarf manuell korrigieren.</p>
+      </div></div>
+      <div class="schritt"><div class="num">5</div><div class="txt">
+        <h3>Prüfung &amp; Freigabe <span class="badge b-tun">zu tun</span></h3>
+        <p>Kontrollrechnung an Beispiel-Lehrkräften, dann produktiver Einsatz.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- Entscheidungen -->
+  <section>
+    <h2><span class="bal" style="background:var(--gelb)"></span>Worüber wir gemeinsam entscheiden sollten</h2>
+    <div class="entsch">
+      <h3>1. Zählen wir jede Mehrarbeitsstunde für die Stellen?</h3>
+      <p>Für die Lohn-Auszahlung gibt es eine Bagatellgrenze (kleine Mehrarbeit wird nicht vergütet). Für die
+      <b>Stellenberechnung</b> empfehlen wir, <b>alle</b> geleisteten Stunden zu zählen — sonst verschenken wir
+      refinanzierungsfähige Stellen gegenüber der Bezirksregierung.</p>
+    </div>
+    <div class="entsch" style="border-color:var(--blau);background:#eef6f9">
+      <h3>2. Welcher Schule wird eine Vertretung zugerechnet?</h3>
+      <p>Der Schule, an der die vertretene Stunde stattfand, oder der Stammschule der Lehrkraft? Das beeinflusst
+      die Stellen <b>pro Schule</b> und sollte einheitlich festgelegt werden.</p>
+    </div>
+  </section>
+
+  <div class="credo-linie">
+    <div class="g"></div>
+    <div class="s" style="background:var(--gelb)"></div>
+    <div class="s" style="background:var(--gruen)"></div>
+    <div class="s" style="background:var(--rot)"></div>
+    <div class="s" style="background:var(--blau)"></div>
+  </div>
+  <footer>
+    <div><b>Christlicher Schulverein Minden e.V.</b><br>Kingsleyallee 6 · 32425 Minden · fes-minden.de</div>
+    <div style="text-align:right">Anwendung: Stellenist-Berechnung<br>Stand: 17.06.2026 · Interne Arbeitsgrundlage</div>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mehrarbeit → Stellenanteil · Umsetzungsplan &amp; Berechnung · CREDO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--grau:#575756;--grau-hell:#DADADA;--gelb:#FBC900;--gruen:#6BAA24;--rot:#E2001A;--blau:#009AC6;--bk:#5C82A5;--bg:#f4f4f3;--weiss:#fff;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--grau);font-family:'Montserrat',Arial,sans-serif;line-height:1.55;font-size:15.5px;}
+  .seite{max-width:1080px;margin:0 auto;padding:0 20px 60px;}
+  header.hero{background:var(--weiss);border-bottom:6px solid var(--grau-hell);}
+  .hero-inner{max-width:1080px;margin:0 auto;padding:30px 20px 24px;}
+  .marke{display:flex;align-items:center;gap:14px;}
+  .logo-kreis{width:44px;height:44px;border-radius:50%;border:4px solid var(--grau);position:relative;flex:0 0 auto;}
+  .logo-kreis::before{content:"";position:absolute;inset:0;border-radius:50%;border-top:4px solid var(--weiss);transform:rotate(35deg);}
+  .logo-kreis span{position:absolute;top:6px;left:50%;width:4px;height:25px;background:var(--grau);transform:translateX(-50%);}
+  .logo-kreis span::after{content:"";position:absolute;top:8px;left:-7px;width:18px;height:4px;background:var(--grau);}
+  .marke b{font-weight:800;letter-spacing:.12em;font-size:.9rem;text-transform:uppercase;}
+  .tag{display:inline-block;background:var(--grau);color:#fff;font-size:.66rem;font-weight:700;letter-spacing:.08em;padding:3px 10px;border-radius:20px;text-transform:uppercase;margin-top:16px;}
+  h1{font-size:1.85rem;font-weight:800;margin:10px 0 6px;line-height:1.15;}
+  .sub{font-size:1rem;font-weight:500;color:#6f6f6e;margin:0;}
+  .claim{margin-top:13px;font-weight:700;letter-spacing:.06em;font-size:.78rem;text-transform:uppercase;}
+  .claim .p{color:var(--gruen);margin:0 8px;}
+  nav.toc{background:var(--weiss);border-radius:10px;padding:16px 22px;margin-top:20px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:.9rem;}
+  nav.toc b{display:block;margin-bottom:6px;color:var(--grau);}
+  nav.toc a{color:var(--blau);text-decoration:none;margin-right:18px;white-space:nowrap;}
+  section{background:var(--weiss);border-radius:10px;padding:22px 26px;margin-top:18px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  h2{font-size:1.22rem;font-weight:800;margin:0 0 10px;display:flex;align-items:center;gap:11px;}
+  h2 .bal{width:13px;height:24px;border-radius:3px;flex:0 0 auto;}
+  h3{font-size:1rem;font-weight:700;color:var(--grau);margin:18px 0 6px;}
+  p{margin:8px 0;color:#55554f;}
+  ul{margin:8px 0;padding-left:20px;} li{margin:5px 0;color:#55554f;}
+  code{background:#eef0f1;border-radius:4px;padding:1px 6px;font-family:Consolas,Menlo,monospace;font-size:.86em;color:#33474f;}
+  .merk{border-left:6px solid var(--gelb);background:#fff8e6;border-radius:8px;padding:12px 18px;margin:14px 0;}
+  .merk.blau{border-color:var(--blau);background:#eef6f9;}
+  .merk.gruen{border-color:var(--gruen);background:#f0f7e6;}
+  .merk.rot{border-color:var(--rot);background:#fff6f7;}
+
+  /* Datenfluss */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:16px 0 6px;}
+  .flow .node{flex:1 1 0;min-width:150px;background:#f7f7f6;border:1px solid #e4e4e2;border-radius:9px;padding:12px 12px;position:relative;}
+  .flow .node .k{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8a8a89;}
+  .flow .node b{display:block;font-size:.95rem;margin:3px 0 4px;color:var(--grau);}
+  .flow .node small{color:#77776f;font-size:.78rem;line-height:1.35;display:block;}
+  .flow .arrow{flex:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--grau);font-weight:800;font-size:1.2rem;}
+  .flow .node.hl{border-color:var(--gruen);background:#f2f8ea;}
+
+  /* zählt / zählt nicht */
+  .zwei{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;}
+  .zwei .box{border-radius:9px;padding:12px 16px;border:1px solid #e4e4e2;}
+  .zwei .box.ja{background:#f0f7e6;border-color:#cfe3ad;}
+  .zwei .box.nein{background:#fbeef0;border-color:#f0c7cf;}
+  .zwei .box h4{margin:0 0 6px;font-size:.95rem;font-weight:800;}
+  .zwei .box.ja h4{color:#4e7d16;} .zwei .box.nein h4{color:#a3121f;}
+  .zwei .box ul{margin:4px 0 0;padding-left:18px;} .zwei .box li{font-size:.86rem;}
+
+  /* Formeln */
+  .formel{background:#33403f;color:#eafaf3;border-radius:9px;padding:14px 18px;margin:12px 0;font-family:Consolas,Menlo,monospace;font-size:.9rem;line-height:1.7;overflow-x:auto;}
+  .formel .c{color:#8fd88f;} .formel .y{color:var(--gelb);} .formel .g{color:#9fe0ff;}
+
+  /* Beispiel-Karten */
+  .kpi-row{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0 4px;}
+  .kpi{flex:1 1 0;min-width:180px;border-radius:10px;padding:14px 16px;color:#fff;}
+  .kpi.grau{background:var(--grau);} .kpi.gelb{background:var(--gelb);color:#4a3c00;} .kpi.gruen{background:var(--gruen);}
+  .kpi .lab{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700;opacity:.9;}
+  .kpi .val{font-size:1.9rem;font-weight:800;line-height:1.1;margin-top:4px;}
+  .kpi .sub2{font-size:.76rem;opacity:.9;margin-top:2px;}
+
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.86rem;}
+  th,td{text-align:right;padding:7px 8px;border-bottom:1px solid #ececeb;}
+  th:first-child,td:first-child{text-align:left;}
+  th{background:#f7f7f6;color:var(--grau);font-weight:700;}
+  tr.basis td{color:#55554f;} tr.mehr td{color:#4e7d16;font-weight:600;}
+  tr.sum td{border-top:2px solid var(--grau);font-weight:800;color:var(--grau);}
+
+  /* Mockup */
+  .mock{border:1px solid #dcdcda;border-radius:12px;overflow:hidden;margin-top:10px;box-shadow:0 4px 14px rgba(0,0,0,.06);}
+  .mock .bar{background:var(--grau);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:10px;font-size:.8rem;}
+  .mock .bar .dot{width:10px;height:10px;border-radius:50%;background:#fff3;}
+  .mock .bar b{font-weight:700;letter-spacing:.02em;}
+  .mock .body{padding:16px 18px;background:#fff;}
+  .mock .crumbs{font-size:.74rem;color:#9a9a98;margin-bottom:10px;}
+  .mock .title{font-size:1.05rem;font-weight:800;color:var(--grau);margin:0 0 2px;}
+  .mock .sub3{font-size:.8rem;color:#8a8a89;margin-bottom:12px;}
+  .mgrid{overflow-x:auto;}
+  .mgrid table{font-size:.8rem;} .mgrid td,.mgrid th{padding:6px 7px;}
+  .chip{display:inline-block;font-size:.64rem;font-weight:700;padding:2px 8px;border-radius:20px;}
+  .chip.untis{background:#e6f3da;color:#3f6e16;} .chip.man{background:#fff3cc;color:#8a6d00;}
+  .ampel{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-right:6px;}
+
+  .schritt{display:flex;gap:14px;align-items:flex-start;border:1px solid #ececeb;border-radius:9px;padding:12px 14px;margin:9px 0;}
+  .schritt .num{flex:0 0 auto;width:30px;height:30px;border-radius:50%;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:.9rem;}
+  .pill{display:inline-block;font-size:.64rem;font-weight:700;padding:2px 9px;border-radius:20px;}
+  .ok{background:#e6f3da;color:#3f6e16;} .tun{background:#fff3cc;color:#8a6d00;} .offen{background:#fde0e3;color:#a3121f;}
+
+  .credo-linie{display:flex;height:14px;margin-top:34px;border-radius:3px;overflow:hidden;}
+  .credo-linie .g{flex:2;background:var(--grau-hell);} .credo-linie .s{flex:.5;}
+  footer{margin-top:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:.78rem;color:#8a8a89;}
+  footer b{color:var(--grau);}
+  @media print{body{background:#fff;}section,nav.toc{box-shadow:none;border:1px solid #eee;}a{color:var(--grau);}.mock{box-shadow:none;}}
+  @media(max-width:720px){.zwei{grid-template-columns:1fr;}.flow{flex-direction:column;}.flow .arrow{transform:rotate(90deg);height:22px;}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="hero-inner">
+  <div class="marke"><div class="logo-kreis"><span></span></div><b>CREDO Gruppe · Freie Evangelische Schulen Minden</b></div>
+  <span class="tag">Umsetzungsplan · interne Arbeitsgrundlage · Stand 16.07.2026</span>
+  <h1>Mehrarbeit → Stellenanteil: Umsetzung, Berechnung &amp; Ansicht</h1>
+  <p class="sub">Wie die übernommenen Vertretungen aus Untis automatisch ins Stellenist einfließen — mit Rechenweg, Beispiel und Mockup.</p>
+  <div class="claim">lebensnah<span class="p">•</span>wegweisend<span class="p">•</span>christlich</div>
+</div></header>
+
+<div class="seite">
+
+  <nav class="toc"><b>Inhalt</b>
+    <a href="#ziel">1 Ziel &amp; was daran hängt</a><a href="#fluss">2 Datenfluss</a><a href="#regeln">3 Was zählt</a>
+    <a href="#rechnung">4 Berechnungsweg &amp; Beispiel</a><a href="#mockup">5 Ansicht (Mockup)</a><a href="#umsetzung">6 Umsetzung</a><a href="#offen">7 Offene Bestätigungen</a>
+  </nav>
+
+  <!-- 1 -->
+  <section id="ziel">
+    <h2><span class="bal" style="background:var(--blau)"></span>1 · Ziel &amp; was daran hängt</h2>
+    <p>Die von Lehrkräften <b>übernommenen Vertretungen</b> (Mehrarbeit) sollen künftig <b>automatisch aus Untis</b> ermittelt und als <b>Stellenanteil</b> in die bestehende Stellenberechnung <code>HR_Stellen_Ist_Berechnung</code> übernommen werden — als Grundlage für die Refinanzierungsnachweise gegenüber der Bezirksregierung (NRW-Ersatzschulfinanzierung, §§ 105 ff. SchulG).</p>
+    <div class="merk rot"><b>Was daran hängt:</b> Übernommene Vertretungen erhöhen das <b>refinanzierbare Stellenist</b>. Zu wenig gezählt = verschenkte Landeserstattung; falsch gezählt = Beanstandungs- und Rückforderungsrisiko. Die Erfassung muss rechtssicher, nachvollziehbar und vollständig sein.</div>
+    <div class="merk gruen"><b>Grundsatz (bestätigt durch NRW-Rechtsdoku):</b> Fürs <b>Stellenist</b> zählen <b>alle</b> übernommenen Vertretungsstunden — <b>ohne Bagatellgrenze</b>. Die Bagatellgrenze (3 Std./Monat, max. 24) betrifft nur den getrennten <b>Euro-Vergütungs-Pfad</b> (LBV), nicht das Stellenist.</div>
+  </section>
+
+  <!-- 2 -->
+  <section id="fluss">
+    <h2><span class="bal" style="background:var(--gruen)"></span>2 · Datenfluss: von Untis bis ins Stellenist</h2>
+    <div class="flow">
+      <div class="node"><span class="k">Quelle</span><b>Untis <code>Substitution</code></b><small>Vertretungen je Tag/Stunde. SJ 25/26: 13.196 Zeilen, davon 6.408 mit echtem Vertreter.</small></div>
+      <div class="arrow">▶</div>
+      <div class="node hl"><span class="k">Schritt 1 · Filter</span><b>Klassifikation</b><small>echte, zählbare Vertretung herausfiltern (siehe §3). Ausschluss von Tausch, Freisetzung, Entfall, Selbstvertretung, Events, Steuergründen.</small></div>
+      <div class="arrow">▶</div>
+      <div class="node"><span class="k">Schritt 2 · Aggregation</span><b>View <code>v_mehrarbeit_untis_monat</code></b><small>zählbare Std. je Lehrkraft / Monat / Schule (1 vertretene Stunde = 1 Std.).</small></div>
+      <div class="arrow">▶</div>
+      <div class="node"><span class="k">Schritt 3 · Sync</span><b>Tabelle <code>mehrarbeit</code></b><small>UPSERT über n8n (<code>quelle='untis'</code>); manuelle Einträge bleiben unangetastet.</small></div>
+      <div class="arrow">▶</div>
+      <div class="node"><span class="k">Ergebnis</span><b>Stellenist-Berechnung</b><small>Basis-Deputat + Mehrarbeit → Gesamt-Stellenist je Schule, Soll-Ist-Vergleich.</small></div>
+    </div>
+    <div class="merk blau"><b>Keine Doppelzählung:</b> Das strukturelle Über-Deputat (z. B. Dauervertretung) steckt bereits im Periodendeputat und damit im Basis-Stellenist. <code>Substitution</code> liefert nur die <i>zusätzliche</i> Tages-Vertretungs-Mehrarbeit.</div>
+  </section>
+
+  <!-- 3 -->
+  <section id="regeln">
+    <h2><span class="bal" style="background:var(--rot)"></span>3 · Was zählt — und was nicht</h2>
+    <p>Aus den geprüften Untis-Daten und den NRW-Rechtsgrundlagen ergibt sich die Zähl-Logik (Bestätigung durch Untis-Experten/Personal steht noch aus — siehe §7):</p>
+    <div class="zwei">
+      <div class="box ja">
+        <h4>✔ Zählt als Mehrarbeit</h4>
+        <ul>
+          <li>Echter Vertreter vorhanden (<code>TEACHER_IDSubst &gt; 0</code>)</li>
+          <li>Ein Kollege fällt aus (z. B. <b>krank</b>, Fortbildung, Klassenfahrt) und wird von einer <b>anderen</b> Kraft vertreten</li>
+          <li>Jede vertretene Stunde = <b>1,0 Std.</b> (da <code>SubstValue</code> zu 97 % leer/„0" ist)</li>
+        </ul>
+      </div>
+      <div class="box nein">
+        <h4>✘ Zählt nicht</h4>
+        <ul>
+          <li><b>Freisetzung / Entfall</b> (Flags mit <code>F</code>/<code>E</code>) — kein Vertreter</li>
+          <li><b>Selbstvertretung</b> (<code>TEACHER_IDSubst = TEACHER_IDLessn</code>)</li>
+          <li><b>Events</b> ohne Ausfall-LK (z. B. „Zeugnisausgabe", <code>TEACHER_IDLessn = 0</code>)</li>
+          <li><b>Steuergründe:</b> <code>fnz</code> (Freisetzung nicht zählen), <code>KV</code> (kein Vertretungsunterricht), <code>BE-V</code>/<code>KOR-V</code> (Verrechnung)</li>
+          <li>Zeilen mit <code>SubstValue = 0</code> (Wert 0 = nicht gewertet)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section id="rechnung">
+    <h2><span class="bal" style="background:var(--gelb)"></span>4 · Berechnungsweg mit Beispiel</h2>
+    <p>Die Stellenberechnung teilt das Haushaltsjahr in zwei Zeiträume (NRW-Modell): <b>Januar–Juli (7 Monate)</b> und <b>August–Dezember (5 Monate)</b>. Sowohl das Basis-Deputat als auch die Mehrarbeit werden je Zeitraum durch das Regeldeputat geteilt und dann zum Jahr gewichtet.</p>
+
+    <h3>4.1 Die Formeln</h3>
+    <div class="formel">
+<span class="c">// Basis-Stellenist (aus regulärem Deputat)</span><br>
+Basis<span class="y">Jan–Jul</span> = Σ(Wochenstunden Jan–Jul) / (<span class="g">7</span> × Regeldeputat)<br>
+Basis<span class="y">Aug–Dez</span> = Σ(Wochenstunden Aug–Dez) / (<span class="g">5</span> × Regeldeputat)<br>
+<br>
+<span class="c">// Mehrarbeit-Stellenanteil (aus zählbaren Vertretungsstunden)</span><br>
+Mehr<span class="y">Jan–Jul</span> = Σ(Vertretungs-Std. Jan–Jul) / (<span class="g">7</span> × Regeldeputat)<br>
+Mehr<span class="y">Aug–Dez</span> = Σ(Vertretungs-Std. Aug–Dez) / (<span class="g">5</span> × Regeldeputat)<br>
+<br>
+<span class="c">// Jahres-Gewichtung &amp; Summe</span><br>
+Stellenist_gesamt = ( (Basis+Mehr)<span class="y">Jan–Jul</span> × 7 + (Basis+Mehr)<span class="y">Aug–Dez</span> × 5 ) / 12
+    </div>
+    <p style="font-size:.82rem;color:#8a8a89;">Umgesetzt in <code>src/lib/berechnungen/stellenist.ts</code>. Basis und Mehrarbeit werden <b>getrennt</b> gespeichert (<code>stellenist</code> · <code>mehrarbeit_stellen</code> · <code>stellenist_gesamt</code>) und erst am Ende addiert.</p>
+
+    <h3>4.2 Rechenbeispiel — eine Lehrkraft (Gymnasium, Regeldeputat 25,5)</h3>
+    <p>Vollzeitkraft „M. Müller", 25,5 Wochenstunden Basis-Deputat ganzjährig. Übernommene, <b>zählbare</b> Vertretungen laut Untis:</p>
+
+    <div class="merk"><b>Herleitung der zählbaren Stunden (Jan–Jul):</b><br>
+    22 Vertreter-Zeilen − 2 Selbstvertretung − 1 Event („Zeugnisausgabe") − 3 Steuergründe (<code>fnz</code>/<code>KV</code>) − 1 Freisetzung/Wert 0 = <b>15 zählbare Vertretungsstunden</b>. (Aug–Dez analog: <b>10 Std.</b>)</div>
+
+    <table>
+      <tr><th>Zeitraum</th><th>Σ Wochenstd. Basis</th><th>Basis-Stellen</th><th>Σ Vertretung (Std.)</th><th>Mehrarbeit-Stellen</th></tr>
+      <tr class="basis"><td>Jan–Jul (7 Mon.)</td><td>178,5</td><td>178,5 / (7×25,5) = <b>1,0000</b></td><td>15</td><td>15 / 178,5 = <b>0,0840</b></td></tr>
+      <tr class="basis"><td>Aug–Dez (5 Mon.)</td><td>127,5</td><td>127,5 / (5×25,5) = <b>1,0000</b></td><td>10</td><td>10 / 127,5 = <b>0,0784</b></td></tr>
+      <tr class="sum"><td>Jahr (gewichtet /12)</td><td>—</td><td>1,0000</td><td>25</td><td>0,0817</td></tr>
+    </table>
+
+    <div class="kpi-row">
+      <div class="kpi grau"><div class="lab">Basis-Stellenist</div><div class="val">1,00</div><div class="sub2">aus regulärem Deputat</div></div>
+      <div class="kpi gelb"><div class="lab">+ Mehrarbeit</div><div class="val">+0,08</div><div class="sub2">25 Vertretungsstunden / Jahr</div></div>
+      <div class="kpi gruen"><div class="lab">= Gesamt-Stellenist</div><div class="val">1,1</div><div class="sub2">gerundet auf 1 Dezimalstelle</div></div>
+    </div>
+    <p style="font-size:.82rem;color:#8a8a89;">Gewichtung Mehrarbeit: (0,0840 × 7 + 0,0784 × 5) / 12 = 0,0817. Gesamt: 1,0000 + 0,0817 = 1,0817 → <b>1,1</b>.</p>
+    <div class="merk blau"><b>Auf Schulebene:</b> Die App summiert diese Werte über <b>alle</b> Lehrkräfte je Schule und Zeitraum. Das Ergebnis (Schul-Stellenist inkl. Mehrarbeit) geht in den <b>Soll-Ist-Vergleich</b> gegen das Stellensoll (Ampel).</div>
+  </section>
+
+  <!-- 5 -->
+  <section id="mockup">
+    <h2><span class="bal" style="background:var(--bk)"></span>5 · So sieht es in der Software aus (Mockup)</h2>
+    <p>Stellenist-Drilldown je Lehrkraft: 12-Monats-Raster mit getrennter Zeile für Basis-Deputat und (Untis-)Mehrarbeit, darunter das gerundete Ergebnis. Automatische Einträge sind als <span class="chip untis">Untis</span> gekennzeichnet und bleiben manuell korrigierbar.</p>
+
+    <div class="mock">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><b>HR_Stellen_Ist_Berechnung</b> &nbsp;·&nbsp; Stellenist &nbsp;›&nbsp; Drilldown</div>
+      <div class="body">
+        <div class="crumbs">Dashboard › Stellenist › Gymnasium › Drilldown Lehrkraft</div>
+        <div class="title">M. Müller <span class="chip untis" style="vertical-align:middle;">Untis</span></div>
+        <div class="sub3">Gymnasium · Regeldeputat 25,5 · Haushaltsjahr 2026</div>
+        <div class="mgrid">
+        <table>
+          <tr><th>Kennwert</th><th>Jan</th><th>Feb</th><th>Mär</th><th>Apr</th><th>Mai</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Okt</th><th>Nov</th><th>Dez</th></tr>
+          <tr class="basis"><td>Basis-Deputat (WS)</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td><td>25,5</td></tr>
+          <tr class="mehr"><td>Mehrarbeit / Vertretung (Std.)</td><td>0</td><td>2</td><td>4</td><td>0</td><td>6</td><td>3</td><td>0</td><td>0</td><td>3</td><td>0</td><td>5</td><td>2</td></tr>
+        </table>
+        </div>
+        <div class="kpi-row" style="margin-top:14px;">
+          <div class="kpi grau"><div class="lab">Basis-Stellenist</div><div class="val">1,00</div></div>
+          <div class="kpi gelb"><div class="lab">+ Mehrarbeit (25 Std.)</div><div class="val">+0,08</div></div>
+          <div class="kpi gruen"><div class="lab">= Gesamt</div><div class="val">1,1</div></div>
+        </div>
+        <p style="font-size:.78rem;color:#9a9a98;margin-top:12px;">Jede vertretene Stunde = 1,0 Std. · Steuergründe (fnz/KV/BE-V) und Selbstvertretungen sind bereits herausgefiltert · Quelle: Untis <code>Substitution</code>, Sync 16.07.2026.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:22px;">Schulebene — Soll-Ist mit Mehrarbeit</h3>
+    <div class="mock">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><b>HR_Stellen_Ist_Berechnung</b> &nbsp;·&nbsp; Soll-Ist-Vergleich</div>
+      <div class="body">
+        <div class="mgrid">
+        <table>
+          <tr><th>Schule</th><th>Basis-Stellenist</th><th>+ Mehrarbeit</th><th>= Stellenist</th><th>Stellensoll</th><th>Differenz</th></tr>
+          <tr class="basis"><td>Gymnasium</td><td>44,9</td><td>1,6</td><td><b>46,5</b></td><td>45,9</td><td><span class="ampel" style="background:var(--gruen)"></span>+0,6</td></tr>
+          <tr class="basis"><td>Gesamtschule</td><td>58,7</td><td>2,3</td><td><b>61,0</b></td><td>61,4</td><td><span class="ampel" style="background:var(--gelb)"></span>−0,4</td></tr>
+          <tr class="basis"><td>Berufskolleg</td><td>12,1</td><td>0,4</td><td><b>12,5</b></td><td>12,7</td><td><span class="ampel" style="background:var(--gelb)"></span>−0,2</td></tr>
+        </table>
+        </div>
+        <p style="font-size:.78rem;color:#9a9a98;margin-top:8px;">Beispielhafte Zahlen zur Veranschaulichung. Die Mehrarbeit-Spalte ist neu und wird getrennt ausgewiesen — so bleibt nachvollziehbar, welcher Teil des Stellenist aus Vertretungen stammt.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section id="umsetzung">
+    <h2><span class="bal" style="background:var(--grau)"></span>6 · Umsetzung in der Software</h2>
+    <div class="schritt"><div class="num" style="background:var(--rot)">A</div><div><b>Migration 0016 — <code>quelle</code> in <code>mehrarbeit</code></b> <span class="pill tun">zu tun</span><br>Neues Feld <code>quelle</code> (<code>'untis'</code> / <code>'manuell'</code>) + Upsert-Schutz, damit der automatische Sync manuelle Korrekturen nicht überschreibt.</div></div>
+    <div class="schritt"><div class="num" style="background:var(--rot)">B</div><div><b>Grund-Mapping-Tabelle</b> <span class="pill offen">Bestätigung offen</span><br>Kürzel → zählt / Steuergrund / refinanzierbar (dedupliziert über das Kürzel). Vorbelegt aus der Prüf-Excel, final nach Rückmeldung Personal/Untis.</div></div>
+    <div class="schritt"><div class="num" style="background:var(--gruen)">C</div><div><b>Aggregations-View <code>v_mehrarbeit_untis_monat</code></b> <span class="pill tun">zu tun</span><br>Zählbare Vertretungsstunden je Lehrkraft/Monat/Schule mit der Filter-Logik aus §3 (1 Zeile = 1 Std.).</div></div>
+    <div class="schritt"><div class="num" style="background:var(--gruen)">D</div><div><b>Sync-Endpoint <code>/api/mehrarbeit/sync</code> + n8n</b> <span class="pill tun">zu tun</span><br>Analog zum bestehenden Deputate-Sync (<code>sync-v2</code>): API-Key, Zod-Validierung, Batch-UPSERT, Sync-Log.</div></div>
+    <div class="schritt"><div class="num" style="background:var(--gruen)">E</div><div><b>Anzeige &amp; Drilldown</b> <span class="pill tun">zu tun</span><br>Mehrarbeit getrennt ausgewiesen (siehe Mockup), automatische Einträge gekennzeichnet, manuelle Korrektur möglich.</div></div>
+    <div class="schritt"><div class="num" style="background:var(--gruen)">F</div><div><b>Validierung &amp; Freigabe</b> <span class="pill tun">zu tun</span><br>Gegenrechnung an Referenzlehrkräften und gegen einen bekannten LBV-/PEDAV-Bogen.</div></div>
+  </section>
+
+  <!-- 7 -->
+  <section id="offen">
+    <h2><span class="bal" style="background:var(--gelb)"></span>7 · Was vor dem Bau noch bestätigt werden muss</h2>
+    <p>Diese Punkte liegen als <b>Prüf-Excel</b> bei den drei Rollen (grün = Vorschlag zum Bestätigen, gelb = offen):</p>
+    <ul>
+      <li><b>Untis-Experte:</b> exakte <code>Flags</code>-Bedeutung, <code>BookingType</code>, <code>SubstValue</code>/Wert-Semantik, Absenz-Typen 100/101/102, Dauer- vs. Tagesvertretung.</li>
+      <li><b>Personalsachbearbeitung:</b> Grund-Mapping (refinanzierbar vs. Steuergrund), Vollständigkeit der Erfassung je Schule.</li>
+      <li><b>Geschäftsführung:</b> Freigabe „alle Stunden ohne Bagatellgrenze fürs Stellenist", Verantwortlichkeit für die Gründe-Pflege.</li>
+    </ul>
+    <div class="merk"><b>Sobald diese Bestätigungen vorliegen</b>, sind Grund-Mapping und Filter final — dann folgen Migration, View, Sync und die Anzeige (Schritte A–F).</div>
+  </section>
+
+  <div class="credo-linie"><div class="g"></div><div class="s" style="background:var(--gelb)"></div><div class="s" style="background:var(--gruen)"></div><div class="s" style="background:var(--rot)"></div><div class="s" style="background:var(--blau)"></div></div>
+  <footer>
+    <div><b>Christlicher Schulverein Minden e.V.</b><br>Kingsleyallee 6 · 32425 Minden · fes-minden.de</div>
+    <div style="text-align:right">Mehrarbeit → Stellenanteil · Umsetzungsplan &amp; Berechnung<br>Stand: 16.07.2026 · interne Arbeitsgrundlage</div>
+  </footer>
+</div>
+</body>
+</html>

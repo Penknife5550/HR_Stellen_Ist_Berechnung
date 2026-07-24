@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Systemübersicht · CREDO Stellenistberechnung</title>
+<style>
+  :root {
+    /* CREDO Corporate Design — Verwaltung (Grau) */
+    --credo-grau: #575756;
+    --credo-grau-dark: #3d3d3c;
+    --credo-ges:  #6BAA24;
+    --credo-gym:  #FBC900;
+    --credo-bk:   #5C82A5;
+    --credo-rot:  #E2001A;
+    --credo-blau: #009AC6;
+
+    --ok:    #22C55E;
+    --warn:  #F59E0B;
+    --danger:#EF4444;
+
+    --bg:      #F8F9FA;
+    --fg:      #1A1A1A;
+    --surface: #FFFFFF;
+    --border:  #E5E7EB;
+    --muted:   #6B7280;
+
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,.08);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+  }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Layout ---------- */
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  header.hero {
+    background: linear-gradient(135deg, var(--credo-grau) 0%, var(--credo-grau-dark) 100%);
+    color: #fff;
+    padding: 56px 0 48px;
+  }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.25);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  header.hero h1 { margin: 0 0 10px; font-size: 34px; line-height: 1.2; font-weight: 700; }
+  header.hero p.lead { margin: 0; font-size: 18px; max-width: 720px; opacity: .92; }
+  .hero-meta { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .hero-meta span {
+    background: rgba(255,255,255,.12);
+    padding: 6px 14px; border-radius: 8px; font-size: 14px;
+  }
+
+  /* ---------- Table of contents ---------- */
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px 24px;
+    margin: -30px auto 40px;
+    position: relative;
+    z-index: 2;
+    max-width: 1100px;
+  }
+  nav.toc h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  nav.toc ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 24px; }
+  nav.toc a { color: var(--credo-grau); text-decoration: none; font-size: 15px; display: flex; gap: 10px; padding: 4px 0; }
+  nav.toc a:hover { color: var(--credo-blau); }
+  nav.toc a .n { color: var(--credo-blau); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 22px; }
+
+  /* ---------- Sections ---------- */
+  section { margin-bottom: 52px; }
+  section > h2 {
+    font-size: 24px; font-weight: 700; margin: 0 0 4px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  section > h2 .kicker {
+    background: var(--credo-blau); color: #fff; font-size: 14px; font-weight: 700;
+    width: 30px; height: 30px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
+    flex: none;
+  }
+  section > p.sub { margin: 0 0 22px; color: var(--muted); font-size: 16px; }
+  h3 { font-size: 18px; margin: 30px 0 10px; }
+  h4 { font-size: 15px; margin: 22px 0 8px; color: var(--credo-grau-dark); text-transform: uppercase; letter-spacing: .03em; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px 26px;
+  }
+  .card + .card { margin-top: 18px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; }
+  @media (max-width: 780px){ .grid-2,.grid-3 { grid-template-columns: 1fr; } nav.toc ol { grid-template-columns: 1fr; } }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 8px 0; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { background: #f1f2f3; color: var(--credo-grau-dark); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .02em; border-bottom: 2px solid var(--border); }
+  tbody tr:hover { background: #fafbfb; }
+  td code, p code, li code { background: #eef0f2; padding: 1px 6px; border-radius: 5px; font-family: 'Consolas','SF Mono',monospace; font-size: 13px; color: var(--credo-bk); }
+  .mono { font-family: 'Consolas','SF Mono',monospace; }
+
+  /* ---------- Code / formula blocks ---------- */
+  pre {
+    background: #2d2d2c; color: #e8e8e6; padding: 16px 20px; border-radius: 10px;
+    overflow-x: auto; font-family: 'Consolas','SF Mono',monospace; font-size: 13.5px; line-height: 1.55;
+    margin: 12px 0;
+  }
+  pre .cm { color: #8ea9c0; }
+  .formula {
+    background: #f4f7f9; border-left: 4px solid var(--credo-blau);
+    padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 12px 0;
+    font-family: 'Consolas','SF Mono',monospace; font-size: 14.5px;
+  }
+
+  /* ---------- Callouts ---------- */
+  .note { border-left: 4px solid var(--credo-blau); background: #eef8fc; padding: 12px 18px; border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .note.warn { border-color: var(--warn); background: #fff8ec; }
+  .note.legal { border-color: var(--credo-grau); background: #f3f3f3; }
+  .note strong { color: var(--credo-grau-dark); }
+
+  /* ---------- Pills / badges ---------- */
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; }
+  .pill.a  { background: #e5f3d6; color: #4a7d17; }
+  .pill.a106{ background: #d9ecdf; color: #2f7c48; }
+  .pill.b  { background: #fdf3cf; color: #a07f00; }
+  .pill.c  { background: #e2ecf4; color: #3e6488; }
+  .pill.ges{ background: var(--credo-ges); color:#fff; }
+  .pill.gym{ background: var(--credo-gym); color:#3d3d3c; }
+  .pill.bk { background: var(--credo-bk);  color:#fff; }
+  .pill.gs { background: var(--credo-grau); color:#fff; }
+  .pill.tab{ background:#eef0f2; color:var(--credo-grau-dark); font-family:'Consolas',monospace; font-weight:600; }
+
+  /* ---------- Pipeline / flow ---------- */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; margin: 18px 0; }
+  .flow-step {
+    flex: 1; min-width: 150px; background: var(--surface); border: 1px solid var(--border);
+    border-top: 4px solid var(--credo-blau); border-radius: 10px; padding: 14px 16px; position: relative;
+  }
+  .flow-step h5 { margin: 0 0 4px; font-size: 14px; color: var(--credo-grau-dark); }
+  .flow-step p { margin: 0; font-size: 13px; color: var(--muted); }
+  .flow-arrow { display: flex; align-items: center; justify-content: center; color: var(--credo-blau); font-size: 22px; padding: 0 8px; }
+  @media (max-width: 780px){ .flow { flex-direction: column; } .flow-arrow { transform: rotate(90deg); padding: 4px 0; } }
+
+  ul.clean { list-style: none; padding-left: 0; }
+  ul.clean li { padding: 6px 0 6px 26px; position: relative; }
+  ul.clean li::before { content: "▸"; color: var(--credo-blau); position: absolute; left: 4px; font-weight: 700; }
+
+  footer { background: var(--credo-grau-dark); color: rgba(255,255,255,.85); padding: 30px 0; font-size: 14px; margin-top: 60px; }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+  .anchor { scroll-margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="hero-badge">CREDO Verwaltung · Interne IT-Dokumentation</span>
+    <h1>Stellenistberechnung — System- und Prozessübersicht</h1>
+    <p class="lead">Webanwendung zur Berechnung von Personalstellen (Stellensoll / Stellenist) für die
+      CREDO/FES-Schulgruppe als Ersatzschulträger in NRW. Diese Übersicht erklärt Prozess, Berechnung,
+      Datenbank und Schnittstellen so, dass ein außenstehender IT- und Softwareentwickler das System vollständig nachvollziehen kann.</p>
+    <div class="hero-meta">
+      <span>Next.js 16 · React 19</span>
+      <span>PostgreSQL 16 · Drizzle ORM</span>
+      <span>n8n-Integration (Untis)</span>
+      <span>Docker · Caddy</span>
+      <span>Stand: v0.7 · Periodenmodell</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc wrap">
+  <h2>Inhalt</h2>
+  <ol>
+    <li><a href="#ueberblick"><span class="n">1</span> Zweck &amp; Fachdomäne</a></li>
+    <li><a href="#prozess"><span class="n">2</span> Gesamtprozess (Datenfluss)</a></li>
+    <li><a href="#stack"><span class="n">3</span> Technologie-Stack</a></li>
+    <li><a href="#sync"><span class="n">4</span> Untis → App: n8n-Sync</a></li>
+    <li><a href="#periodenmodell"><span class="n">5</span> Periodenmodell (Kern)</a></li>
+    <li><a href="#berechnung"><span class="n">6</span> Berechnungslogik</a></li>
+    <li><a href="#datenmodell"><span class="n">7</span> Datenbank-Schema</a></li>
+    <li><a href="#views"><span class="n">8</span> SQL-Views &amp; Korrektur-Layer</a></li>
+    <li><a href="#ui"><span class="n">9</span> Anwendung &amp; Exporte</a></li>
+    <li><a href="#recht"><span class="n">10</span> Rechtsgrundlagen &amp; Grenzen</a></li>
+  </ol>
+</nav>
+
+<main class="wrap">
+
+  <!-- ============ 1 ============ -->
+  <section id="ueberblick" class="anchor">
+    <h2><span class="kicker">1</span> Zweck &amp; Fachdomäne</h2>
+    <p class="sub">Warum es die Software gibt und welches fachliche Problem sie löst.</p>
+
+    <div class="card">
+      <p><strong>Fachliches Ziel.</strong> Als staatlich anerkannter Ersatzschulträger in NRW bekommt die
+      CREDO/FES-Schulgruppe ihre Lehrerstellen vom Land refinanziert. Wie viele Stellen dem Träger zustehen,
+      hängt von zwei Größen ab, die pro Schule und Haushaltsjahr gegenübergestellt werden:</p>
+
+      <div class="grid-2" style="margin-top:14px">
+        <div class="card" style="box-shadow:none; background:#f8fafb">
+          <h4 style="margin-top:0">Stellensoll</h4>
+          <p style="margin:0">Wie viele Stellen der Schule <em>rechtlich zustehen</em> — aus Schülerzahlen
+          (÷ Schüler-Lehrer-Relation) plus genehmigte zusätzliche Stellenanteile.</p>
+        </div>
+        <div class="card" style="box-shadow:none; background:#f8fafb">
+          <h4 style="margin-top:0">Stellenist</h4>
+          <p style="margin:0">Wie viele Stellen <em>tatsächlich besetzt</em> sind — aus den real erteilten
+          Wochenstunden aller Lehrkräfte ÷ Regeldeputat (Pflichtstunden pro Vollzeitstelle).</p>
+        </div>
+      </div>
+
+      <p style="margin-top:16px">Die App ersetzt den bisherigen manuellen <strong>Excel-Prozess</strong> der Personalabteilung
+      und erzeugt die Nachweise, die die <strong>Bezirksregierung</strong> für die Stellenplan-Anlage 2a verlangt.
+      Zielgruppe sind Sachbearbeiter der Personalabteilung — daher: klare, deutschsprachige UI, keine versteckten Menüs,
+      vertretbar auch ohne Vorkenntnisse.</p>
+
+      <h4>Die sechs Schulen (Mandanten)</h4>
+      <table>
+        <thead><tr><th>Kurz</th><th>Schule</th><th>Schulform</th><th>Schulnr.</th><th>Deputat-Quelle</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill ges">GES</span></td><td>Freie Ev. Gesamtschule Minden</td><td>Gesamtschule</td><td class="tabular">195182</td><td>Untis-Sync</td></tr>
+          <tr><td><span class="pill gym">GYM</span></td><td>Freies Ev. Gymnasium Minden</td><td>Gymnasium</td><td class="tabular">196083</td><td>Untis-Sync</td></tr>
+          <tr><td><span class="pill bk">BK</span></td><td>Freies Ev. Berufskolleg Minden</td><td>Berufskolleg</td><td class="tabular">100166</td><td>Untis-Sync</td></tr>
+          <tr><td><span class="pill gs">GSS</span></td><td>Grundschule Stemwede</td><td>Grundschule</td><td class="tabular">195054</td><td>manuell</td></tr>
+          <tr><td><span class="pill gs">GSM</span></td><td>Grundschule Minderheide</td><td>Grundschule</td><td class="tabular">195844</td><td>manuell</td></tr>
+          <tr><td><span class="pill gs">GSH</span></td><td>Grundschule Haddenhausen</td><td>Grundschule</td><td class="tabular">194608</td><td>manuell</td></tr>
+        </tbody>
+      </table>
+      <div class="note">Die drei weiterführenden Schulen (GES/GYM/BK) pflegen ihre Stundenpläne in <strong>Untis</strong> — deren
+      Deputate kommen automatisch. Die drei Grundschulen haben kein Untis; ihre Lehrkräfte werden manuell erfasst.</div>
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section id="prozess" class="anchor">
+    <h2><span class="kicker">2</span> Gesamtprozess — von Untis bis Bezirksregierung</h2>
+    <p class="sub">Der End-to-End-Datenfluss in fünf Stufen.</p>
+
+    <div class="flow">
+      <div class="flow-step"><h5>1 · Quelle</h5><p>Untis-Datenbank (Stundenpläne, Lehrer, Perioden) + manuelle Grundschul-Erfassung + Schülerzahlen zum Stichtag 15.10.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><h5>2 · Transport</h5><p>n8n-Workflows lesen Untis per SQL und pushen JSON an die App-Endpunkte (API-Key-gesichert).</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><h5>3 · Speicherung</h5><p>App schreibt Perioden-Deputate + Änderungshistorie idempotent nach PostgreSQL.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><h5>4 · Berechnung</h5><p>Server berechnet tagesgenau Stellensoll, Stellenist und Soll-Ist-Vergleich pro Schule &amp; Haushaltsjahr.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><h5>5 · Ausgabe</h5><p>Dashboard, Detailseiten, Excel-/PDF-/Word-Exporte (Anlage 2a, Nachträge) für die Bezirksregierung.</p></div>
+    </div>
+
+    <div class="card">
+      <h4>Wer macht was</h4>
+      <table>
+        <thead><tr><th>Akteur</th><th>Aufgabe</th><th>Frequenz</th></tr></thead>
+        <tbody>
+          <tr><td>Untis (Schulen)</td><td>Pflegt Stundenpläne &amp; Deputate — <em>einzige Quelle der Wahrheit</em></td><td>laufend</td></tr>
+          <tr><td>n8n</td><td>Synchronisiert Terms + Lehrer-Deputate + Statistik-Codes in die App</td><td>geplant / getriggert</td></tr>
+          <tr><td>Personalabteilung</td><td>Erfasst Schülerzahlen, Grundschul-Lehrer, Stellenanteile; korrigiert tatsächliche Stichtage; erstellt Nachträge &amp; Exporte</td><td>bei Bedarf</td></tr>
+          <tr><td>Bezirksregierung</td><td>Empfängt Stellenplan-Anlage 2a &amp; Nachweise (Empfänger, kein Systemzugang)</td><td>jährlich</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section id="stack" class="anchor">
+    <h2><span class="kicker">3</span> Technologie-Stack</h2>
+    <p class="sub">Alles TypeScript-basiert, ein Monorepo, containerisiert deploybar.</p>
+    <div class="grid-3">
+      <div class="card"><h4 style="margin-top:0">Frontend / Backend</h4>
+        <ul class="clean" style="margin:0">
+          <li>Next.js 16 (App Router)</li>
+          <li>React 19 · Server Components</li>
+          <li>Server Actions (Mutationen)</li>
+          <li>Tailwind CSS 4</li>
+          <li>lucide-react (Icons)</li>
+        </ul>
+      </div>
+      <div class="card"><h4 style="margin-top:0">Daten &amp; Auth</h4>
+        <ul class="clean" style="margin:0">
+          <li>PostgreSQL 16</li>
+          <li>Drizzle ORM + <code>postgres.js</code></li>
+          <li>Zod (Validierung)</li>
+          <li>iron-session (verschl. Cookies)</li>
+          <li>bcryptjs (Passwörter/API-Keys)</li>
+        </ul>
+      </div>
+      <div class="card"><h4 style="margin-top:0">Export &amp; Betrieb</h4>
+        <ul class="clean" style="margin:0">
+          <li>exceljs (Excel)</li>
+          <li>jsPDF + autotable (PDF)</li>
+          <li>docxtemplater (Word-Vorlagen)</li>
+          <li>Docker + Caddy Reverse Proxy</li>
+          <li>n8n (Integration)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note">Repository-Struktur: <code>src/app/</code> (Seiten + API-Routen), <code>src/lib/berechnungen/</code>
+      (reine Berechnungs-Helfer), <code>src/db/schema.ts</code> (Drizzle-Schema), <code>src/db/migrations/</code>
+      (SQL-Migrationen inkl. Views). Deployment auf <code>deputat.fes-credo.de</code>.</div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section id="sync" class="anchor">
+    <h2><span class="kicker">4</span> Untis → App: der n8n-Sync</h2>
+    <p class="sub">Wie die Deputatsdaten aus Untis in die Datenbank gelangen.</p>
+
+    <div class="card">
+      <p><strong>Prinzip.</strong> n8n-Workflows lesen die Untis-SQL-Datenbank aus und senden die Daten als JSON per HTTP-POST
+      an die App. Jeder Endpunkt ist mit einem eigenen <strong>API-Key</strong> geschützt (nur als bcrypt-Hash gespeichert,
+      Konfiguration unter <code>/admin/n8n-webhooks</code>). Es gibt drei Sync-Ströme:</p>
+
+      <table>
+        <thead><tr><th>Endpunkt</th><th>Quelle in Untis</th><th>Zweck</th></tr></thead>
+        <tbody>
+          <tr><td><code>POST /api/untis-terms/sync</code></td><td>Tabelle <code>Terms</code></td><td>Perioden-Kalender pro Schuljahr (Gültig-von/-bis je Term)</td></tr>
+          <tr><td><code>POST /api/deputate/sync-v2</code></td><td>Tabelle <code>Teacher</code> (<code>PlannedWeek</code>)</td><td>Lehrer-Stammdaten + Deputat je Lehrer &amp; Periode (aktuelles Modell)</td></tr>
+          <tr><td><code>POST /api/deputate/sync</code></td><td>Tabelle <code>Teacher</code></td><td>Alt-Endpunkt (v1, ein Wert pro Monat) — wird zurückgebaut</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Wochenstunden aus Untis</h4>
+      <div class="formula">Wochenstunden = Untis.<span class="cm">PlannedWeek</span> / 1000</div>
+      <p style="margin:0">Untis liefert das Deputat in Milli-Einheiten; die App teilt durch 1000. Zusätzlich wird die Verteilung
+      auf die Schulen (<code>deputat_ges</code>, <code>deputat_gym</code>, <code>deputat_bk</code>) mitgeliefert — ein Lehrer
+      kann an mehreren Schulen unterrichten.</p>
+
+      <div class="note warn"><strong>Untis-Eigenheit:</strong> Periodenwechsel sind in Untis technisch nur zum
+      <strong>Montag</strong> möglich. Der reale personalrechtliche Stichtag kann aber an jedem Wochentag liegen — dafür
+      gibt es den <a href="#views" style="color:var(--credo-grau-dark)">Korrektur-Layer</a> (Abschnitt 8).</div>
+
+      <h4>Idempotenz &amp; Änderungserkennung</h4>
+      <p style="margin:0">Der <code>sync-v2</code>-Endpunkt schreibt pro <code>(Lehrer × Schuljahr × Term)</code> genau eine Zeile
+      per <em>Upsert</em> (<code>ON CONFLICT … DO UPDATE</code>). Ein erneuter Sync mit denselben Werten ändert nichts;
+      geänderte Werte überschreiben die Periode. Die Reihenfolge der Syncs spielt keine Rolle — kein Race-Condition-Risiko.
+      Jeder Lauf wird in <code>deputat_sync_log</code> protokolliert (inkl. Rohdaten für Forensik).</p>
+
+      <h4>Statistik-Codes (Beamte / Angestellte)</h4>
+      <p style="margin:0">Untis liefert pro Lehrer das Feld <code>StatisticCodes</code> (z.&nbsp;B. <code>L</code> = Beamter Lebenszeit,
+      <code>UT</code> = Angestellter unbefristet Teilzeit). Die App normalisiert es gegen eine Whitelist (<code>statistik_codes</code>-Tabelle);
+      unbekannte Codes werden verworfen, jeder Wechsel wird auditiert. Die Bezirksregierung verlangt in Anlage 2a die getrennte
+      Ausweisung von Beamten und Angestellten.</p>
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section id="periodenmodell" class="anchor">
+    <h2><span class="kicker">5</span> Periodenmodell — das Herzstück (v0.7)</h2>
+    <p class="sub">Warum die Deputate periodengenau statt monatlich gespeichert werden.</p>
+
+    <div class="card">
+      <p><strong>Leitprinzip:</strong> <em>Untis ist die einzige Quelle der Wahrheit.</em> Die App spiegelt die Untis-Perioden
+      1:1, denkt keine Daten dazu und wirft keine Untis-Daten weg. Lücken (z.&nbsp;B. Sommerferien) werden durch
+      <strong>Fortschreiben des letzten bekannten Werts</strong> gefüllt.</p>
+
+      <h4>Das Problem des alten Modells</h4>
+      <p>Früher speicherte die App <strong>einen Deputatswert pro Monat</strong> (<code>deputat_monatlich</code>). Lagen in einem
+      Monat mehrere Untis-Perioden, „gewann“ die mit den meisten Tagen — die anderen Werte gingen verloren. Bei unterjährigen
+      Stundenänderungen entstanden dadurch <strong>Berechnungsfehler von mehreren Wochenstunden pro Monat</strong>.</p>
+
+      <div class="note">Realbeispiel <strong>Bergmann Benjamin</strong> (Gymnasium, SY 2025/26): Wechsel 10&nbsp;→&nbsp;17&nbsp;WS
+      ab 09.02. Das alte Monatsmodell rechnete den Februar mit vollen 17&nbsp;WS statt korrekt 15,0&nbsp;WS —
+      Summenfehler übers Jahr: <strong>ca. 6,8&nbsp;Wochenstunden</strong>.</div>
+
+      <h4>Die Lösung: eine Zeile pro (Lehrer, Periode)</h4>
+      <p>Untis liefert Deputate ohnehin periodengenau. Das aktuelle Modell speichert genau diese Granularität in
+      <code>deputat_pro_periode</code> (für Bergmann z.&nbsp;B. 18 Zeilen pro Schuljahr). Daraus leiten SQL-Views alles
+      Weitere <strong>tagesgenau</strong> ab:</p>
+
+      <ul class="clean">
+        <li><strong>Tagesgenaue Monatswerte</strong> — jeder Kalendertag bekommt den gültigen Wert, der Monatsmittel entsteht als Durchschnitt über alle Tage.</li>
+        <li><strong>Automatische Änderungserkennung</strong> — ein Wertwechsel ist einfach die Differenz zweier aufeinanderfolgender Perioden. Keine künstliche „Tie-Breaker“-Logik mehr.</li>
+        <li><strong>Vollständiger Audit-Trail</strong> — jede Periode bleibt erhalten, nichts wird überschrieben oder verworfen.</li>
+      </ul>
+
+      <div class="formula">
+        <span class="cm"># Tagesgenauer Monatswert (Einfachfall: eine Änderung im Monat)</span><br>
+        effektiv = (Wert_alt × Tage_vor + Wert_neu × Tage_nach) / Kalendertage<br><br>
+        <span class="cm"># Bergen Eduard, Januar 2026 · 20,5 → 25,5 WS ab 05.01.</span><br>
+        (20,5 × 4 + 25,5 × 27) / 31 = <strong>24,855 Wochenstunden</strong>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section id="berechnung" class="anchor">
+    <h2><span class="kicker">6</span> Berechnungslogik im Detail</h2>
+    <p class="sub">Die vier zentralen Rechenschritte — reine Funktionen in <code>src/lib/berechnungen/</code>.</p>
+
+    <div class="card">
+      <h3 style="margin-top:0">6.1 Stellensoll (was zusteht)</h3>
+      <div class="formula">Stellensoll = Grundstellen + deputatswirksame Stellenanteile</div>
+
+      <h4>Grundstellen (NRW-konforme Rundung)</h4>
+      <ol>
+        <li>Pro Stufe: <code>Schülerzahl / SLR</code> (Schüler-Lehrer-Relation) → Rohwert</li>
+        <li>Rohwert auf <strong>2 Dezimalstellen abschneiden</strong> (nicht runden!)</li>
+        <li>Alle abgeschnittenen Werte <strong>addieren</strong></li>
+        <li>Summe auf <strong>1 Dezimalstelle kaufmännisch runden</strong></li>
+      </ol>
+      <div class="note warn">Das Abschneiden statt Runden ist gesetzlich vorgeschrieben (Nr. 7.1.1 AVO-RL). Deshalb liegt in
+        <code>rounding.ts</code> eine <strong>string-basierte</strong> <code>truncateToDecimals</code> — Fließkomma-Abschneiden wäre unzuverlässig.</div>
+
+      <h4>Zeiträume &amp; Jahresdurchschnitt</h4>
+      <p style="margin:0 0 8px">Das Haushaltsjahr = Kalenderjahr wird in zwei Zeiträume geteilt, jeder mit eigener Schülerzahl (Stichtag 15.10.):</p>
+      <div class="formula">
+        Jan–Jul (7 Mon.): Schülerzahl Stichtag 15.10. <strong>Vorjahr</strong><br>
+        Aug–Dez (5 Mon.): Schülerzahl Stichtag 15.10. <strong>laufendes Jahr</strong><br><br>
+        Stellensoll_Jahr = (Soll_JanJul × 7 + Soll_AugDez × 5) / 12
+      </div>
+
+      <h4>Zusätzliche Stellenanteile — vier Typen</h4>
+      <table>
+        <thead><tr><th>Typ</th><th>Bezeichnung</th><th>Wirkung aufs Stellensoll</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill a">A</span></td><td>Stellenzuschlag (Abschnitt 2)</td><td>erhöht Soll + Personalbedarfspauschale</td></tr>
+          <tr><td><span class="pill a106">A_106</span></td><td>Sonderbedarf § 106 Abs. 10</td><td>erhöht Soll (isoliert, nicht die Pauschale)</td></tr>
+          <tr><td><span class="pill b">B</span></td><td>Wahlleistung (Geld <em>oder</em> Stelle)</td><td>nur bei Wahlrecht = „stelle“</td></tr>
+          <tr><td><span class="pill c">C</span></td><td>reine Geldleistung</td><td>kein Stelleneffekt (nur EUR)</td></tr>
+        </tbody>
+      </table>
+      <p style="margin:8px 0 0">Insgesamt 31 vordefinierte Stellenarten (17× A, 8× A_106, 2× B, 4× C). Nur genehmigte Anteile fließen ein.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">6.2 Stellenist (was besetzt ist)</h3>
+      <div class="formula">
+        Ist_JanJul = Σ(Wochenstunden Jan–Jul) / (7 × Regeldeputat)<br>
+        Ist_AugDez = Σ(Wochenstunden Aug–Dez) / (5 × Regeldeputat)<br>
+        Ist_Jahr   = (Ist_JanJul × 7 + Ist_AugDez × 5) / 12
+      </div>
+      <p><strong>Regeldeputat</strong> = Pflichtstunden pro Vollzeitstelle je Schulform (Tabelle <code>regeldeputate</code>,
+      § 2 Abs. 1 VO zu § 93 Abs. 2 SchulG NRW).</p>
+      <h4>Datenquellen je Schulform</h4>
+      <ul class="clean">
+        <li><strong>GES/GYM/BK:</strong> schulspezifische Spalten (<code>deputat_ges/gym/bk</code>) über <em>alle</em> Lehrer (schulübergreifend) — die tatsächlich an der Schule erteilten Stunden zählen, egal wo der Lehrer seine Stammschule hat.</li>
+        <li><strong>Grundschulen:</strong> <code>deputat_gesamt</code> nur für Lehrer der jeweiligen Stammschule.</li>
+      </ul>
+      <p style="margin:0"><strong>Mehrarbeit</strong> (Tabelle <code>mehrarbeit</code>) kommt oben drauf: entweder lehrerbezogen in Stunden (→ via Regeldeputat in Stellen umgerechnet) oder schulweit direkt als Stellenanteil.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">6.3 Tagesgenaue Korrektur bei Änderungen</h3>
+      <p>Standardmäßig gilt pro Monat der aus den Perioden abgeleitete Tagesmittelwert. Trägt die Personalabteilung ein
+      <strong>tatsächliches Stichtagsdatum</strong> ein (weil Untis auf Montag zwingt), wird der Monat in Zeitsegmente zerlegt und
+      jedes Segment mit <code>Wert × Tage / Kalendertage</code> gewichtet. Umgesetzt in
+      <code>deputatEffektiv.ts</code> (Anzeige/Export) und <code>tagesgenau.ts</code> (Korrekturdelta für die Ist-Berechnung).</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">6.4 Soll-Ist-Vergleich</h3>
+      <div class="formula">
+        Differenz = Stellenist − Stellensoll<br>
+        Status:  ≤ 0 → „im Soll“   ·   ≤ 0,5 → „Grenzbereich“   ·   &gt; 0,5 → „über Soll“<br>
+        Refinanzierung = min(Stellenist, Stellensoll)
+      </div>
+      <p style="margin:0">Refinanziert wird höchstens, was zusteht — mehr besetzte Stellen als das Soll werden nicht vergütet.</p>
+    </div>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section id="datenmodell" class="anchor">
+    <h2><span class="kicker">7</span> Datenbank-Schema</h2>
+    <p class="sub">PostgreSQL, definiert in <code>src/db/schema.ts</code> (Drizzle). Die wichtigsten Tabellen nach Gruppen.</p>
+
+    <div class="card">
+      <h4 style="margin-top:0">Stammdaten &amp; Referenzen</h4>
+      <table>
+        <thead><tr><th>Tabelle</th><th>Inhalt</th></tr></thead>
+        <tbody>
+          <tr><td><code>schulen</code></td><td>6 Schulen (Schulnummer, Kurzname, Schulform, CI-Farbe)</td></tr>
+          <tr><td><code>schul_stufen</code></td><td>Stufen pro Schule (Sek I, Sek II, Primarstufe)</td></tr>
+          <tr><td><code>schuljahre</code></td><td>Schuljahre + Verknüpfung zur Untis-<code>schoolyear_id</code></td></tr>
+          <tr><td><code>haushaltsjahre</code></td><td>Kalenderjahre + Schülerzahl-Stichtage (Sperr-Flag)</td></tr>
+          <tr><td><code>regeldeputate</code></td><td>Pflichtstunden pro Vollzeitstelle je Schulform</td></tr>
+          <tr><td><code>slr_werte</code> / <code>slr_historie</code></td><td>Schüler-Lehrer-Relation je Schuljahr (+ versionierte Historie)</td></tr>
+          <tr><td><code>statistik_codes</code></td><td>NRW-Statuscodes (Beamte/Angestellte), whitelist-gepflegt</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0">Bewegungsdaten — Schüler &amp; Personal</h4>
+      <table>
+        <thead><tr><th>Tabelle</th><th>Inhalt</th></tr></thead>
+        <tbody>
+          <tr><td><code>schuelerzahlen</code></td><td>Schülerzahl je Schule × Stufe × Stichtag (manuelle Erfassung)</td></tr>
+          <tr><td><code>lehrer</code></td><td>Lehrer-Stammdaten (aus Untis via <code>untis_teacher_id</code> oder manuell)</td></tr>
+          <tr><td class="mono"><strong>deputat_pro_periode</strong></td><td><strong>Kern:</strong> Deputat je Lehrer × Schuljahr × Untis-Periode (Quelle der Wahrheit)</td></tr>
+          <tr><td><code>deputat_monatlich</code></td><td>Alt-Modell (ein Wert/Monat) — parallel mitgeführt, wird zurückgebaut</td></tr>
+          <tr><td><code>mehrarbeit</code></td><td>Zusatzstunden — lehrer- oder schulbezogen</td></tr>
+          <tr><td><code>stellenart_typen</code> / <code>stellenanteile</code></td><td>Katalog (31 Arten) + konkrete Anteile je Schule &amp; Haushaltsjahr</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0">Periodenmodell — Perioden, Korrekturen, Nachträge</h4>
+      <table>
+        <thead><tr><th>Tabelle</th><th>Inhalt</th></tr></thead>
+        <tbody>
+          <tr><td><code>untis_terms</code></td><td>Perioden-Kalender je Schuljahr (Gültig-von/-bis, b-Perioden-Flag)</td></tr>
+          <tr><td><code>deputat_aenderung_korrekturen</code></td><td>Manuelle Korrektur des echten Stichtags (Untis-Montag → realer Tag)</td></tr>
+          <tr><td><code>deputat_nachtraege</code></td><td>Bearbeitungsstatus von Vertragsnachträgen (offen/erstellt/versendet)</td></tr>
+          <tr><td><code>deputat_aenderungen</code></td><td>Alte Änderungshistorie (Archiv/Forensik)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0">Ergebnisse, Audit &amp; Integration</h4>
+      <table>
+        <thead><tr><th>Tabelle</th><th>Inhalt</th></tr></thead>
+        <tbody>
+          <tr><td><code>berechnung_stellensoll / _stellenist / _vergleich</code></td><td>Persistierte Berechnungsergebnisse (mit <code>ist_aktuell</code>-Flag)</td></tr>
+          <tr><td><code>audit_log</code></td><td>Änderungsprotokoll (Tabelle, Datensatz, alt/neu, Benutzer, Zeit)</td></tr>
+          <tr><td><code>deputat_sync_log</code></td><td>Protokoll jedes n8n-Sync-Laufs (inkl. Rohdaten)</td></tr>
+          <tr><td><code>webhook_configs</code></td><td>Eingehende Webhooks (API-Key als bcrypt-Hash)</td></tr>
+          <tr><td><code>notification_targets</code> / <code>notification_log</code></td><td>Ausgehende Events an n8n (mit Retry + HMAC-Signatur)</td></tr>
+          <tr><td><code>benutzer</code></td><td>App-Benutzer + Rolle (Betrachter / Schreibrecht / Admin)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section id="views" class="anchor">
+    <h2><span class="kicker">8</span> SQL-Views &amp; Korrektur-Layer</h2>
+    <p class="sub">Wie aus periodengenauen Rohdaten tagesgenaue Auswertungen entstehen — ohne Redundanz in der Anwendung.</p>
+
+    <div class="card">
+      <p>Die eigentliche Rechenintelligenz des Periodenmodells steckt in <strong>PostgreSQL-Views</strong> (Migrationen 0008–0015).
+      Die App liest daraus, statt die Logik im TypeScript zu duplizieren.</p>
+
+      <div class="flow">
+        <div class="flow-step"><h5>deputat_pro_periode</h5><p>Rohdaten: 1 Zeile pro (Lehrer, Periode) aus Untis.</p></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><h5>v_deputat_pro_tag</h5><p>Jedem Kalendertag den gültigen Wert zuordnen; Lücken durch letzten Wert füllen; Korrekturen einrechnen.</p></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><h5>v_deputat_monat_tagesgenau</h5><p>Monatsmittel = Durchschnitt über alle Kalendertage. Speist die Stellenist-Berechnung.</p></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><h5>v_deputat_aenderungen</h5><p>Wertwechsel = Differenz aufeinanderfolgender Perioden — automatisch, inkl. Korrektur-Datum.</p></div>
+      </div>
+
+      <h4>Korrektur-Layer (Migration 0010)</h4>
+      <p>Weil Untis Wechsel nur zum Montag erlaubt, der reale Stichtag aber jeder Wochentag sein kann, gibt es die Tabelle
+      <code>deputat_aenderung_korrekturen</code>. Sie enthält pro Term-Wechsel maximal ein <em>tatsächliches Datum</em> und wird
+      beim Untis-Sync <strong>nie angetastet</strong> — Untis bleibt unverändert die Wahrheit, die menschliche Korrektur lebt separat.</p>
+      <div class="formula">effektiv_wirksam_ab = COALESCE(tatsaechliches_datum, gueltig_von)</div>
+      <div class="note">Beispiel Bergmann: Wechsel 10→17&nbsp;WS statt Untis-Mo 09.02. auf Mi 04.02. korrigiert → Februar rechnet
+        16,25 statt 15,00&nbsp;WS. Jede Korrektur wird im <code>audit_log</code> festgehalten (wer, wann, welches Datum).</div>
+    </div>
+  </section>
+
+  <!-- ============ 9 ============ -->
+  <section id="ui" class="anchor">
+    <h2><span class="kicker">9</span> Anwendung &amp; Exporte</h2>
+    <p class="sub">Was der Sachbearbeiter sieht — und was das System für die Behörde produziert.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4 style="margin-top:0">Seiten (Auszug)</h4>
+        <ul class="clean" style="margin:0">
+          <li><strong>Dashboard</strong> — KPIs &amp; Ampel je Schule, Haushaltsjahr-Filter</li>
+          <li><strong>Stellensoll / Stellenist / Vergleich</strong> — die drei Kernberechnungen</li>
+          <li><strong>Deputate</strong> + Detailseite je Lehrer (Periodenverlauf, Änderungen)</li>
+          <li><strong>Mitarbeiter</strong> — Stammdaten, Statistik-Codes, Grundschul-Erfassung</li>
+          <li><strong>Schülerzahlen</strong> — Stichtags-Erfassung je Schule/Stufe</li>
+          <li><strong>Stellenanteile · Mehrarbeit · Nachträge · Historie</strong></li>
+          <li><strong>Einstellungen</strong> — SLR, Regeldeputate, Stellenarten, Statistik-Codes</li>
+          <li><strong>Admin</strong> — Benutzer, n8n-Webhooks</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 style="margin-top:0">Exporte (<code>/api/export/…</code>)</h4>
+        <ul class="clean" style="margin:0">
+          <li><strong>Stellenplan</strong> — Excel + PDF, Anlage 2a inkl. Personalstruktur</li>
+          <li><strong>Lehrer-Detail</strong> — DIN-A4-PDF als Bezirksregierungs-Nachweis</li>
+          <li><strong>Berechnungsnachweis</strong> — nachvollziehbare Rechenwege</li>
+          <li><strong>Nachtrag</strong> — Word-Vertragsnachträge (docxtemplater)</li>
+          <li><strong>Stellenanteil-Antrag</strong> — Antrags-Dokumente</li>
+          <li><strong>Deputate / Schülerzahlen / Drilldown</strong> — Rohdaten-Exporte</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-top:0">Zugriff &amp; Rollen</h4>
+      <p style="margin:0">Login über verschlüsselte iron-session-Cookies. Drei Rollen: <strong>Betrachter</strong> (nur lesen),
+      <strong>Schreibrecht</strong> (Daten pflegen), <strong>Admin</strong> (Benutzer, Webhooks, Stammdaten). Mutationen laufen als
+      Next.js Server Actions und sind serverseitig durch <code>requireWriteAccess</code> / <code>requireAdmin</code> abgesichert.</p>
+    </div>
+  </section>
+
+  <!-- ============ 10 ============ -->
+  <section id="recht" class="anchor">
+    <h2><span class="kicker">10</span> Rechtsgrundlagen &amp; bekannte Grenzen</h2>
+    <p class="sub">Wo die Zahlen herkommen und was das System bewusst (noch) nicht abbildet.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4 style="margin-top:0">Rechtsgrundlagen (NRW)</h4>
+        <table>
+          <tbody>
+            <tr><td>Grundstellen</td><td>§ 3 Abs. 1 FESchVO, § 107 SchulG</td></tr>
+            <tr><td>Rundung (Truncation)</td><td>Nr. 7.1.1 AVO-RL</td></tr>
+            <tr><td>Schülerzahl-Stichtag</td><td>§ 3 FESchVO: 15. Oktober</td></tr>
+            <tr><td>SLR-Werte</td><td>§ 8 VO zu § 93 Abs. 2 SchulG</td></tr>
+            <tr><td>Regeldeputat</td><td>§ 2 Abs. 1 VO zu § 93 Abs. 2 SchulG</td></tr>
+            <tr><td>Sonderbedarfe</td><td>§ 106 Abs. 10 SchulG</td></tr>
+            <tr><td>Stellenist / Tagesgenau</td><td>§ 3 Abs. 1 FESchVO</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h4 style="margin-top:0">Bekannte Vereinfachungen</h4>
+        <ul class="clean" style="margin:0">
+          <li>Juli/August werden über volle Kalendertage gerechnet (bewusste Entscheidung, keine Schultags-Sonderlogik).</li>
+          <li>Beförderungsstellen-Phasenverschiebung (3 Jahre) noch nicht implementiert.</li>
+          <li>TV-L-Pauschalen (Personalbedarf/-nebenkosten) werden noch nicht automatisch berechnet.</li>
+          <li><code>deputat_gesamt</code> aus Untis kann von der Summe der Schul-Spalten abweichen (nicht zugeordnete Stunden) → Warnhinweis im UI; die Berechnung nutzt die Schul-Spalten.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note legal" style="margin-top:18px"><strong>Einstiegspunkte für Entwickler.</strong>
+      Schema: <code>src/db/schema.ts</code> · Views: <code>src/db/migrations/0008–0015</code> ·
+      Berechnung: <code>src/lib/berechnungen/*</code> · Sync: <code>src/app/api/deputate/sync-v2/route.ts</code> +
+      <code>src/app/api/untis-terms/sync/route.ts</code> · Fachkonzept: <code>docs/konzepte/periodenmodell_v0.7/konzept.md</code>.</div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>CREDO Verwaltung · Christlicher Schulverein Minden e.&nbsp;V. · Interne IT-Dokumentation</span>
+    <span>Stellenistberechnung v0.7 · <code style="color:#fff">deputat.fes-credo.de</code></span>
+  </div>
+</footer>
+
+</body>
+</html>

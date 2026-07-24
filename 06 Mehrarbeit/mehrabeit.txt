@@ -1,0 +1,326 @@
+-- ============================================================
+-- DATEI:    mehrarbeit_verguetung_postgres.sql
+-- Zweck:    Vergütungs-/Stundensatz-Schicht der Mehrarbeits-App (NRW)
+--           inkl. Adapter Untis-SalaryPeHour -> PEDAV-Schlüssel 1-4
+--           und monatlicher Mehrarbeitsberechnung aus Substitution.
+-- Kontext:  CREDO Gruppe / FES Minden, Ersatzschulfinanzierung NRW
+-- Quelle:   vergütungsstufen_mehrarbeit_nrw.md (BASS 21-22 Nr. 22)
+--           mehrarbeit_nrw_rechtsdokumentation.md (§ 61 LBG NRW etc.)
+--           Power-BI "Untis Alle Tabellen" (natives Untis-Schema)
+-- Version:  1.0 | Datum: 2026-06-17 | Ziel-DB: PostgreSQL 14+
+-- ============================================================
+--
+-- ENTSCHEIDUNGEN (vom Auftraggeber bestätigt):
+--   1. IST-Quelle              = Untis-Tabelle Substitution (SubstValue)
+--   2. Wertbasis               = Untis-Werte werden übernommen (keine Neurechnung)
+--   3. Vergütungsschlüssel     = Teacher.SalaryPeHour  (siehe ANNAHME unten)
+--
+-- ANNAHME, DIE BESTÄTIGT WERDEN MUSS  (einzige offene Stelle):
+--   SalaryPeHour enthält im Bestand NUR die Werte {0, 200, 400} -- NICHT 1-4.
+--   Gedeutet als  Schlüssel x 100:  200 -> 2 | 400 -> 4 | 0 -> nicht gepflegt.
+--   Diese Zuordnung ist an EINER Stelle gekapselt: Tabelle salary_per_hour_mapping.
+--   Falsch? -> nur dort eine Zeile ändern, sonst nichts.
+-- ============================================================
+
+
+-- ============================================================
+-- 1. STUNDENSÄTZE  (faithfully aus vergütungsstufen_mehrarbeit_nrw.md, §4.1-4.3)
+--    Historisch korrekt: neue Sätze als INSERT, alte bleiben erhalten.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS vergütungsstufen (
+    id                  SERIAL          PRIMARY KEY,
+    -- Schlüssel 1-4 (= PEDAV-Feld "Stundensatz"); 0 = Sonderfall 18,39 € (EG6/8)
+    pedav_schlüssel     SMALLINT        NOT NULL CHECK (pedav_schlüssel BETWEEN 0 AND 4),
+    mvergv_fallgruppe   VARCHAR(40)     NOT NULL,
+    gültig_ab           DATE            NOT NULL,
+    gültig_bis          DATE            NULL,            -- NULL = aktuell gültig
+    stundensatz_euro    NUMERIC(6,2)    NOT NULL CHECK (stundensatz_euro > 0),
+    rechtsquelle_kurz   TEXT            NOT NULL,
+    rechtsquelle_url    TEXT            NULL,
+    mbl_nrw_fundstelle  TEXT            NULL,
+    erfasst_am          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    änderungsgrund      TEXT            NULL,
+    CONSTRAINT uq_schlüssel_ab UNIQUE (pedav_schlüssel, gültig_ab),
+    -- Defensive: gültig_bis muss nach gültig_ab liegen
+    CONSTRAINT ck_gueltig_zeitraum CHECK (gültig_bis IS NULL OR gültig_bis > gültig_ab)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vgs_schlüssel_datum
+    ON vergütungsstufen (pedav_schlüssel, gültig_ab, gültig_bis);
+
+-- Seed: alle bekannten Sätze ab Dez. 2022 (Stand 17.06.2026, BASS 21-22 Nr. 22).
+-- Nur einspielen, wenn Tabelle leer ist (idempotent).
+INSERT INTO vergütungsstufen
+    (pedav_schlüssel, mvergv_fallgruppe, gültig_ab, gültig_bis, stundensatz_euro,
+     rechtsquelle_kurz, rechtsquelle_url, mbl_nrw_fundstelle, änderungsgrund)
+SELECT * FROM (VALUES
+    -- Schlüssel 0 (Sonderfall EG6/8, 18,39 € durchgehend)
+    (0::smallint,'§ 4 Abs. 3 Nr. 1 (EG6/8)','2022-12-01'::date,'2024-10-31'::date,18.39::numeric,
+        'BASS 21-22 Nr. 22, Fassung Dez. 2022','https://bass.schule.nrw/1057.htm',NULL,'Historisch'),
+    (0,'§ 4 Abs. 3 Nr. 1 (EG6/8)','2024-11-01','2025-01-31',18.39,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.1','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','EG6/8 unverändert'),
+    (0,'§ 4 Abs. 3 Nr. 1 (EG6/8)','2025-02-01',NULL,18.39,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.2','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','EG6/8 unverändert'),
+    -- Schlüssel 1
+    (1,'§ 4 Abs. 3 Nr. 1','2022-12-01','2024-10-31',21.24,
+        'BASS 21-22 Nr. 22, Dez. 2022','https://bass.schule.nrw/1057.htm',NULL,'Historisch'),
+    (1,'§ 4 Abs. 3 Nr. 1','2024-11-01','2025-01-31',22.25,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.1','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.11.2024'),
+    (1,'§ 4 Abs. 3 Nr. 1','2025-02-01',NULL,23.47,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.2','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.02.2025 - aktuell'),
+    -- Schlüssel 2
+    (2,'§ 4 Abs. 3 Nr. 2','2022-12-01','2024-10-31',26.32,
+        'BASS 21-22 Nr. 22, Dez. 2022','https://bass.schule.nrw/1057.htm',NULL,'Historisch'),
+    (2,'§ 4 Abs. 3 Nr. 2','2024-11-01','2025-01-31',27.57,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.1','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.11.2024'),
+    (2,'§ 4 Abs. 3 Nr. 2','2025-02-01',NULL,29.09,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.2','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.02.2025 - aktuell'),
+    -- Schlüssel 3
+    (3,'§ 4 Abs. 3 Nr. 3','2022-12-01','2024-10-31',31.25,
+        'BASS 21-22 Nr. 22, Dez. 2022','https://bass.schule.nrw/1057.htm',NULL,'Historisch'),
+    (3,'§ 4 Abs. 3 Nr. 3','2024-11-01','2025-01-31',32.74,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.1','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.11.2024'),
+    (3,'§ 4 Abs. 3 Nr. 3','2025-02-01',NULL,34.54,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.2','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.02.2025 - aktuell'),
+    -- Schlüssel 4
+    (4,'§ 4 Abs. 3 Nr. 4+5','2022-12-01','2024-10-31',36.54,
+        'BASS 21-22 Nr. 22, Dez. 2022','https://bass.schule.nrw/1057.htm',NULL,'Historisch'),
+    (4,'§ 4 Abs. 3 Nr. 4+5','2024-11-01','2025-01-31',38.28,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.1','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.11.2024'),
+    (4,'§ 4 Abs. 3 Nr. 4+5','2025-02-01',NULL,40.39,
+        'BASS 21-22 Nr. 22, RdErl. 03.12.2024 Art.2','https://bass.schule.nrw/1057.htm','MBl. NRW. 2024 S. 1014','Erhöhung 01.02.2025 - aktuell')
+) AS seed
+WHERE NOT EXISTS (SELECT 1 FROM vergütungsstufen);
+
+
+-- Lookup: gültiger Stundensatz für einen Schlüssel zu einem Stichtag.
+-- Liefert NULL, wenn kein Satz greift (vom Aufrufer prüfen!).
+CREATE OR REPLACE FUNCTION get_stundensatz(
+    p_schlüssel SMALLINT,
+    p_datum     DATE DEFAULT CURRENT_DATE
+) RETURNS NUMERIC(6,2)
+LANGUAGE sql STABLE AS $$
+    SELECT stundensatz_euro
+    FROM   vergütungsstufen
+    WHERE  pedav_schlüssel = p_schlüssel
+      AND  gültig_ab <= p_datum
+      AND  (gültig_bis IS NULL OR gültig_bis >= p_datum)
+    ORDER BY gültig_ab DESC
+    LIMIT 1;
+$$;
+
+
+-- ============================================================
+-- 2. ADAPTER  Untis-SalaryPeHour  ->  PEDAV-Schlüssel   (NEU)
+--    >>> EINZIGE Stelle, an der die 200/400-Deutung steht. <<<
+--    Tabelle statt CASE im Code: fachlich pflegbar ohne Deploy.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS salary_per_hour_mapping (
+    salary_per_hour     INTEGER     PRIMARY KEY,   -- Roh-Wert aus Teacher.SalaryPeHour
+    pedav_schlüssel     SMALLINT    NULL           -- NULL = kein Schlüssel ableitbar
+        CHECK (pedav_schlüssel IS NULL OR pedav_schlüssel BETWEEN 0 AND 4),
+    bemerkung           TEXT        NULL
+);
+
+-- Bestätigte Werte im Datenbestand (Stand 17.06.2026): nur 0 / 200 / 400.
+INSERT INTO salary_per_hour_mapping (salary_per_hour, pedav_schlüssel, bemerkung)
+VALUES
+    (400, 4, 'ANNAHME: 400 = Schlüssel 4 (A13 hD, GY/BK). 71 Lehrkräfte.'),
+    (200, 2, 'ANNAHME: 200 = Schlüssel 2 (A12 gD, GS). 69 Lehrkräfte.'),
+    (0, NULL, 'Nicht gepflegt -> KEINE Abrechnung möglich. 25 Lehrkräfte. Sekretariat pflegen lassen.')
+ON CONFLICT (salary_per_hour) DO NOTHING;
+
+-- Übersetzt einen SalaryPeHour-Rohwert in den PEDAV-Schlüssel.
+-- Unbekannter Wert -> Exception (lieber lauter Fehler als stille Falschabrechnung).
+CREATE OR REPLACE FUNCTION map_salary_per_hour_to_schluessel(p_salary INTEGER)
+RETURNS SMALLINT
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_schlüssel SMALLINT;
+    v_treffer   INTEGER;
+BEGIN
+    SELECT pedav_schlüssel, 1 INTO v_schlüssel, v_treffer
+    FROM   salary_per_hour_mapping
+    WHERE  salary_per_hour = p_salary;
+
+    IF v_treffer IS NULL THEN
+        RAISE EXCEPTION
+          'Unbekannter SalaryPeHour-Wert: %. In salary_per_hour_mapping ergänzen.', p_salary;
+    END IF;
+
+    RETURN v_schlüssel;  -- darf NULL sein (= 0-Fall, nicht gepflegt)
+END;
+$$;
+
+
+-- ============================================================
+-- 3. FALLBACK / QUERVERGLEICH: schlüssel_mapping (Laufbahn -> Schlüssel)
+--    Aus vergütungsstufen_mehrarbeit_nrw.md §4.4. Primärquelle ist jetzt
+--    SalaryPeHour; diese Tabelle dient als Plausibilitätsprüfung und als
+--    Fallback für die 0-Fälle (Schlüssel aus Schulform+Laufbahn ableiten).
+--    DDL hier; den vollständigen Seed (ca. 50 Zeilen) aus der MD-Datei §4.5
+--    übernehmen -- bewusst nicht erneut abgetippt (Transkriptionsrisiko).
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS schlüssel_mapping (
+    id                  SERIAL       PRIMARY KEY,
+    schulform_kuerzel   VARCHAR(5)   NOT NULL,   -- GS,HS,RS,GY,BK,GE,SK,FÖS
+    dienstverhältnis    VARCHAR(10)  NOT NULL CHECK (dienstverhältnis IN ('BEAMTER','TARIF')),
+    eingangsamt         VARCHAR(10)  NULL,        -- A11,A12,A13_GD,A13_HD,...
+    lehramt_kategorie   VARCHAR(30)  NULL,
+    pedav_schlüssel     SMALLINT     NOT NULL,
+    bass_nr             VARCHAR(10)  NULL,
+    bemerkung           TEXT         NULL,
+    CONSTRAINT uq_mapping UNIQUE (schulform_kuerzel, dienstverhältnis, eingangsamt, lehramt_kategorie)
+);
+-- TODO: INSERT-Seed aus MD §4.5 hier einspielen.
+
+
+-- ============================================================
+-- 4. STAGING: erwartete Form der Untis-Daten in PostgreSQL
+--    (Befüllung via Power-BI/Untis-Export -> ETL; hier nur das Zielschema.)
+-- ============================================================
+
+-- 4.1 Lehrerstammdaten (Auszug der für Mehrarbeit relevanten Felder)
+CREATE TABLE IF NOT EXISTS stg_untis_teacher (
+    teacher_id          BIGINT       NOT NULL,
+    schoolyear_id       BIGINT       NOT NULL,
+    name                TEXT         NULL,        -- Kürzel
+    p_number            TEXT         NULL,        -- LBV-Personalnummer (PNumber)
+    statistic_codes     TEXT         NULL,        -- Rechtsverhältnis: L/P/A/U/B/W (+ 'T' = Teilzeit)
+    salary_per_hour     INTEGER      NULL,        -- Roh, -> map_salary_per_hour_to_schluessel()
+    -- WICHTIG: PlannedWeek in Untis ist x1000 -> hier bereits als Stunden ablegen!
+    soll_stunden_woche  NUMERIC(5,2) NULL,        -- z.B. 25.50  (= PlannedWeek/1000)
+    deleted             BOOLEAN      NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (teacher_id, schoolyear_id)
+);
+
+-- 4.2 Vertretungen = IST-Quelle der Mehrarbeit
+CREATE TABLE IF NOT EXISTS stg_untis_substitution (
+    substitution_id     BIGINT       NOT NULL PRIMARY KEY,
+    schoolyear_id       BIGINT       NOT NULL,
+    datum               DATE         NOT NULL,    -- aus Untis-Date konvertiert (s. Hinweis unten)
+    teacher_id_subst    BIGINT       NULL,        -- Vertreter = wer leistet die Mehrarbeit
+    teacher_id_lessn    BIGINT       NULL,        -- ausgefallene Lehrkraft
+    subst_value         NUMERIC(6,3) NULL,        -- SubstValue = Wertigkeit (Untis-Wert übernommen)
+    -- Klassifikation der Zeile. MUSS gegen Untis-Flags/BookingType verifiziert werden!
+    art                 VARCHAR(20)  NULL,        -- erwartet: 'VERTRETUNG' | 'FREISETZUNG' | 'ENTFALL' | ...
+    deleted             BOOLEAN      NOT NULL DEFAULT FALSE
+);
+
+-- HINWEIS Datumskonvertierung (vor dem ETL klären, NICHT raten):
+--   SELECT DISTINCT "Date" FROM Substitution ORDER BY 1 LIMIT 5;  -- im Power-BI-Modell
+--   Erwartet entweder YYYYMMDD-Integer (z.B. 20251015) oder Tagesserial.
+--   Bis geklärt: keine Monatszuordnung als gesichert behandeln.
+-- HINWEIS subst_value-Skalierung: prüfen, ob SubstValue wie PlannedWeek x1000 ist
+--   oder bereits in Stunden. Erst danach Beträge als belastbar ansehen.
+
+
+-- ============================================================
+-- 5. BERECHNUNG (Vollzeit-Pfad, monatlich) -- vollständig lauffähig
+--    Teilzeit-Pfad (wochenweise, anteilige Bagatellgrenze ab 07.06.2025)
+--    ist als TODO markiert: braucht (a) Teilzeitquote je LK und
+--    (b) verifizierte Art-Flags. Bewusst nicht geraten.
+-- ============================================================
+
+-- 5.1 Monatssumme der vergütungsfähigen Vertretungsstunden je Lehrkraft.
+--     Vollzeit-Logik der Rechtsdoku: IST aus Vertretungen minus Freisetzungen.
+CREATE OR REPLACE VIEW v_mehrarbeit_substitution_monat AS
+WITH bewertet AS (
+    SELECT
+        s.teacher_id_subst                         AS teacher_id,
+        s.schoolyear_id,
+        date_trunc('month', s.datum)::date         AS monat,
+        -- Vertretungen zählen positiv, Freisetzungen negativ (Vollzeitregel)
+        CASE
+            WHEN s.art = 'VERTRETUNG'  THEN COALESCE(s.subst_value, 0)
+            WHEN s.art = 'FREISETZUNG' THEN -COALESCE(s.subst_value, 0)
+            ELSE 0                                 -- ENTFALL u.a.: nicht vergütungsrelevant
+        END                                        AS wert_stunden
+    FROM stg_untis_substitution s
+    WHERE s.deleted = FALSE
+      AND s.teacher_id_subst IS NOT NULL
+)
+SELECT
+    teacher_id,
+    schoolyear_id,
+    monat,
+    SUM(wert_stunden) AS mehrarbeit_netto_stunden   -- vor Bagatellgrenze/Kappung
+FROM bewertet
+GROUP BY teacher_id, schoolyear_id, monat;
+
+
+-- 5.2 Anwendung von Bagatellgrenze, Monats-/Jahresobergrenze und Euro-Betrag.
+--     Vollzeitregeln (Rechtsdoku §1.4): Bagatelle 3 h, Kappung 24 h/Monat.
+--     Jahresgrenze 288 h: hier als Warnspalte; harte Kappung im ETL ergänzen.
+CREATE OR REPLACE VIEW v_mehrarbeit_abrechnung_vollzeit AS
+SELECT
+    m.teacher_id,
+    t.p_number,
+    m.monat,
+    m.mehrarbeit_netto_stunden,
+    -- Schlüssel aus SalaryPeHour (bestätigte Entscheidung)
+    map_salary_per_hour_to_schluessel(t.salary_per_hour)                       AS schlüssel,
+    -- Bagatellgrenze 3 h + Kappung 24 h -> vergütungsfähige Stunden
+    CASE
+        WHEN m.mehrarbeit_netto_stunden < 3 THEN 0
+        ELSE LEAST(m.mehrarbeit_netto_stunden, 24)
+    END                                                                        AS stunden_vergütet,
+    -- Stundensatz zum Monatsende (Satz gilt für den Abrechnungsmonat)
+    get_stundensatz(
+        map_salary_per_hour_to_schluessel(t.salary_per_hour),
+        (m.monat + INTERVAL '1 month - 1 day')::date
+    )                                                                          AS stundensatz_euro,
+    -- Betrag = vergütungsfähige Stunden x Satz
+    CASE
+        WHEN m.mehrarbeit_netto_stunden < 3 THEN 0::numeric
+        ELSE LEAST(m.mehrarbeit_netto_stunden, 24)
+             * get_stundensatz(
+                 map_salary_per_hour_to_schluessel(t.salary_per_hour),
+                 (m.monat + INTERVAL '1 month - 1 day')::date)
+    END                                                                        AS betrag_euro,
+    -- Kennzeichen 'V' nur bei tatsächlicher Vergütung
+    CASE WHEN m.mehrarbeit_netto_stunden >= 3 THEN 'V' ELSE NULL END           AS kennzeichen,
+    -- Defensive Warnungen (statt stiller Fehler)
+    CASE WHEN t.salary_per_hour = 0 OR t.salary_per_hour IS NULL
+         THEN 'WARNUNG: kein Vergütungsschlüssel (SalaryPeHour=0) -> nicht abrechenbar'
+         WHEN m.mehrarbeit_netto_stunden > 24
+         THEN 'HINWEIS: Monatsobergrenze 24 h erreicht, Rest gekappt'
+         ELSE NULL END                                                         AS hinweis
+FROM v_mehrarbeit_substitution_monat m
+JOIN stg_untis_teacher t
+  ON t.teacher_id = m.teacher_id
+ AND t.schoolyear_id = m.schoolyear_id
+WHERE t.deleted = FALSE;
+
+-- TODO Teilzeit-Pfad (§1.5 Rechtsdoku, ab 07.06.2025):
+--   - Wochenaggregation statt Monat (date_trunc('week', datum))
+--   - Teilzeitquote = soll_stunden_woche / Vollzeit-Soll(Schulform)
+--   - Bagatellgrenze_TZ = 3 * Teilzeitquote
+--   - Freisetzungen erst ab Erreichen der Vollzeitgrenze negativ
+--   Voraussetzung: Teacher->Schulform-Zuordnung + verifizierte Art-Flags.
+
+
+-- ============================================================
+-- TESTFÄLLE / VALIDIERUNG (nach Befüllung der Staging-Tabellen ausführen)
+-- ------------------------------------------------------------
+--  T1  Satzabruf historisch korrekt:
+--        SELECT get_stundensatz(4,'2024-10-15'); -- 36.54
+--        SELECT get_stundensatz(4,'2025-03-01'); -- 40.39
+--  T2  Adapter:
+--        SELECT map_salary_per_hour_to_schluessel(400); -- 4
+--        SELECT map_salary_per_hour_to_schluessel(200); -- 2
+--        SELECT map_salary_per_hour_to_schluessel(0);   -- NULL
+--        SELECT map_salary_per_hour_to_schluessel(999); -- EXCEPTION (gewollt)
+--  T3  Bagatellgrenze: LK mit netto 2,0 h -> stunden_vergütet=0, kennzeichen=NULL
+--  T4  Vergütung: LK netto 4,5 h, Schlüssel 4, März 2025 -> 4,5 x 40,39 = 181,76 €
+--  T5  Kappung: LK netto 30 h -> stunden_vergütet=24, Hinweis gesetzt
+-- EDGE CASES (bewusst offen, vor Produktivbetrieb klären):
+--  - SalaryPeHour=0 (25 LK): erscheinen mit WARNUNG, Betrag 0 -> Pflegeprozess nötig
+--  - Schlüssel 1 und 3 kommen im Bestand NICHT vor -> falls GE-A13gD/sub-A12-LK
+--    existieren, sind sie in Untis falsch eingestuft (Refinanzierungsverlust)
+--  - subst_value- und Untis-Date-Skalierung VOR Produktivlauf verifizieren
+--  - Teilzeit-Pfad noch nicht implementiert (s. TODO oben)
+-- ============================================================
