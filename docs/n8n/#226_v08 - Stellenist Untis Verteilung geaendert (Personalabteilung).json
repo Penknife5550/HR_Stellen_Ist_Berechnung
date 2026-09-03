@@ -1,5 +1,5 @@
 {
-  "name": "#226 - Stellenist Untis Verteilung geaendert (Personalabteilung)",
+  "name": "#226 v0.8 - Stellenist Untis Verteilung geaendert (Personalabteilung)",
   "nodes": [
     {
       "parameters": {
@@ -9,13 +9,13 @@
           "rawBody": true
         }
       },
-      "id": "bfdfa63f-e969-4208-8f71-d142769eed80",
+      "id": "598a1399-0d10-4b0c-8d8b-ca1b627a4f52",
       "name": "Webhook: Verteilung geaendert",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        2416,
-        240
+        0,
+        0
       ],
       "webhookId": "stellenist-verteilung-changed",
       "notesInFlow": true,
@@ -23,15 +23,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// ========================================================================\n// HMAC-Vorbereitung — extrahiert rawBody und expectedSignature.\n// Der HMAC selbst wird im nachfolgenden Crypto-Node berechnet (kein\n// require('crypto') noetig — das ist seit n8n 1.71 in der JS-Sandbox\n// gesperrt: \"Module 'crypto' is disallowed\").\n// ========================================================================\n\nconst item = $input.first();\nconst json = item.json;\n\n// rawBody robust extrahieren — Webhook ist mit rawBody:true konfiguriert,\n// also liegt der Body als binary an. Die Signatur muss byte-identisch zum\n// Backend-Body sein (sonst HMAC-Mismatch).\nlet rawBodyString;\nif (item.binary?.data?.data) {\n  rawBodyString = Buffer.from(item.binary.data.data, 'base64').toString('utf-8');\n} else if (typeof item.binary?.data === 'string') {\n  rawBodyString = Buffer.from(item.binary.data, 'base64').toString('utf-8');\n} else {\n  // Fallback: re-stringify (nur fuer Edge-Cases ohne rawBody)\n  rawBodyString = JSON.stringify(json.body ?? json);\n}\n\nconst signatureHeader = json.headers?.['x-signature'] || '';\nconst expectedSignature = signatureHeader.startsWith('sha256=')\n  ? signatureHeader.slice('sha256='.length)\n  : '';\n\n// Hartkodiertes Shared-Secret (= Secret im App-Notification-Ziel).\n// NICHT $env nutzen: n8n mit Task-Runner blockt das (\"access to env vars denied\").\nconst secret = 'HMAC_SECRET_AUS_ADMIN_N8N_WEBHOOKS_EINTRAGEN';\nconst skipSignatureCheck = !secret;\n\n// Wenn das Secret konfiguriert ist, MUSS ein Header da sein.\nif (!skipSignatureCheck && !expectedSignature) {\n  throw new Error('Fehlende oder ungueltige X-Signature');\n}\n\nreturn [{\n  json: {\n    ...json,\n    rawBodyString,\n    expectedSignature,\n    skipSignatureCheck,\n  },\n}];"
+        "jsCode": "// ========================================================================\n// HMAC-Vorbereitung — extrahiert rawBody und expectedSignature.\n// Der HMAC selbst wird im nachfolgenden Crypto-Node berechnet (kein\n// require('crypto') noetig — das ist seit n8n 1.71 in der JS-Sandbox\n// gesperrt: \"Module 'crypto' is disallowed\").\n// ========================================================================\n\nconst item = $input.first();\nconst json = item.json;\n\n// rawBody robust extrahieren — Webhook ist mit rawBody:true konfiguriert,\n// also liegt der Body als binary an. Die Signatur muss byte-identisch zum\n// Backend-Body sein (sonst HMAC-Mismatch).\nlet rawBodyString;\nif (item.binary?.data?.data) {\n  rawBodyString = Buffer.from(item.binary.data.data, 'base64').toString('utf-8');\n} else if (typeof item.binary?.data === 'string') {\n  rawBodyString = Buffer.from(item.binary.data, 'base64').toString('utf-8');\n} else {\n  // Fallback: re-stringify (nur fuer Edge-Cases ohne rawBody)\n  rawBodyString = JSON.stringify(json.body ?? json);\n}\n\n// Haertung (03.09.2026): Bei n8n Binary-Mode \"filesystem\" enthaelt\n// item.binary.data.data eine Datei-Referenz statt Base64 — dann waere der\n// dekodierte String kein JSON und die HMAC-Pruefung schlaegt immer fehl.\n// Fallback auf das re-serialisierte Body-Objekt (byte-identisch, da das\n// Backend JSON.stringify ohne Whitespace nutzt).\nif (typeof rawBodyString !== 'string' || !rawBodyString.trimStart().startsWith('{')) {\n  rawBodyString = JSON.stringify(json.body ?? json);\n}\n\nconst signatureHeader = json.headers?.['x-signature'] || '';\nconst expectedSignature = signatureHeader.startsWith('sha256=')\n  ? signatureHeader.slice('sha256='.length)\n  : '';\n\n// Hartkodiertes Shared-Secret (= Secret im App-Notification-Ziel).\n// NICHT $env nutzen: n8n mit Task-Runner blockt das (\"access to env vars denied\").\nconst secret = 'HMAC_SECRET_AUS_ADMIN_N8N_WEBHOOKS_EINTRAGEN';\nconst skipSignatureCheck = !secret;\n\n// Wenn das Secret konfiguriert ist, MUSS ein Header da sein.\nif (!skipSignatureCheck && !expectedSignature) {\n  throw new Error('Fehlende oder ungueltige X-Signature');\n}\n\nreturn [{\n  json: {\n    ...json,\n    rawBodyString,\n    expectedSignature,\n    skipSignatureCheck,\n  },\n}];"
       },
-      "id": "c31944c0-5ce3-46cb-8683-b05ab34a3823",
+      "id": "72eb799c-5a6e-40e8-b287-4fa73721e5a9",
       "name": "Signatur vorbereiten",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2656,
-        240
+        240,
+        0
       ],
       "notesInFlow": true,
       "notes": "Extrahiert rawBodyString + expectedSignature (X-Signature ohne 'sha256='). Secret ist HARTKODIERT, nicht $env — n8n Task-Runner verbietet $env-Zugriff ('access to env vars denied')."
@@ -44,13 +44,13 @@
         "dataPropertyName": "computedHmac",
         "secret": "HMAC_SECRET_AUS_ADMIN_N8N_WEBHOOKS_EINTRAGEN"
       },
-      "id": "f6c45713-b70d-493d-ac36-e50e0aa37d3b",
+      "id": "1aafb163-2e2e-49ff-88e8-c21b05984019",
       "name": "HMAC SHA256",
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 1,
       "position": [
-        2896,
-        240
+        480,
+        0
       ],
       "notesInFlow": true,
       "notes": "Berechnet HMAC-SHA256 ueber rawBodyString mit hartkodiertem Secret (kein $env wegen Task-Runner-Block). Output: computedHmac (hex)."
@@ -59,13 +59,13 @@
       "parameters": {
         "jsCode": "// ========================================================================\n// Signatur-Vergleich nach dem Crypto-Node.\n// Konstantzeit-aehnlicher Vergleich in pure JS — kein require('crypto') noetig.\n// ========================================================================\n\nconst json = $input.first().json;\nconst expectedSignature = String(json.expectedSignature ?? '');\nconst computedHmac = String(json.computedHmac ?? '');\nconst skipSignatureCheck = json.skipSignatureCheck === true;\n\nif (skipSignatureCheck) {\n  return [{ json: { ...json, _signatureValid: true, _signatureSkipped: true } }];\n}\n\nif (expectedSignature.length !== computedHmac.length || expectedSignature.length === 0) {\n  throw new Error('Ungueltige HMAC-Signatur');\n}\n\nlet diff = 0;\nfor (let i = 0; i < expectedSignature.length; i++) {\n  diff |= expectedSignature.charCodeAt(i) ^ computedHmac.charCodeAt(i);\n}\nif (diff !== 0) {\n  throw new Error('Ungueltige HMAC-Signatur');\n}\n\nreturn [{ json: { ...json, _signatureValid: true } }];"
       },
-      "id": "dadd072f-7a5b-49f8-9077-0c7393126064",
+      "id": "5d33e701-1eb4-4241-8460-0f03f4624ea7",
       "name": "Signatur pruefen1",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3136,
-        240
+        720,
+        0
       ],
       "notesInFlow": true,
       "notes": "HMAC-Validierung: vergleicht computedHmac (Crypto-Node) gegen expectedSignature (Header). Konstantzeit-Vergleich. Skip wenn STELLENIST_WEBHOOK_SECRET leer."
@@ -74,43 +74,42 @@
       "parameters": {
         "jsCode": "// ========================================================================\n// HTML-Mail: Verteilung zwischen den Schulen geaendert (NICHT gehaltsrelevant)\n// Das Hauptdeputat (Gesamt-WS) bleibt gleich, nur die Aufteilung GES/GYM/BK\n// verschiebt sich. CREDO Corporate Design -- Outlook-optimiert.\n// ========================================================================\n\nconst data = $input.first().json;\nconst payload = data.body?.payload || data.payload || data;\nconst aenderungen = payload.aenderungen || [];\nconst count = payload.count || aenderungen.length;\nconst timestamp = data.body?.timestamp || data.timestamp;\nconst tsFormatted = timestamp\n  ? new Date(timestamp).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })\n  : new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\n\nconst monatsnamen = [\n  '', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',\n  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'\n];\n\nconst APP_URL = 'https://deputat.fes-credo.de';\nconst LINK_DEPUTATE = APP_URL + '/deputate';\nconst LINK_HISTORIE = APP_URL + '/historie';\n\n// alt/neu je Schule: erste Periode (alt) -> letzte Periode (neu) des Monats.\nfunction schuleAltNeu(a, schule) {\n  if (!Array.isArray(a.perioden) || a.perioden.length === 0) return { alt: 0, neu: 0 };\n  const first = a.perioden[0];\n  const last = a.perioden[a.perioden.length - 1];\n  return {\n    alt: Number(first?.alt?.[schule] ?? 0),\n    neu: Number(last?.neu?.[schule] ?? 0),\n  };\n}\n\n// Zelle: unveraendert -> grau; sonst alt -> farbiger Pfeil neu.\nfunction zelle(s) {\n  const diff = s.neu - s.alt;\n  if (Math.abs(diff) < 0.001) {\n    return '<span style=\"color:#999999;\">' + s.alt.toFixed(1) + '</span>';\n  }\n  const arrow = diff > 0 ? '▲' : '▼';\n  const color = diff > 0 ? '#6BAA24' : '#E2001A';\n  return '<span style=\"color:#575756;\">' + s.alt.toFixed(1) + '</span> '\n    + '<span style=\"color:' + color + ';font-weight:700;\">' + arrow + ' ' + s.neu.toFixed(1) + '</span>';\n}\n\nconst sorted = [...aenderungen].sort((x, y) => {\n  const n = (x.vollname || '').localeCompare(y.vollname || '', 'de');\n  if (n !== 0) return n;\n  return (x.jahr - y.jahr) || (x.monat - y.monat);\n});\n\nconst tdBase = 'padding:10px 14px;border-bottom:1px solid #E5E5E5;font-family:Montserrat,Arial,sans-serif;';\nconst rows = sorted.map(a => {\n  const ges = schuleAltNeu(a, 'ges');\n  const gym = schuleAltNeu(a, 'gym');\n  const bk = schuleAltNeu(a, 'bk');\n  const monat = monatsnamen[a.monat] || a.monat;\n  return '\\n    <tr>'\n    + '\\n      <td style=\"' + tdBase + 'font-size:14px;color:#333333;\">' + (a.vollname || '–') + '</td>'\n    + '\\n      <td style=\"' + tdBase + 'font-size:13px;color:#777777;text-align:center;\">' + monat + ' ' + a.jahr + '</td>'\n    + '\\n      <td style=\"' + tdBase + 'font-size:13px;text-align:center;\">' + zelle(ges) + '</td>'\n    + '\\n      <td style=\"' + tdBase + 'font-size:13px;text-align:center;\">' + zelle(gym) + '</td>'\n    + '\\n      <td style=\"' + tdBase + 'font-size:13px;text-align:center;\">' + zelle(bk) + '</td>'\n    + '\\n    </tr>';\n}).join('');\n\nconst thBase = 'padding:10px 14px;font-family:Montserrat,Arial,sans-serif;font-size:12px;font-weight:600;text-align:center;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #E0E0E0;';\n\nconst html = '<!DOCTYPE html>'\n+ '<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"de\"><head>'\n+ '<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">'\n+ '<meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">'\n+ '<title>Verteilungsänderung -- CREDO Stellenist</title>'\n+ '<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->'\n+ '</head>'\n+ '<body style=\"margin:0;padding:0;background-color:#F4F4F4;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;\">'\n+ '<!--[if mso]><table role=\"presentation\" width=\"640\" align=\"center\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td><![endif]-->'\n+ '<table role=\"presentation\" align=\"center\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:680px;margin:20px auto;background-color:#FFFFFF;border-collapse:collapse;\">'\n// Header\n+ '<tr><td style=\"background-color:#575756;padding:24px 30px;\">'\n+ '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>'\n+ '<td style=\"font-family:Montserrat,Arial,sans-serif;font-size:20px;font-weight:700;color:#FFFFFF;letter-spacing:0.5px;\">CREDO Stellenist</td>'\n+ '<td style=\"font-family:Montserrat,Arial,sans-serif;font-size:12px;color:#BBBBBB;text-align:right;vertical-align:bottom;\">Automatische Benachrichtigung</td>'\n+ '</tr></table></td></tr>'\n// Alert Bar (CREDO Blau #009AC6 -- Information)\n+ '<tr><td style=\"background-color:#009AC6;padding:12px 30px;font-family:Montserrat,Arial,sans-serif;font-size:13px;font-weight:600;color:#FFFFFF;letter-spacing:0.3px;\">'\n+ count + ' Verteilungsänderung' + (count === 1 ? '' : 'en') + ' zwischen den Schulen</td></tr>'\n// Content\n+ '<tr><td style=\"padding:24px 30px 8px;\">'\n+ '<p style=\"font-family:Montserrat,Arial,sans-serif;font-size:14px;color:#575756;margin:0 0 8px;line-height:1.5;\">'\n+ 'Beim letzten Untis-Sync wurde' + (count === 1 ? '' : 'n') + ' <strong>' + count + '</strong> Verteilungswechsel zwischen Gesamtschule, Gymnasium und Berufskolleg erkannt.</p>'\n+ '<p style=\"font-family:Montserrat,Arial,sans-serif;font-size:13px;color:#009AC6;margin:0 0 18px;line-height:1.5;font-weight:600;\">'\n+ 'Das Hauptdeputat (Gesamtstunden) der Lehrkraft bleibt unverändert &ndash; nicht gehaltsrelevant. Information für Stundenplanung und Schulleitungen.</p>'\n// Tabelle\n+ '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;border:1px solid #E5E5E5;\">'\n+ '<tr style=\"background-color:#F7F7F7;\">'\n+ '<th style=\"' + thBase + 'text-align:left;color:#575756;\">Lehrkraft</th>'\n+ '<th style=\"' + thBase + 'color:#575756;\">Monat</th>'\n+ '<th style=\"' + thBase + 'color:#6BAA24;\">GES</th>'\n+ '<th style=\"' + thBase + 'color:#C9A200;\">GYM</th>'\n+ '<th style=\"' + thBase + 'color:#5C82A5;\">BK</th>'\n+ '</tr>' + rows + '</table>'\n+ '<p style=\"font-family:Montserrat,Arial,sans-serif;font-size:12px;color:#999999;margin:14px 0 0;line-height:1.5;\">'\n+ 'Werte in Wochenstunden. Grau = unverändert, ▲ mehr / ▼ weniger an dieser Schule.</p>'\n+ '</td></tr>'\n// Button\n+ '<tr><td style=\"padding:18px 30px 8px;text-align:center;\">'\n+ '<!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" href=\"' + LINK_DEPUTATE + '\" style=\"height:42px;v-text-anchor:middle;width:280px;\" arcsize=\"10%\" strokecolor=\"#575756\" fillcolor=\"#575756\"><center style=\"color:#ffffff;font-family:Montserrat,Arial,sans-serif;font-size:14px;font-weight:bold;\">In CREDO Stellenist öffnen</center></v:roundrect><![endif]-->'\n+ '<!--[if !mso]><!-->'\n+ '<a href=\"' + LINK_DEPUTATE + '\" target=\"_blank\" style=\"display:inline-block;padding:11px 28px;background-color:#575756;color:#FFFFFF;font-family:Montserrat,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;border-radius:6px;line-height:20px;\">In CREDO Stellenist öffnen</a>'\n+ '<!--<![endif]--></td></tr>'\n// Sekundaer-Link\n+ '<tr><td style=\"padding:0 30px 22px;text-align:center;\">'\n+ '<a href=\"' + LINK_HISTORIE + '\" target=\"_blank\" style=\"font-family:Montserrat,Arial,sans-serif;font-size:12px;color:#575756;text-decoration:underline;\">Zur Änderungs-Historie</a>'\n+ '</td></tr>'\n// Footer\n+ '<tr><td style=\"background-color:#F7F7F7;padding:16px 30px;border-top:1px solid #E5E5E5;\">'\n+ '<p style=\"font-family:Montserrat,Arial,sans-serif;font-size:11px;color:#999999;margin:0;line-height:1.5;\">'\n+ 'Gesendet am ' + tsFormatted + ' &middot; CREDO Schulen &middot; Stellenist-Berechnung<br>'\n+ 'Diese E-Mail wurde automatisch generiert. Bitte nicht antworten.</p></td></tr>'\n+ '</table>'\n+ '<!--[if mso]></td></tr></table><![endif]-->'\n+ '</body></html>';\n\nreturn [{\n  json: {\n    html,\n    subject: 'CREDO Stellenist: ' + count + ' Verteilungsänderung' + (count === 1 ? '' : 'en') + ' (nicht gehaltsrelevant)',\n    count\n  }\n}];\n"
       },
-      "id": "9ec5bc23-2d91-4e62-815e-510a00c9b6e8",
+      "id": "17f492ca-ef57-4e06-acb4-4a49271a52bb",
       "name": "HTML-Mail bauen (Verteilung)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3376,
-        240
+        960,
+        0
       ],
       "notesInFlow": true,
       "notes": "Outlook-optimierte HTML-Mail (CREDO CI). Tabelle: Lehrkraft / Monat / GES / GYM / BK mit alt->neu-Verschiebung. Rahmt das Event als NICHT gehaltsrelevant."
     },
     {
       "parameters": {
-        "toRecipients": "CREDO-Personal-intern@fes-credo.de",
+        "fromEmail": "Deputat <noreply@rz.cdc-owl.de>",
+        "toEmail": "personalbuchhaltung@fes-minden.de",
         "subject": "=# 226 {{ $json.subject }}",
-        "bodyContent": "={{ $json.html }}",
-        "additionalFields": {
-          "bodyContentType": "html"
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
         }
       },
-      "id": "2f56673a-d91f-40c3-90bd-5e6a80be6fcd",
-      "name": "Outlook: Personalabteilung",
-      "type": "n8n-nodes-base.microsoftOutlook",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
       "position": [
-        3616,
-        240
+        1168,
+        0
       ],
-      "notesInFlow": true,
-      "webhookId": "d4c4e8f2-4444-4555-9666-dddddddddddd",
+      "id": "6a8a369f-b3d0-4835-87ae-16f7b3aafc5f",
+      "name": "Send an Email",
+      "webhookId": "d2556327-dca5-4225-a0a4-cd5248a64864",
       "credentials": {
-        "microsoftOutlookOAuth2Api": {
-          "id": "FCU8Wm3Is8PCPAHT",
-          "name": "n8n@fes-minden.de"
+        "smtp": {
+          "id": "nlEYDhsmjIrOUEOU",
+          "name": "SMTP noreply@rz.cdc-owl.de"
         }
-      },
-      "notes": "Empfaenger: CREDO-Personal-intern@fes-credo.de\nVersand via Microsoft 365 (n8n-OAuth-Credential)"
+      }
     }
   ],
   "pinData": {},
@@ -163,18 +162,24 @@
       "main": [
         [
           {
-            "node": "Outlook: Personalabteilung",
+            "node": "Send an Email",
             "type": "main",
             "index": 0
           }
         ]
       ]
+    },
+    "Send an Email": {
+      "main": [
+        []
+      ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate"
+    "binaryMode": "separate",
+    "errorWorkflow": "UBadcLmQWUlnrAoE"
   },
   "tags": [
     {

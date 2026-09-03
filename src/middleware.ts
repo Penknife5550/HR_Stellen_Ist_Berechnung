@@ -18,12 +18,16 @@ export async function middleware(request: NextRequest) {
   }
 
   // 2. n8n-API-Endpoints: eigene API-Key-Authentifizierung (kein Session-Schutz)
-  //    - /api/deputate/sync       Lehrer-Deputate (v1, monatsbasiert)
-  //    - /api/deputate/sync-v2    Lehrer-Deputate (v2, periodenbasiert)
-  //    - /api/untis-terms/sync    Untis-Periodenmaster (v2-Voraussetzung)
+  //    - /api/deputate/sync            Lehrer-Deputate (v1, monatsbasiert)
+  //    - /api/deputate/sync-v2         Lehrer-Deputate (v2, periodenbasiert)
+  //    - /api/untis-terms/sync         Untis-Periodenmaster (v2-Voraussetzung)
+  //    - /api/notifications/dispatch   Retry-Versand ausgehender Webhooks
+  //                                    (Header x-dispatch-key; ohne diese
+  //                                    Ausnahme lief der Cron auf /login)
   if (
     pathname.startsWith("/api/deputate/sync") ||
-    pathname.startsWith("/api/untis-terms/sync")
+    pathname.startsWith("/api/untis-terms/sync") ||
+    pathname === "/api/notifications/dispatch"
   ) {
     return NextResponse.next();
   }

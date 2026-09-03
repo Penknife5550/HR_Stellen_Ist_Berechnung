@@ -1,5 +1,7 @@
 "use client";
 
+import { formatTermId } from "@/lib/format";
+
 /**
  * Detailseiten-Sektion für das Periodenmodell (v0.7+).
  *
@@ -309,7 +311,7 @@ export function PeriodenModellCard({
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-[#6B7280] text-xs">
-                      T{a.term_alt} → T{a.term_neu}
+                      {formatTermId(a.term_alt)} → {formatTermId(a.term_neu)}
                       {a.sy_alt !== a.sy_neu && <span className="ml-2 text-[10px]">(SY-Wechsel)</span>}
                     </td>
                     <td className="py-2.5 px-3 text-right tabular-nums">{Number(a.gesamt_alt).toFixed(2)}</td>
@@ -371,7 +373,7 @@ export function PeriodenModellCard({
                   }
                 >
                   <td className="py-2 px-3 font-mono text-xs text-[#6B7280]">
-                    {p.schoolYearId} · T{p.termId}
+                    {p.schoolYearId} · {formatTermId(p.termId)}
                   </td>
                   <td className="py-2 px-3">
                     {p.termName ?? "—"}

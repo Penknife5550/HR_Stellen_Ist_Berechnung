@@ -52,6 +52,11 @@ next-env.d.ts
 *.tmp
 *.bak
 
+# Untis-Rohexporte (enthalten Klarnamen, Personalnummern, Deputate — nicht in Git).
+# Anonymisierte Auszuege fuer Tests liegen unter tests/fixtures/.
+/Abfrage_SQL.txt
+/Abfrage_SQL*.txt
+
 # Content-/Referenzdaten (nicht in Git — lokale Arbeitsdaten)
 /01_Content/
 /02_dokcer und co/

@@ -2,6 +2,8 @@
  * Formatierungshilfen fuer deutsche Zahlen und Datumsformate.
  */
 
+import { UNTIS_PSEUDO_TERM_ID } from "@/lib/constants";
+
 /** Zahl im deutschen Format: 1.234,56 */
 export function formatNumberDE(value: number, decimals = 2): string {
   return value.toLocaleString("de-DE", {
@@ -33,4 +35,13 @@ export function formatStellen(value: number): string {
 export function formatDifferenz(value: number): string {
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${formatNumberDE(value, 1)}`;
+}
+
+/**
+ * Untis-Perioden-Kennung fuer UI/PDF: "T12" fuer echte Perioden, "SJ" fuer
+ * die synthetische Pseudo-Periode (Schuljahr ohne Untis-Perioden).
+ */
+export function formatTermId(termId: number | null | undefined): string {
+  if (termId == null) return "—";
+  return termId === UNTIS_PSEUDO_TERM_ID ? "SJ" : `T${termId}`;
 }

@@ -12,16 +12,26 @@
  * nicht mehr im Payload) werden NICHT geloescht — Untis hat sie ggf. nur
  * temporaer ausgeschlossen, und wir wollen referentielle Integritaet zu
  * deputat_pro_periode bewahren.
+ *
+ * Ausnahme (v0.8): Die synthetische Pseudo-Periode UNTIS_PSEUDO_TERM_ID
+ * ("Schuljahr ohne Perioden", vom n8n-Sync geliefert solange Untis fuer ein
+ * Schuljahr keine Perioden hat) wird hier verwaltet: Sobald echte Perioden
+ * fuer dieses Schuljahr eintreffen, wird sie auf den Tag vor Periode 1
+ * gekuerzt (August bleibt abgedeckt) bzw. entfernt, falls Periode 1 am/vor
+ * dem Pseudo-Start beginnt. Details: lib/db/pseudoPeriode.ts.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { untisTermsSyncPayloadSchema } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
+import { notify } from "@/lib/notifications";
+import { UNTIS_PSEUDO_TERM_ID } from "@/lib/constants";
+import { verarbeitePseudoBeiEchtenTerms, type PseudoVerarbeitung } from "@/lib/db/pseudoPeriode";
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -51,6 +61,8 @@ export async function POST(request: NextRequest) {
     const parsed = untisTermsSyncPayloadSchema.safeParse(rawPayload);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]?.message ?? "Ungueltige Eingabedaten.";
+      // n8n schluckt 400er (continueOnFail) — Fehler sichtbar machen.
+      void notify("sync.failed", { error: `Terms-Validierungsfehler: ${firstError}`, schuljahr: null });
       return NextResponse.json({ error: `Validierungsfehler: ${firstError}` }, { status: 400 });
     }
 
@@ -136,12 +148,43 @@ export async function POST(request: NextRequest) {
       else updated++;
     }
 
+    // Pseudo-Periode: Schuljahre, fuer die jetzt echte Perioden geliefert
+    // wurden, bekommen ihre Pseudo-Periode auf den Tag vor Periode 1 gekuerzt
+    // (bzw. entfernt, falls Periode 1 am/vor dem Pseudo-Start beginnt).
+    // Idempotent; ohne Pseudo-Periode passiert nichts.
+    const syMitEchtenTerms = [
+      ...new Set(
+        eintraege.filter((e) => e.termId !== UNTIS_PSEUDO_TERM_ID).map((e) => e.schoolYearId),
+      ),
+    ];
+    const pseudoVerarbeitung: PseudoVerarbeitung[] = [];
+    for (const sy of syMitEchtenTerms) {
+      const echte = await db
+        .select({ termId: schema.untisTerms.termId, dateFrom: schema.untisTerms.dateFrom })
+        .from(schema.untisTerms)
+        .where(
+          and(
+            eq(schema.untisTerms.schoolYearId, sy),
+            ne(schema.untisTerms.termId, UNTIS_PSEUDO_TERM_ID),
+          ),
+        )
+        .orderBy(asc(schema.untisTerms.dateFrom), asc(schema.untisTerms.termId));
+      if (echte.length === 0) continue;
+      const r = await verarbeitePseudoBeiEchtenTerms({
+        sy,
+        p1From: echte[0].dateFrom,
+        ersteEchteTermId: echte[0].termId,
+        letzteEchteTermId: echte[echte.length - 1].termId,
+      });
+      if (r.aktion !== "keine") pseudoVerarbeitung.push(r);
+    }
+
     await writeAuditLog(
       "untis_terms",
       0,
       "INSERT",
       null,
-      { inserted, updated, total: eintraege.length },
+      { inserted, updated, total: eintraege.length, pseudoVerarbeitung },
       "n8n",
     );
 
@@ -150,11 +193,19 @@ export async function POST(request: NextRequest) {
       verarbeitet: eintraege.length,
       inserted,
       updated,
+      pseudo_verarbeitung: pseudoVerarbeitung,
       message: `${eintraege.length} Term(s) gespiegelt (${inserted} neu, ${updated} aktualisiert).`,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unbekannter Fehler.";
     console.error("[/api/untis-terms/sync] Fehler:", err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    // Fachliche Plausibilitaetsfehler (date_from > date_to) duerfen mit Detail
+    // zurueck an n8n; DB-/Systemfehler nicht (kein Leak von Tabellennamen).
+    if (msg.startsWith("Term ")) {
+      void notify("sync.failed", { error: msg, schuljahr: null });
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    void notify("sync.failed", { error: "Terms-Sync: interner Fehler", schuljahr: null });
+    return NextResponse.json({ error: "Interner Serverfehler." }, { status: 500 });
   }
 }

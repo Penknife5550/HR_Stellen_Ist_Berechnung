@@ -54,6 +54,10 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
       mehrarbeit: number;
       gesamt: number;
     }> = [];
+    // Zeitraeume, in denen nicht alle Monate Daten haben (z.B. Aug-Dez nur
+    // Sep-Dez): die Formel teilt trotzdem durch 5 bzw. 7 Monate, der Wert
+    // waere stillschweigend zu niedrig. Wird als Warnung zurueckgemeldet.
+    const warnungen: string[] = [];
 
     for (const schule of schulen) {
       const regeldeputat = regeldeputateMap.get(schule.kurzname);
@@ -114,6 +118,11 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
           zd.monate.includes(m.monat)
         );
         if (monateImZeitraum.length === 0) continue;
+        if (monateImZeitraum.length < zd.monate.length) {
+          warnungen.push(
+            `${schule.kurzname} ${zd.key}: nur ${monateImZeitraum.length} von ${zd.monate.length} Monaten mit Deputatsdaten`,
+          );
+        }
 
         const mehrarbeitImZr = mehrarbeitRows.filter((m) =>
           zd.monate.includes(m.monat)
@@ -205,7 +214,12 @@ export async function berechneStellenisteAction(haushaltsjahrId?: number) {
     return {
       success: true,
       ergebnisse,
-      message: `Stellenist fuer ${ergebnisse.length} Zeitraeume berechnet (Periodenmodell, tagesgenau).`,
+      warnungen,
+      message:
+        `Stellenist fuer ${ergebnisse.length} Zeitraeume berechnet (Periodenmodell, tagesgenau).` +
+        (warnungen.length > 0
+          ? ` Achtung, unvollstaendige Monatsdaten: ${warnungen.join("; ")}.`
+          : ""),
     };
   } catch (err: unknown) {
     console.error("Stellenist-Berechnung fehlgeschlagen:", err instanceof Error ? err.message : "Unbekannt");

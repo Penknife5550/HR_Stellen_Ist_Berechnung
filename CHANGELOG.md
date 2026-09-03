@@ -2,7 +2,93 @@
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **HMAC-Secret der Notification-Flows stand im oeffentlichen Repo** — Das
+  Repository ist public; das gemeinsame Secret lag seit Commit `13e4901`
+  (10.06.2026) im Klartext in `docs/n8n/#225_v07…`, `#226_v07…` und
+  `#227_v07…`. Zusammen mit dem ebenfalls dokumentierten n8n-Host und den
+  Webhook-Pfaden konnte damit eine gueltig signierte Meldung eingespielt und
+  der Personalbuchhaltung eine gefaelschte Mail ueber gehaltsrelevante
+  Deputatsaenderungen zugestellt werden. Kein Datenabfluss, kein
+  Schreibzugriff auf die Anwendung.
+
+  Alle Flow-Dateien (v07 und v08) tragen jetzt den Platzhalter
+  `HMAC_SECRET_AUS_ADMIN_N8N_WEBHOOKS_EINTRAGEN`;
+  `docs/sql/diagnose_notifications_prod.sql` vergleicht ueber einen
+  MD5-Fingerprint statt gegen den Klartext. Der Sync-API-Key war nie getrackt
+  (`03_n8n/` ist ignoriert). **Das Secret muss rotiert werden** — der
+  Platzhalter entfernt nur die Kopie im aktuellen Stand, nicht die Historie.
+  Anleitung: `docs/deployment/v0.8.1_schuljahreswechsel.md`, Abschnitt 6b.
+  Fingerprint des kompromittierten Secrets: `c2bf46dff23a`.
+
 ### Bug-Fixes
+
+- **Schuljahreswechsel: neues Schuljahr ohne Untis-Perioden fiel komplett aus
+  dem Sync** — Die MSSQL-Query in n8n-Flow #223 band `Teacher` per INNER JOIN
+  an `Terms`. Solange Untis fuer ein neues Schuljahr noch keine Perioden
+  angelegt hat, verwarf der Join alle Lehrer-Zeilen dieses Schuljahres;
+  Aug–Dez blieben in `/deputate` und im Stellenist leer (HJ 2026, Stand
+  03.09.2026: Export enthielt nur 2025/26). Fix in
+  `docs/n8n/#223_v08 …json`: SCHOOL_ID=1-Filter (Hauptmandant), synthetische
+  Pseudo-Periode `term_id 999` ("Schuljahr ohne Perioden", 01.08.–31.07.) fuer
+  Schuljahre ohne Perioden, LEAD nach DateFrom, `schuljahr_text` je Chunk.
+  App: `UNTIS_PSEUDO_TERM_ID` (`src/lib/constants.ts`); beim Eintreffen
+  echter Perioden wird die Pseudo-Periode schuljahresweit auf den Tag vor
+  Periode 1 gekuerzt (August bleibt abgedeckt, Wirksamkeitsdatum 01.08.
+  bleibt, Korrekturen/Nachtraege bleiben gueltig) bzw. entfernt und
+  umgehaengt, falls Periode 1 am/vor dem Pseudo-Start beginnt
+  (`src/lib/db/pseudoPeriode.ts`, aufgerufen aus `untis-terms/sync`, mit
+  Audit-Log). `sync-v2` schreibt Pseudo-Zeilen nie neben echte Perioden.
+  Stellenist meldet jetzt eine Warnung, wenn ein Zeitraum nicht alle Monate
+  mit Daten hat. UI/PDF zeigen die Pseudo-Periode als `SJ`.
+  Deploy-Doku: `docs/deployment/v0.8.1_schuljahreswechsel.md`.
+
+  **Live gegen Untis verifiziert (03.09.2026):** `Terms` hat fuer 2026/27
+  keine Zeile, `Teacher` fuehrt 105 Lehrkraefte mit `TERM_ID = 0` (deshalb
+  reicht `0` als Pseudo-ID nicht — Zod verlangt `positive()`). Die v0.8-Abfrage
+  liefert 2025/26 unveraendert (1958 Zeilen) plus 102 Pseudo-Zeilen fuer
+  2026/27, nur Mandant 1, Aufteilung GES/GYM/BK gepflegt. Erster Lauf erzeugt
+  38 gehaltsrelevante und 17 Verteilungs-Meldungen sowie 15 Neuanlagen.
+  Regressionstest `tests/lib/berechnungen/schuljahreswechsel.test.ts` fahrt den
+  n8n-Code-Node und die Diff-Logik gegen einen anonymisierten Auszug dieser
+  Daten (`tests/fixtures/untis-schuljahreswechsel-2026-27.json`).
+  Untis-Rohexporte sind jetzt per `.gitignore` ausgeschlossen (Klarnamen,
+  Personalnummern).
+
+  **Zustellstrecke in Prod geprueft (03.09.2026, `docs/sql/diagnose_notifications_prod.sql`):**
+  Beide Notification-Ziele sind aktiv, tragen die Produktions-URL und das
+  passende Secret — die Ursache liegt vollstaendig in der App.
+  `hauptdeputat.changed` hat 11 Mal gefeuert (alle HTTP 200, zuletzt
+  17.07.2026), `verteilung.changed` **nie**. Kein Retry-Stau. Der Sync laeuft
+  alle 15 min sauber mit 0 Inserts — es gibt schlicht nichts zu melden, solange
+  2026/27 nicht ankommt. Neu erkannt: die Events `lehrer.created` (Flow #227)
+  und `sync.failed` haben **gar kein Ziel** und laufen ins Leere.
+
+- **hauptdeputat.changed / verteilung.changed feuerten fuer neue Perioden nie**
+  — `sync-v2` diffte nur bei gleichem Key `(lehrer, sy, term_id)`. Untis bildet
+  Aenderungen aber als NEUE Periode ab, also gab es praktisch keine Events und
+  keine Mails (#225/#226). Neu: pure Diff-Logik
+  `src/lib/berechnungen/periodenDiff.ts` (Vorgaenger = chronologisch vorherige
+  Periode, auch ueber Schuljahresgrenze; auch der Wechsel aus einer neu
+  eingeschobenen Periode in den bestehenden Nachfolger; Bucket =
+  Wirksamkeitsmonat; kein Event fuer Perioden aelter als 60 Tage → kein
+  Mail-Flood bei Backfill). Ein Sync-Request laeuft jetzt in EINER
+  Transaktion (kein Event-Verlust bei Teilfehlern). Kein Wert-Diff mehr fuer
+  denselben Key, wenn Untis die Periode verschoben/umnummeriert hat
+  (Phantom-Events). `sync.failed` feuert auch bei Validierungsfehlern (n8n
+  schluckt 400er). 21 Tests in `tests/lib/berechnungen/periodenDiff.test.ts`.
+  Payload-Format unveraendert. `#225_v08`/`#226_v08`: Signatur-Node faellt auf
+  `JSON.stringify(body)` zurueck, wenn der Binary-Body kein JSON ist.
+  Zusaetzlich `errorWorkflow` gesetzt, damit HMAC-/SMTP-Abbrueche nicht
+  stumm bleiben.
+
+- **Retry-Endpoint `/api/notifications/dispatch` war durch die Middleware
+  blockiert** — der Session-Guard (`src/middleware.ts`) nahm nur die
+  Sync-Endpoints aus; der per `x-dispatch-key` gesicherte Dispatch-Endpoint
+  wurde auf `/login` umgeleitet, ein n8n-Retry-Cron sah HTTP 200 vom Login
+  und `dispatchPending()` lief nie. Fehlgeschlagene Erstzustellungen wurden
+  damit nie wiederholt. Ausnahme ergaenzt.
 
 - **Nachtraege-Liste haengt am Periodenmodell statt an der alten v1-Tabelle** —
   Seit v0.7 schreibt nur noch `sync-v2` (Periodenmodell), die alte Tabelle

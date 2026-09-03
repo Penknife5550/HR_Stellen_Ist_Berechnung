@@ -13,6 +13,17 @@
  * Lehrer-Stammdaten (name, vollname, personalnummer, stammschule, statistik_code)
  * werden wie in v1 upserted. Lehrer mit unbekannter Stammschule werden komplett
  * verworfen (gleiche Logik wie v1, damit FK auf schulen sauber bleibt).
+ *
+ * v0.8 (03.09.2026):
+ *  - Webhook-Events (hauptdeputat.changed / verteilung.changed) auch fuer NEU
+ *    eingefuegte Perioden: Diff gegen die chronologisch vorhergehende Periode
+ *    (Untis bildet Aenderungen fast immer als neue Periode ab, nicht als
+ *    Aenderung einer bestehenden). Siehe lib/berechnungen/periodenDiff.ts.
+ *  - Ein Sync-Request laeuft in EINER Transaktion: entweder alle Zeilen und
+ *    danach die Events, oder nichts (kein Event-Verlust bei Teilfehlern).
+ *  - Pseudo-Periode UNTIS_PSEUDO_TERM_ID (Schuljahr ohne Untis-Perioden) wird
+ *    nie neben echten Perioden desselben Schuljahres geschrieben; ihren
+ *    Lebenszyklus verwaltet /api/untis-terms/sync (lib/db/pseudoPeriode.ts).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -25,26 +36,17 @@ import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
 import { normalizeStatistikCode, detectStatistikCodeChange } from "@/lib/statistikCode";
 import { notify } from "@/lib/notifications";
-
-/** Liefert alle (jahr, monat)-Buckets, die ein [dateFrom, dateTo]-Intervall beruehrt. */
-function monthsInRange(
-  dateFromIso: string,
-  dateToIso: string,
-): Array<{ jahr: number; monat: number }> {
-  const yF = Number(dateFromIso.slice(0, 4));
-  const mF = Number(dateFromIso.slice(5, 7));
-  const yT = Number(dateToIso.slice(0, 4));
-  const mT = Number(dateToIso.slice(5, 7));
-  const out: Array<{ jahr: number; monat: number }> = [];
-  let y = yF;
-  let m = mF;
-  while (y < yT || (y === yT && m <= mT)) {
-    out.push({ jahr: y, monat: m });
-    m++;
-    if (m > 12) { m = 1; y++; }
-  }
-  return out;
-}
+import { UNTIS_PSEUDO_TERM_ID } from "@/lib/constants";
+import {
+  berechneNeuePeriodenWechsel,
+  baueMonatsBuckets,
+  klassifiziereWechsel,
+  monthsInRange,
+  wirksamMonat,
+  type BucketInput,
+  type PeriodenWerte,
+  type PeriodenZeile,
+} from "@/lib/berechnungen/periodenDiff";
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -68,6 +70,8 @@ export async function POST(request: NextRequest) {
     const parsed = syncV2PayloadSchema.safeParse(rawPayload);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]?.message ?? "Ungueltige Eingabedaten.";
+      // Ein verworfener Chunk darf nicht stumm bleiben — n8n schluckt 400er.
+      void notify("sync.failed", { error: `Validierungsfehler: ${firstError}`, schuljahr: null });
       return NextResponse.json({ error: `Validierungsfehler: ${firstError}` }, { status: 400 });
     }
 
@@ -95,6 +99,7 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+    const heuteIso = now.toISOString().slice(0, 10);
     const eintraege = payload.eintraege;
 
     // 1. Schulen-Mapping (Untis-Code → schule.id)
@@ -125,22 +130,17 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 4. Untis-Terms vorladen (FK-Pruefung + gueltig_von/bis-Cache)
+    // 4. Untis-Terms vorladen (FK-Pruefung + gueltig_von/bis-Cache) — alle Terms
+    //    der betroffenen Schuljahre.
     const benoetigteTermKeys = new Set(
       gueltige.map((e) => `${e.school_year_id}_${e.term_id}`),
     );
     const benoetigteSyIds = [...new Set(gueltige.map((e) => e.school_year_id))];
-    const benoetigteTermIds = [...new Set(gueltige.map((e) => e.term_id))];
 
     const vorhandeneTerms = await db
       .select()
       .from(schema.untisTerms)
-      .where(
-        and(
-          inArray(schema.untisTerms.schoolYearId, benoetigteSyIds),
-          inArray(schema.untisTerms.termId, benoetigteTermIds),
-        ),
-      );
+      .where(inArray(schema.untisTerms.schoolYearId, benoetigteSyIds));
     const termMap = new Map(
       vorhandeneTerms.map((t) => [`${t.schoolYearId}_${t.termId}`, t]),
     );
@@ -176,8 +176,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 5b. Bestehende deputat_pro_periode-Werte vorladen — fuer Diff-Erkennung
-    //     (Hauptdeputat- vs. Verteilungs-Aenderung). Nur sinnvoll fuer existing
-    //     Lehrer; neu angelegte Lehrer haben naturgemaess keine Vorgaengerwerte.
+    //     (Hauptdeputat- vs. Verteilungs-Aenderung) und als Timeline-Basis fuer
+    //     den Vorgaenger-Diff neuer Perioden. ALLE Perioden der bekannten Lehrer
+    //     (auch fruehere Schuljahre), da der Vorgaenger einer neuen Periode im
+    //     Vorjahr liegen kann. Neu angelegte Lehrer haben keine Vorgaengerwerte.
     const existingLehrerIds = existingLehrer.map((l) => l.id);
     type DppRow = typeof schema.deputatProPeriode.$inferSelect;
     let existingDpp: DppRow[] = [];
@@ -185,25 +187,29 @@ export async function POST(request: NextRequest) {
       existingDpp = await db
         .select()
         .from(schema.deputatProPeriode)
-        .where(
-          and(
-            inArray(schema.deputatProPeriode.lehrerId, existingLehrerIds),
-            inArray(schema.deputatProPeriode.untisSchoolyearId, benoetigteSyIds),
-            inArray(schema.deputatProPeriode.untisTermId, benoetigteTermIds),
-          ),
-        );
+        .where(inArray(schema.deputatProPeriode.lehrerId, existingLehrerIds));
     }
+    const dppKeyOf = (lehrerId: number, sy: number, termId: number) => `${lehrerId}_${sy}_${termId}`;
     const dppMap = new Map<string, DppRow>(
-      existingDpp.map((r) => [`${r.lehrerId}_${r.untisSchoolyearId}_${r.untisTermId}`, r]),
+      existingDpp.map((r) => [dppKeyOf(r.lehrerId, r.untisSchoolyearId, r.untisTermId), r]),
     );
+    // Lehrer × Schuljahr, fuer die bereits ECHTE Perioden in der DB liegen
+    // (Schutz: Pseudo-Periode darf echte Perioden nie ueberlappen).
+    const echteInDb = new Set<string>();
+    for (const r of existingDpp) {
+      if (r.untisTermId !== UNTIS_PSEUDO_TERM_ID) echteInDb.add(`${r.lehrerId}_${r.untisSchoolyearId}`);
+    }
 
-    // 6. Verarbeiten — pro Eintrag: Lehrer upserten + deputat_pro_periode upserten
+    // 6. Verarbeiten — pro Eintrag: Lehrer upserten + deputat_pro_periode upserten.
+    //    Eine Transaktion fuer den gesamten Request.
     let verarbeitet = 0;
     let lehrerNeu = 0;
     let lehrerAktualisiert = 0;
     let dppInserted = 0;
     let dppUpdated = 0;
     let verworfenFehlenderTerm = 0;
+    let verworfenPseudoWeilEchte = 0;
+    let periodenVerschoben = 0;
     const statistikCodeChanges: Array<{
       lehrerId: number;
       vollname: string;
@@ -215,115 +221,122 @@ export async function POST(request: NextRequest) {
     const lehrerCreatedEvents: Array<{
       lehrerId: number; teacherId: number; vollname: string; stammschule: string | null;
     }> = [];
-    type DppChange = {
-      lehrerId: number; teacherId: number; vollname: string;
-      sy: number; termId: number; dateFrom: string; dateTo: string;
-      alt: { gesamt: number; ges: number; gym: number; bk: number };
-      neu: { gesamt: number; ges: number; gym: number; bk: number };
-      type: "haupt" | "verteilung";
-    };
-    const dppChanges: DppChange[] = [];
+    /** Rueckwirkende Aenderung einer bereits synchronisierten Periode (gleicher Key). */
+    const updateWechsel: BucketInput[] = [];
+    /** Alle in diesem Request geschriebenen Zeilen (Nach-Sync-Zustand), key → Zeile. */
+    const verarbeiteteZeilen = new Map<string, PeriodenZeile>();
+    const eingefuegteKeys = new Set<string>();
+    /** lehrerId → Untis-Stammdaten fuer Event-Payloads */
+    const lehrerInfo = new Map<number, { teacherId: number; vollname: string }>();
 
     // Lehrer-Upsert nur EINMAL pro teacher_id pro Sync (nicht 18x bei 18 Perioden)
     const lehrerVerarbeitet = new Set<number>();
 
-    const BATCH_SIZE = 100;
-    for (let i = 0; i < gueltige.length; i += BATCH_SIZE) {
-      const batch = gueltige.slice(i, i + BATCH_SIZE);
+    await db.transaction(async (tx) => {
+      for (const e of gueltige) {
+        const termKey = `${e.school_year_id}_${e.term_id}`;
+        const term = termMap.get(termKey);
+        if (!term) {
+          verworfenFehlenderTerm++;
+          continue;
+        }
 
-      await db.transaction(async (tx) => {
-        for (const e of batch) {
-          const termKey = `${e.school_year_id}_${e.term_id}`;
-          const term = termMap.get(termKey);
-          if (!term) {
-            verworfenFehlenderTerm++;
-            continue;
-          }
+        // Lehrer-Upsert pro teacher_id einmalig — auf Basis der AKTUELLSTEN
+        // Periode dieses Lehrers (siehe masterPerLehrer-Aufbau oben), nicht
+        // des aktuellen Schleifeneintrags.
+        let lehrerId: number;
+        if (!lehrerVerarbeitet.has(e.teacher_id)) {
+          const master = masterPerLehrer.get(e.teacher_id) ?? e;
+          const stammschuleId = schulenMap.get(master.stammschule?.toUpperCase()) ?? null;
+          const existing = lehrerMap.get(e.teacher_id);
+          const { incomingValid, valueForUpdate } = normalizeStatistikCode(
+            master.statistik_code,
+            validStatistikCodes,
+            existing?.statistikCode,
+          );
 
-          // Lehrer-Upsert pro teacher_id einmalig — auf Basis der AKTUELLSTEN
-          // Periode dieses Lehrers (siehe masterPerLehrer-Aufbau oben), nicht
-          // des aktuellen Schleifeneintrags.
-          let lehrerId: number;
-          if (!lehrerVerarbeitet.has(e.teacher_id)) {
-            const master = masterPerLehrer.get(e.teacher_id) ?? e;
-            const stammschuleId = schulenMap.get(master.stammschule?.toUpperCase()) ?? null;
-            const existing = lehrerMap.get(e.teacher_id);
-            const { incomingValid, valueForUpdate } = normalizeStatistikCode(
-              master.statistik_code,
-              validStatistikCodes,
-              existing?.statistikCode,
-            );
-
-            if (existing) {
-              await tx
-                .update(schema.lehrer)
-                .set({
-                  name: master.name,
-                  vollname: master.vollname,
-                  personalnummer: master.personalnummer ?? null,
-                  stammschuleId,
-                  stammschuleCode: master.stammschule,
-                  statistikCode: valueForUpdate,
-                  updatedAt: now,
-                })
-                .where(eq(schema.lehrer.id, existing.id));
-              lehrerId = existing.id;
-              lehrerAktualisiert++;
-              if (detectStatistikCodeChange(existing.statistikCode, valueForUpdate)) {
-                statistikCodeChanges.push({
-                  lehrerId: existing.id,
-                  vollname: master.vollname,
-                  alt: existing.statistikCode ?? null,
-                  neu: valueForUpdate,
-                });
-              }
-            } else {
-              const [inserted] = await tx
-                .insert(schema.lehrer)
-                .values({
-                  untisTeacherId: e.teacher_id,
-                  name: master.name,
-                  vollname: master.vollname,
-                  personalnummer: master.personalnummer ?? null,
-                  stammschuleId,
-                  stammschuleCode: master.stammschule,
-                  statistikCode: incomingValid,
-                })
-                .returning();
-              lehrerId = inserted.id;
-              lehrerMap.set(e.teacher_id, inserted);
-              lehrerNeu++;
-              lehrerCreatedEvents.push({
-                lehrerId: inserted.id,
-                teacherId: e.teacher_id,
+          if (existing) {
+            await tx
+              .update(schema.lehrer)
+              .set({
+                name: master.name,
                 vollname: master.vollname,
-                stammschule: master.stammschule ?? null,
+                personalnummer: master.personalnummer ?? null,
+                stammschuleId,
+                stammschuleCode: master.stammschule,
+                statistikCode: valueForUpdate,
+                updatedAt: now,
+              })
+              .where(eq(schema.lehrer.id, existing.id));
+            lehrerId = existing.id;
+            lehrerAktualisiert++;
+            if (detectStatistikCodeChange(existing.statistikCode, valueForUpdate)) {
+              statistikCodeChanges.push({
+                lehrerId: existing.id,
+                vollname: master.vollname,
+                alt: existing.statistikCode ?? null,
+                neu: valueForUpdate,
               });
             }
-            lehrerVerarbeitet.add(e.teacher_id);
           } else {
-            lehrerId = lehrerMap.get(e.teacher_id)!.id;
+            const [inserted] = await tx
+              .insert(schema.lehrer)
+              .values({
+                untisTeacherId: e.teacher_id,
+                name: master.name,
+                vollname: master.vollname,
+                personalnummer: master.personalnummer ?? null,
+                stammschuleId,
+                stammschuleCode: master.stammschule,
+                statistikCode: incomingValid,
+              })
+              .returning();
+            lehrerId = inserted.id;
+            lehrerMap.set(e.teacher_id, inserted);
+            lehrerNeu++;
+            lehrerCreatedEvents.push({
+              lehrerId: inserted.id,
+              teacherId: e.teacher_id,
+              vollname: master.vollname,
+              stammschule: master.stammschule ?? null,
+            });
           }
+          lehrerVerarbeitet.add(e.teacher_id);
+        } else {
+          lehrerId = lehrerMap.get(e.teacher_id)!.id;
+        }
+        lehrerInfo.set(lehrerId, { teacherId: e.teacher_id, vollname: e.vollname });
 
-          // Diff gegen vorhandenen Periodenwert (fuer Webhook-Events)
-          const dppKey = `${lehrerId}_${e.school_year_id}_${e.term_id}`;
-          const dppOld = dppMap.get(dppKey);
-          if (dppOld) {
-            const altGesamt = Number(dppOld.deputatGesamt);
-            const altGes = Number(dppOld.deputatGes);
-            const altGym = Number(dppOld.deputatGym);
-            const altBk = Number(dppOld.deputatBk);
-            const neuGesamt = e.deputat_gesamt;
-            const neuGes = e.deputat_ges;
-            const neuGym = e.deputat_gym;
-            const neuBk = e.deputat_bk;
-            const gesamtGeaendert = Math.abs(altGesamt - neuGesamt) > 0.001;
-            const verteilungGeaendert =
-              Math.abs(altGes - neuGes) > 0.001 ||
-              Math.abs(altGym - neuGym) > 0.001 ||
-              Math.abs(altBk - neuBk) > 0.001;
-            if (gesamtGeaendert || verteilungGeaendert) {
-              dppChanges.push({
+        const istPseudo = e.term_id === UNTIS_PSEUDO_TERM_ID;
+
+        // Pseudo-Periode nie neben echten Perioden desselben Schuljahres
+        // schreiben (kaeme nur vor, wenn Untis seine Perioden wieder loescht).
+        if (istPseudo && echteInDb.has(`${lehrerId}_${e.school_year_id}`)) {
+          verworfenPseudoWeilEchte++;
+          continue;
+        }
+
+        const dppKey = dppKeyOf(lehrerId, e.school_year_id, e.term_id);
+        const dppOld = dppMap.get(dppKey);
+        const neuWerte: PeriodenWerte = {
+          gesamt: e.deputat_gesamt, ges: e.deputat_ges, gym: e.deputat_gym, bk: e.deputat_bk,
+        };
+
+        // Diff gegen vorhandenen Periodenwert (rueckwirkende Aenderung) — nur,
+        // wenn es noch DIESELBE Periode ist. Untis nummeriert TERM_IDs um, wenn
+        // Perioden nachtraeglich eingeschoben werden; dann traegt der Key ploetzlich
+        // einen anderen Zeitraum und ein Wertvergleich waere ein Phantom-Wechsel.
+        if (dppOld) {
+          if (dppOld.gueltigVon === term.dateFrom) {
+            const altWerte: PeriodenWerte = {
+              gesamt: Number(dppOld.deputatGesamt),
+              ges: Number(dppOld.deputatGes),
+              gym: Number(dppOld.deputatGym),
+              bk: Number(dppOld.deputatBk),
+            };
+            const typ = klassifiziereWechsel(altWerte, neuWerte);
+            if (typ) {
+              updateWechsel.push({
                 lehrerId,
                 teacherId: e.teacher_id,
                 vollname: e.vollname,
@@ -331,20 +344,46 @@ export async function POST(request: NextRequest) {
                 termId: e.term_id,
                 dateFrom: term.dateFrom,
                 dateTo: term.dateTo,
-                alt: { gesamt: altGesamt, ges: altGes, gym: altGym, bk: altBk },
-                neu: { gesamt: neuGesamt, ges: neuGes, gym: neuGym, bk: neuBk },
-                type: gesamtGeaendert ? "haupt" : "verteilung",
+                alt: altWerte,
+                neu: neuWerte,
+                type: typ,
+                // Rueckwirkende Aenderung betrifft alle Monate der Periode; die
+                // Pseudo-Periode (ganzes Schuljahr) nur ihren Wirksamkeitsmonat,
+                // sonst 12 Zeilen je Lehrer in der Mail.
+                monate: istPseudo
+                  ? [wirksamMonat(term.dateFrom)]
+                  : monthsInRange(term.dateFrom, term.dateTo),
               });
             }
+          } else {
+            periodenVerschoben++;
           }
+        }
 
-          // deputat_pro_periode upserten
-          const dppResult = await tx
-            .insert(schema.deputatProPeriode)
-            .values({
-              lehrerId,
-              untisSchoolyearId: e.school_year_id,
-              untisTermId: e.term_id,
+        // deputat_pro_periode upserten
+        const dppResult = await tx
+          .insert(schema.deputatProPeriode)
+          .values({
+            lehrerId,
+            untisSchoolyearId: e.school_year_id,
+            untisTermId: e.term_id,
+            gueltigVon: term.dateFrom,
+            gueltigBis: term.dateTo,
+            deputatGesamt: String(e.deputat_gesamt),
+            deputatGes: String(e.deputat_ges),
+            deputatGym: String(e.deputat_gym),
+            deputatBk: String(e.deputat_bk),
+            stammschuleCode: e.stammschule,
+            quelle: "untis",
+            syncDatum: now,
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.deputatProPeriode.lehrerId,
+              schema.deputatProPeriode.untisSchoolyearId,
+              schema.deputatProPeriode.untisTermId,
+            ],
+            set: {
               gueltigVon: term.dateFrom,
               gueltigBis: term.dateTo,
               deputatGesamt: String(e.deputat_gesamt),
@@ -352,39 +391,79 @@ export async function POST(request: NextRequest) {
               deputatGym: String(e.deputat_gym),
               deputatBk: String(e.deputat_bk),
               stammschuleCode: e.stammschule,
-              quelle: "untis",
               syncDatum: now,
-            })
-            .onConflictDoUpdate({
-              target: [
-                schema.deputatProPeriode.lehrerId,
-                schema.deputatProPeriode.untisSchoolyearId,
-                schema.deputatProPeriode.untisTermId,
-              ],
-              set: {
-                gueltigVon: term.dateFrom,
-                gueltigBis: term.dateTo,
-                deputatGesamt: String(e.deputat_gesamt),
-                deputatGes: String(e.deputat_ges),
-                deputatGym: String(e.deputat_gym),
-                deputatBk: String(e.deputat_bk),
-                stammschuleCode: e.stammschule,
-                syncDatum: now,
-                updatedAt: now,
-              },
-            })
-            .returning({
-              // xmax = 0 → frisch eingefuegt; xmax > 0 → durch ON CONFLICT aktualisiert.
-              isInsert: sql<boolean>`xmax = 0`,
-            });
+              updatedAt: now,
+            },
+          })
+          .returning({
+            // xmax = 0 → frisch eingefuegt; xmax > 0 → durch ON CONFLICT aktualisiert.
+            isInsert: sql<boolean>`xmax = 0`,
+          });
 
-          if (dppResult[0]?.isInsert) dppInserted++;
-          else dppUpdated++;
-
-          verarbeitet++;
+        if (dppResult[0]?.isInsert) {
+          dppInserted++;
+          eingefuegteKeys.add(dppKey);
+        } else {
+          dppUpdated++;
         }
-      });
+        verarbeiteteZeilen.set(dppKey, {
+          lehrerId,
+          sy: e.school_year_id,
+          termId: e.term_id,
+          gueltigVon: term.dateFrom,
+          gueltigBis: term.dateTo,
+          werte: neuWerte,
+        });
+
+        verarbeitet++;
+      }
+    });
+
+    // 7. Wertwechsel NEUER Perioden gegen den chronologischen Vorgaenger.
+    //    Timeline = NACH-Sync-Zustand: unveraenderte DB-Zeilen + alle in diesem
+    //    Request geschriebenen Zeilen (mit ihren neuen Daten/Werten). Historischer
+    //    Backfill (> 60 Tage zurueck) erzeugt keine Events.
+    const bestehendZeilen: PeriodenZeile[] = existingDpp
+      .filter((r) => !verarbeiteteZeilen.has(dppKeyOf(r.lehrerId, r.untisSchoolyearId, r.untisTermId)))
+      .map((r) => ({
+        lehrerId: r.lehrerId,
+        sy: r.untisSchoolyearId,
+        termId: r.untisTermId,
+        gueltigVon: r.gueltigVon,
+        gueltigBis: r.gueltigBis,
+        werte: {
+          gesamt: Number(r.deputatGesamt),
+          ges: Number(r.deputatGes),
+          gym: Number(r.deputatGym),
+          bk: Number(r.deputatBk),
+        },
+      }));
+    const eingefuegteZeilen: PeriodenZeile[] = [];
+    for (const [key, zeile] of verarbeiteteZeilen) {
+      if (eingefuegteKeys.has(key)) eingefuegteZeilen.push(zeile);
+      else bestehendZeilen.push(zeile);
     }
+    const neueWechsel = berechneNeuePeriodenWechsel({
+      bestehend: bestehendZeilen,
+      eingefuegt: eingefuegteZeilen,
+      heute: heuteIso,
+    });
+    const neueWechselInputs: BucketInput[] = neueWechsel.map((w) => {
+      const info = lehrerInfo.get(w.lehrerId) ?? { teacherId: 0, vollname: "" };
+      return {
+        lehrerId: w.lehrerId,
+        teacherId: info.teacherId,
+        vollname: info.vollname,
+        sy: w.sy,
+        termId: w.termId,
+        dateFrom: w.dateFrom,
+        dateTo: w.dateTo,
+        alt: w.alt,
+        neu: w.neu,
+        type: w.type,
+        monate: [wirksamMonat(w.dateFrom)],
+      };
+    });
 
     // Sync-Log
     await db.insert(schema.deputatSyncLog).values({
@@ -426,53 +505,22 @@ export async function POST(request: NextRequest) {
         dppUpdated,
         verworfenStammschule: verworfeneAusStammschule,
         verworfenFehlenderTerm,
+        verworfenPseudoWeilEchte,
+        periodenVerschoben,
         fehlendeTermKeys,
+        wechselRueckwirkend: updateWechsel.length,
+        wechselNeuePerioden: neueWechsel.length,
       },
       "n8n",
     );
 
-    // Webhook-Events: Periodendiffs auf Monatsebene aggregieren.
+    // Webhook-Events: Diffs auf Monatsebene aggregieren.
     // Pro (lehrer × jahr × monat) maximal ein Event. Wenn in einem Monat
     // mindestens eine Periode den Hauptwert aendert, wird der Bucket als
     // "haupt" markiert (gehaltsrelevant uebersteuert reine Verteilung).
-    type MonthBucket = {
-      lehrerId: number; teacherId: number; vollname: string;
-      jahr: number; monat: number;
-      type: "haupt" | "verteilung";
-      perioden: Array<{
-        sy: number; termId: number; dateFrom: string; dateTo: string;
-        alt: { gesamt: number; ges: number; gym: number; bk: number };
-        neu: { gesamt: number; ges: number; gym: number; bk: number };
-      }>;
-    };
-    const monthMap = new Map<string, MonthBucket>();
-    for (const ch of dppChanges) {
-      for (const { jahr, monat } of monthsInRange(ch.dateFrom, ch.dateTo)) {
-        const key = `${ch.lehrerId}_${jahr}_${monat}`;
-        let bucket = monthMap.get(key);
-        if (!bucket) {
-          bucket = {
-            lehrerId: ch.lehrerId, teacherId: ch.teacherId, vollname: ch.vollname,
-            jahr, monat,
-            type: ch.type,
-            perioden: [],
-          };
-          monthMap.set(key, bucket);
-        } else if (ch.type === "haupt" && bucket.type === "verteilung") {
-          bucket.type = "haupt";
-        }
-        bucket.perioden.push({
-          sy: ch.sy, termId: ch.termId, dateFrom: ch.dateFrom, dateTo: ch.dateTo,
-          alt: ch.alt, neu: ch.neu,
-        });
-      }
-    }
-    const hauptBuckets: MonthBucket[] = [];
-    const verteilBuckets: MonthBucket[] = [];
-    for (const b of monthMap.values()) {
-      if (b.type === "haupt") hauptBuckets.push(b);
-      else verteilBuckets.push(b);
-    }
+    const buckets = baueMonatsBuckets([...updateWechsel, ...neueWechselInputs]);
+    const hauptBuckets = buckets.filter((b) => b.type === "haupt");
+    const verteilBuckets = buckets.filter((b) => b.type === "verteilung");
 
     if (lehrerCreatedEvents.length > 0) {
       void notify("lehrer.created", {
@@ -512,7 +560,11 @@ export async function POST(request: NextRequest) {
       perioden_eintraege_aktualisiert: dppUpdated,
       verworfen_stammschule: verworfeneAusStammschule,
       verworfen_fehlender_term: verworfenFehlenderTerm,
+      verworfen_pseudo_weil_echte: verworfenPseudoWeilEchte,
+      perioden_verschoben: periodenVerschoben,
       fehlende_terms: fehlendeTermKeys,
+      wechsel_rueckwirkend: updateWechsel.length,
+      wechsel_neue_perioden: neueWechsel.length,
       message: `${verarbeitet} Periodeneintrag(e) verarbeitet (${dppInserted} neu, ${dppUpdated} aktualisiert).`,
     });
   } catch (err) {

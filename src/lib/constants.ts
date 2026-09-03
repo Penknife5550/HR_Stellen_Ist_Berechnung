@@ -84,6 +84,19 @@ export const REGELSTUNDEN_DEFAULT = "25.5";
  */
 export const GEHALTSRELEVANT_DELTA = 0.001;
 
+/**
+ * Synthetische Untis-Periode fuer Schuljahre, die in Untis noch KEINE
+ * Perioden (Tabelle Terms) haben — typisch direkt nach Schuljahresbeginn.
+ * Der n8n-Sync (#223 v0.8) liefert dann pro Lehrer genau eine Zeile mit
+ * dieser term_id ueber das gesetzliche Schuljahr (01.08.–31.07.).
+ * Sobald Untis echte Perioden anlegt, raeumt sync-v2 die Pseudo-Zeilen auf
+ * und haengt Korrekturen/Nachtraege auf die erste echte Periode um.
+ * Wert muss identisch zur SQL in n8n-Flow #223 sein.
+ */
+export const UNTIS_PSEUDO_TERM_ID = 999;
+/** Term-Name der Pseudo-Periode, exakt wie in der n8n-SQL (#223 v0.8). */
+export const UNTIS_PSEUDO_TERM_NAME = "Schuljahr ohne Perioden";
+
 // Schulform-Langbezeichnung fuer Vertragsunterlagen
 export function getSchulformLang(schulform: string | null): string {
   switch (schulform) {

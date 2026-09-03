@@ -2,6 +2,7 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
 import { MONATE_KURZ } from "@/lib/constants";
+import { formatTermId } from "@/lib/format";
 import {
   getLehrerDetail,
   getSchulen,
@@ -306,7 +307,7 @@ export default async function LehrerDetailPage({
                 <td className="py-2 px-3 text-xs text-[#6B7280]">Periode</td>
                 {monateArr.map((m, i) => (
                   <td key={i} className="py-2 px-3 text-right text-xs text-[#9CA3AF] tabular-nums">
-                    {m?.untisTermId ?? "—"}
+                    {formatTermId(m?.untisTermId)}
                   </td>
                 ))}
                 <td className="py-2 px-3 bg-[#F3F4F6]" />

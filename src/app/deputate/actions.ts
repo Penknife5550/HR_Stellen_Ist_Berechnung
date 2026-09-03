@@ -2,10 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { deputatAenderungen, deputatAenderungKorrekturen, untisTerms } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
+import {
+  deputatAenderungen,
+  deputatAenderungKorrekturen,
+  deputatNachtraege,
+  deputatProPeriode,
+  untisTerms,
+} from "@/db/schema";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
+import { UNTIS_PSEUDO_TERM_ID } from "@/lib/constants";
 import { z } from "zod";
 
 const datumKorrekturSchema = z.object({
@@ -132,12 +139,37 @@ export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
     return { error: "Periode (alt oder neu) nicht im Untis-Terms-Master gefunden." };
   }
 
+  // Pseudo-Periode "Schuljahr ohne Perioden" (v0.8): Obergrenze ist das
+  // gesetzliche Schuljahresende, nicht das ggf. schon gekuerzte date_to.
+  // Liegt der Stichtag ab der ersten echten Untis-Periode des Schuljahres
+  // (z.B. Vertragsbeginn 01.09. bei Untis-Montag 31.08.), gehoert die
+  // Korrektur an den Wechsel "→ Periode 1"; die Pseudo-Zeile des Lehrers
+  // entfaellt dann, damit die Vorgaenger-Periode bis zum Stichtag gilt.
+  let zielTermIdNeu = data.termIdNeu;
+  let obergrenze = periodeNeu.dateTo;
+  let umleitungAufPeriode1: { termId: number; dateFrom: string } | null = null;
+  if (data.termIdNeu === UNTIS_PSEUDO_TERM_ID) {
+    obergrenze = `${data.syNeu % 10000}-07-31`;
+    const [ersteEchte] = await db
+      .select({ termId: untisTerms.termId, dateFrom: untisTerms.dateFrom })
+      .from(untisTerms)
+      .where(
+        and(eq(untisTerms.schoolYearId, data.syNeu), ne(untisTerms.termId, UNTIS_PSEUDO_TERM_ID)),
+      )
+      .orderBy(asc(untisTerms.dateFrom), asc(untisTerms.termId))
+      .limit(1);
+    if (ersteEchte && data.tatsaechlichesDatum >= ersteEchte.dateFrom) {
+      zielTermIdNeu = ersteEchte.termId;
+      umleitungAufPeriode1 = ersteEchte;
+    }
+  }
+
   if (
     data.tatsaechlichesDatum < periodeAlt.dateFrom ||
-    data.tatsaechlichesDatum > periodeNeu.dateTo
+    data.tatsaechlichesDatum > obergrenze
   ) {
     return {
-      error: `Datum muss zwischen ${periodeAlt.dateFrom} und ${periodeNeu.dateTo} liegen (Periode alt bis neu).`,
+      error: `Datum muss zwischen ${periodeAlt.dateFrom} und ${obergrenze} liegen (Periode alt bis neu).`,
     };
   }
 
@@ -149,7 +181,7 @@ export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
       and(
         eq(deputatAenderungKorrekturen.lehrerId, data.lehrerId),
         eq(deputatAenderungKorrekturen.syNeu, data.syNeu),
-        eq(deputatAenderungKorrekturen.termIdNeu, data.termIdNeu),
+        eq(deputatAenderungKorrekturen.termIdNeu, zielTermIdNeu),
       ),
     );
 
@@ -160,7 +192,7 @@ export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
       syAlt: data.syAlt,
       termIdAlt: data.termIdAlt,
       syNeu: data.syNeu,
-      termIdNeu: data.termIdNeu,
+      termIdNeu: zielTermIdNeu,
       tatsaechlichesDatum: data.tatsaechlichesDatum,
       korrigiertVon: session.name,
       korrigiertAm: now,
@@ -183,6 +215,47 @@ export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
       },
     });
 
+  // Umleitung auf Periode 1: Pseudo-Zeile und Pseudo-Nachtrag dieses Lehrers
+  // entfernen bzw. umhaengen, sonst wuerde die Pseudo-Periode den Stichtag
+  // in v_deputat_pro_tag ueberdecken.
+  let pseudoEntfernt = 0;
+  if (umleitungAufPeriode1) {
+    const p1 = umleitungAufPeriode1;
+    pseudoEntfernt = await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        UPDATE deputat_nachtraege n
+           SET term_neu = ${p1.termId}, updated_at = now()
+         WHERE n.lehrer_id = ${data.lehrerId} AND n.sy_neu = ${data.syNeu}
+           AND n.term_neu = ${UNTIS_PSEUDO_TERM_ID}
+           AND NOT EXISTS (
+             SELECT 1 FROM deputat_nachtraege z
+              WHERE z.lehrer_id = n.lehrer_id AND z.sy_alt = n.sy_alt AND z.term_alt = n.term_alt
+                AND z.sy_neu = ${data.syNeu} AND z.term_neu = ${p1.termId}
+           )
+      `);
+      await tx
+        .delete(deputatNachtraege)
+        .where(
+          and(
+            eq(deputatNachtraege.lehrerId, data.lehrerId),
+            eq(deputatNachtraege.syNeu, data.syNeu),
+            eq(deputatNachtraege.termNeu, UNTIS_PSEUDO_TERM_ID),
+          ),
+        );
+      const dpp = await tx
+        .delete(deputatProPeriode)
+        .where(
+          and(
+            eq(deputatProPeriode.lehrerId, data.lehrerId),
+            eq(deputatProPeriode.untisSchoolyearId, data.syNeu),
+            eq(deputatProPeriode.untisTermId, UNTIS_PSEUDO_TERM_ID),
+          ),
+        )
+        .returning({ id: deputatProPeriode.id });
+      return dpp.length;
+    });
+  }
+
   await writeAuditLog(
     "deputat_aenderung_korrekturen",
     existing?.id ?? 0,
@@ -193,9 +266,14 @@ export async function korrigierePeriodeWirksamkeitAction(formData: FormData) {
     {
       lehrerId: data.lehrerId,
       sy: data.syNeu,
-      termWechsel: `${data.termIdAlt}->${data.termIdNeu}`,
+      termWechsel: `${data.termIdAlt}->${zielTermIdNeu}`,
       tatsaechlichesDatum: data.tatsaechlichesDatum,
       bemerkung: data.bemerkung ?? null,
+      ...(umleitungAufPeriode1
+        ? {
+            hinweis: `Stichtag liegt ab Untis-Periode ${umleitungAufPeriode1.termId} (${umleitungAufPeriode1.dateFrom}); Korrektur statt an Pseudo-Periode an Periode 1 erfasst, ${pseudoEntfernt} Pseudo-Zeile(n) entfernt`,
+          }
+        : {}),
     },
     session.name,
   );

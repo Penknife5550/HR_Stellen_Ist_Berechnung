@@ -16,6 +16,7 @@
 import { NextRequest } from "next/server";
 import { getOptionalSession, ROLE_LEVEL } from "@/lib/auth/permissions";
 import { writeAuditLog } from "@/lib/audit";
+import { formatTermId } from "@/lib/format";
 import {
   getLehrerDetail,
   getSchulen,
@@ -275,7 +276,7 @@ export async function GET(request: NextRequest) {
     const periodeRow: unknown[] = [{ content: "Periode", styles: { fontSize: 6, textColor: [107, 114, 128] as [number, number, number], fillColor: [249, 250, 251] as [number, number, number] } }];
     for (let m = 1; m <= 12; m++) {
       const md = monatsArr[m - 1];
-      periodeRow.push({ content: md?.untisTermId != null ? `T${md.untisTermId}` : "—", styles: { fontSize: 6, textColor: [107, 114, 128] as [number, number, number], fillColor: [249, 250, 251] as [number, number, number] } });
+      periodeRow.push({ content: formatTermId(md?.untisTermId), styles: { fontSize: 6, textColor: [107, 114, 128] as [number, number, number], fillColor: [249, 250, 251] as [number, number, number] } });
     }
     periodeRow.push({ content: "", styles: { fillColor: [249, 250, 251] as [number, number, number] } });
     body.push(periodeRow);
@@ -317,7 +318,7 @@ export async function GET(request: NextRequest) {
           a.tatsaechliches_datum
             ? { content: fmtDeDate(a.tatsaechliches_datum), styles: { textColor: [226, 0, 26] as [number, number, number], fontStyle: "bold" as const } }
             : "—",
-          `T${a.term_alt} -> T${a.term_neu}`,
+          `${formatTermId(a.term_alt)} -> ${formatTermId(a.term_neu)}`,
           fmt(Number(a.gesamt_alt)),
           { content: fmt(Number(a.gesamt_neu)), styles: { fontStyle: "bold" as const } },
           {
@@ -356,7 +357,7 @@ export async function GET(request: NextRequest) {
       const phead = [["SY/Term", "Periode", "Gültig von", "Gültig bis", "Gesamt", "GES", "GYM", "BK"]];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const pbody: any[][] = periodenverlauf.map((p) => [
-        `${p.schoolYearId} · T${p.termId}`,
+        `${p.schoolYearId} · ${formatTermId(p.termId)}`,
         p.isBPeriod
           ? { content: `${p.termName ?? "—"} (b)`, styles: { fontStyle: "italic" as const } }
           : (p.termName ?? "—"),
