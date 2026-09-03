@@ -16,7 +16,7 @@
 | v0.6.0 (Statistik-Codes) | [`deployment/v0.6.0.md`](deployment/v0.6.0.md) | **Offen** |
 | v0.6.0 n8n-Workflow | [`deployment/n8n_workflow_v0.6.0.md`](deployment/n8n_workflow_v0.6.0.md) | Begleit-Doku |
 | v0.7 (Periodenmodell) | _noch zu erstellen_ | Lokal verifiziert, n8n-Anpassung steht aus |
-| v0.8.1 (Schuljahreswechsel + Events) | [`deployment/v0.8.1_schuljahreswechsel.md`](deployment/v0.8.1_schuljahreswechsel.md) | **Offen** — Fix fuer leeres Aug–Dez 2026 + fehlende Mails |
+| v0.8.1 (Schuljahreswechsel + Events) | [`deployment/v0.8.1_schuljahreswechsel.md`](deployment/v0.8.1_schuljahreswechsel.md) | **Live seit 2026-09-03** — Aug–Dez 2026 gefuellt; Mail-Flows v0.8 + Secret-Rotation offen (Checkliste im Doc) |
 
 ## 📚 Konzepte
 

@@ -1,6 +1,11 @@
 # Changelog — Stellenistberechnung
 
-## [Unreleased]
+## [0.8.1] — 2026-09-03
+
+> Deployed auf `deputat.fes-credo.de` am 03.09.2026. Aug–Dez 2026 in
+> `/deputate` gefuellt, erster Sync-Lauf 2060/0 verworfen, Folgelaeufe
+> idempotent. Offen: Mail-Flows v0.8 scharf schalten (Secret-Rotation),
+> Ziel `lehrer.created`, App-Nachzug `9bae55e`.
 
 ### Nachzug Pre-Commit-Audit (03.09.2026, nach 0c01f5c)
 
