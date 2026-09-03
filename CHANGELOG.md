@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Nachzug Pre-Commit-Audit (03.09.2026, nach 0c01f5c)
+
+- **Test-Fixture jetzt vollstaendig synthetisch** — die in `0c01f5c`
+  committete Fixture trug echte Deputats-Verlaeufe (pseudonymisiert, damit
+  DSGVO-personenbezogen). Alle Werte, Stammschulen und Statistik-Codes sind
+  jetzt erfunden, nur das Perioden-Raster und das Fallmuster sind real.
+  Der alte Stand bleibt in der Git-Historie — Entfernen erfordert einen
+  History-Rewrite.
+- **Interne Mail-Infrastruktur aus den Flow-Dateien entfernt** — Empfaenger-
+  Funktionspostfach, Absender und SMTP-Relay-Domain standen im Klartext in
+  den v08-Flows (und Credential-Namen der v07-Flows): fertige Vorlage fuer
+  gefaelschte HR-Mails. Jetzt Platzhalter; importfertige Kopien mit echten
+  Werten liegen lokal unter `03_n8n/` (gitignored).
+- **`sync.failed` feuert nur noch fuer authentifizierte Aufrufer** — vorher
+  loeste jeder unauthentifizierte POST mit ungueltigem Payload den
+  Event-Versand aus (Mail-/Log-Trigger ohne API-Key).
+- **Korrektur-Umleitung zielt auf die Periode, die den Stichtag ENTHAELT**
+  (vorher stur Periode 1 — ein Stichtag in Periode 2+ haette eine
+  Abdeckungsluecke erzeugt); Upsert und Pseudo-Aufraeumen laufen in einer
+  Transaktion; verwaiste Pseudo-Korrekturen/-Nachtraege werden mit entfernt.
+- **Pseudo-Ende wird nachgezogen**, wenn Untis den Start von Periode 1
+  nachtraeglich verschiebt (vorher liess der Idempotenz-Check eine Luecke).
+- `verify_david_abrams_*.sql` entfernt (Klarname einer realen Lehrkraft im
+  oeffentlichen Repo); `.gitignore` fuer Untis-Rohexporte verallgemeinert.
+- Doku: Aenderungs-Tabelle vervollstaendigt, Testzahlen korrigiert,
+  SQL-Header an die Kuerzen-Semantik angepasst, Funktionspostfach statt
+  Klartext-Adresse.
+
 ### Sicherheit
 
 - **HMAC-Secret der Notification-Flows stand im oeffentlichen Repo** — Das

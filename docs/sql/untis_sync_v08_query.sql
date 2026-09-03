@@ -21,9 +21,11 @@
 --
 -- Hinweise:
 --   - Pseudo-DateTo 31.07. ist INKLUSIV (echte letzte Periode: Untis-DateTo - 1).
---   - Die App (sync-v2 / untis-terms/sync) loescht die Pseudo-Periode 999
---     automatisch, sobald echte Perioden desselben Schuljahres eintreffen,
---     und haengt Korrekturen/Nachtraege auf die erste echte Periode um.
+--   - Die App (untis-terms/sync) KUERZT die Pseudo-Periode 999 automatisch
+--     auf den Tag vor Periode 1, sobald echte Perioden desselben Schuljahres
+--     eintreffen (entfernt wird sie nur, wenn Periode 1 am/vor dem 01.08.
+--     beginnt); Korrekturen/Nachtraege mit Stichtag ab Periode 1 wandern in
+--     die echte Periode, die den Stichtag enthaelt.
 --   - Pseudo-Periode nur fuer das neueste Schuljahr (Vorjahr hat Perioden).
 --
 -- Rechtsgrundlage: § 3 Abs. 1 FESchVO

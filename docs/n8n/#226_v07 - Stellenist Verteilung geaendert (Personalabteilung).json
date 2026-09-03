@@ -107,7 +107,7 @@
       "credentials": {
         "microsoftOutlookOAuth2Api": {
           "id": "FCU8Wm3Is8PCPAHT",
-          "name": "n8n@fes-minden.de"
+          "name": "Outlook noreply (Deputat-Mails)"
         }
       },
       "notes": "Empfaenger: CREDO-Personal-intern@fes-credo.de\nVersand via Microsoft 365 (n8n-OAuth-Credential)"

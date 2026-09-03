@@ -14,21 +14,30 @@
  * "letzte Periode Vorjahr → 999" behaelt sein Wirksamkeitsdatum 01.08.
  * (Schuljahresbeginn, § 7 SchulG NRW), Korrekturen und Nachtrag-Status
  * bleiben gueltig, und "999 → Periode 1" ist in der Regel ein Null-Wechsel.
+ * Verschiebt Untis den Start von Periode 1 spaeter noch einmal, wird das
+ * Pseudo-Ende entsprechend nachgezogen (auch wieder nach hinten).
+ *
+ * Sachbearbeiter-Korrekturen am Wechsel "→ Pseudo-Periode", deren Stichtag
+ * AB Periode 1 liegt, gehoeren fachlich an den Wechsel in die echte Periode,
+ * die den Stichtag ENTHAELT — dorthin werden sie (samt Nachtrag-Status)
+ * umgehaengt, und die Pseudo-Zeile der betroffenen Lehrkraft entfaellt, damit
+ * die Vorgaenger-Periode in v_deputat_pro_tag bis zum Stichtag verlaengert
+ * wird und ab Stichtag die echte Periode gilt.
  *
  * Nur wenn Periode 1 am/vor dem Pseudo-Start beginnt (kein Tag bleibt uebrig),
- * wird die Pseudo-Periode komplett entfernt; Korrekturen und Nachtrag-Status
- * werden dann auf die erste echte Periode umgehaengt.
+ * wird die Pseudo-Periode komplett entfernt.
  *
  * Alles laeuft schuljahresweit (alle Lehrer), damit auch Lehrkraefte ohne
- * echte 2026/27-Zeilen (z.B. inzwischen ausgeschieden) keine Ganzjahres-
- * Pseudo-Periode behalten.
+ * echte Zeilen im aktuellen Payload keine Ganzjahres-Pseudo-Periode behalten.
  */
 
 import { db } from "@/db";
 import * as schema from "@/db/schema";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, ne, inArray, sql } from "drizzle-orm";
 import { UNTIS_PSEUDO_TERM_ID, UNTIS_PSEUDO_TERM_NAME } from "@/lib/constants";
 import { writeAuditLog } from "@/lib/audit";
+
+export type EchteTermInfo = { termId: number; dateFrom: string; dateTo: string };
 
 export type PseudoVerarbeitung = {
   aktion: "keine" | "gekuerzt" | "entfernt";
@@ -50,21 +59,165 @@ function isoMinusEinTag(iso: string): string {
 }
 
 /**
+ * Die echte Periode, die einen Stichtag ENTHAELT: die chronologisch letzte
+ * mit dateFrom <= stichtag. Faellt der Stichtag vor die erste echte Periode,
+ * gibt es kein Ziel (null) — dann bleibt die Korrektur an der Pseudo-Periode.
+ */
+export function zielPeriodeFuerStichtag(
+  echteTerms: EchteTermInfo[],
+  stichtag: string,
+): EchteTermInfo | null {
+  let ziel: EchteTermInfo | null = null;
+  for (const t of echteTerms) {
+    if (t.dateFrom <= stichtag) ziel = t;
+    else break;
+  }
+  return ziel;
+}
+
+/** Laedt alle echten Perioden eines Schuljahres, chronologisch sortiert. */
+export async function ladeEchteTerms(sy: number): Promise<EchteTermInfo[]> {
+  return db
+    .select({
+      termId: schema.untisTerms.termId,
+      dateFrom: schema.untisTerms.dateFrom,
+      dateTo: schema.untisTerms.dateTo,
+    })
+    .from(schema.untisTerms)
+    .where(
+      and(
+        eq(schema.untisTerms.schoolYearId, sy),
+        ne(schema.untisTerms.termId, UNTIS_PSEUDO_TERM_ID),
+      ),
+    )
+    .orderBy(asc(schema.untisTerms.dateFrom), asc(schema.untisTerms.termId));
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Haengt alle Pseudo-Korrekturen (sy_neu = sy, term_id_neu = 999) mit Stichtag
+ * ab Periode 1 auf die echte Periode um, die den Stichtag enthaelt; zieht den
+ * Nachtrag-Status der betroffenen Lehrkraefte mit und entfernt deren
+ * Pseudo-Werte-Zeilen. Konfliktreste (Ziel existiert schon) werden geloescht.
+ */
+async function haengeKorrekturenUm(
+  tx: Tx,
+  sy: number,
+  echteTerms: EchteTermInfo[],
+  abStichtag: string,
+): Promise<{
+  umgehaengt: Array<{ id: number; lehrerId: number; datum: string; zielTermId: number }>;
+  verworfen: Array<{ id: number; lehrerId: number; datum: string }>;
+  nachtraegeUmgehaengt: number;
+  nachtraegeVerworfen: number;
+  dppEntfernt: number;
+}> {
+  const PSEUDO = UNTIS_PSEUDO_TERM_ID;
+  const betroffene = await tx
+    .select({
+      id: schema.deputatAenderungKorrekturen.id,
+      lehrerId: schema.deputatAenderungKorrekturen.lehrerId,
+      datum: schema.deputatAenderungKorrekturen.tatsaechlichesDatum,
+    })
+    .from(schema.deputatAenderungKorrekturen)
+    .where(
+      and(
+        eq(schema.deputatAenderungKorrekturen.syNeu, sy),
+        eq(schema.deputatAenderungKorrekturen.termIdNeu, PSEUDO),
+        sql`${schema.deputatAenderungKorrekturen.tatsaechlichesDatum} >= ${abStichtag}`,
+      ),
+    );
+
+  const umgehaengt: Array<{ id: number; lehrerId: number; datum: string; zielTermId: number }> = [];
+  const verworfen: Array<{ id: number; lehrerId: number; datum: string }> = [];
+  let nachtraegeUmgehaengt = 0;
+  let nachtraegeVerworfen = 0;
+
+  for (const k of betroffene) {
+    const ziel = zielPeriodeFuerStichtag(echteTerms, k.datum);
+    if (!ziel) continue; // Stichtag vor Periode 1 — bleibt an der Pseudo-Periode
+    const [konflikt] = await tx
+      .select({ id: schema.deputatAenderungKorrekturen.id })
+      .from(schema.deputatAenderungKorrekturen)
+      .where(
+        and(
+          eq(schema.deputatAenderungKorrekturen.lehrerId, k.lehrerId),
+          eq(schema.deputatAenderungKorrekturen.syNeu, sy),
+          eq(schema.deputatAenderungKorrekturen.termIdNeu, ziel.termId),
+        ),
+      )
+      .limit(1);
+    if (konflikt) {
+      await tx
+        .delete(schema.deputatAenderungKorrekturen)
+        .where(eq(schema.deputatAenderungKorrekturen.id, k.id));
+      verworfen.push(k);
+    } else {
+      await tx
+        .update(schema.deputatAenderungKorrekturen)
+        .set({ termIdNeu: ziel.termId, updatedAt: new Date() })
+        .where(eq(schema.deputatAenderungKorrekturen.id, k.id));
+      umgehaengt.push({ ...k, zielTermId: ziel.termId });
+    }
+
+    // Nachtrag-Status desselben Wechsels mitziehen (Ziel = gleiche Periode).
+    const na = (await tx.execute(sql`
+      UPDATE deputat_nachtraege n
+         SET term_neu = ${ziel.termId}, updated_at = now()
+       WHERE n.lehrer_id = ${k.lehrerId} AND n.sy_neu = ${sy} AND n.term_neu = ${PSEUDO}
+         AND NOT EXISTS (
+           SELECT 1 FROM deputat_nachtraege z
+            WHERE z.lehrer_id = n.lehrer_id AND z.sy_alt = n.sy_alt AND z.term_alt = n.term_alt
+              AND z.sy_neu = ${sy} AND z.term_neu = ${ziel.termId}
+         )
+      RETURNING n.id
+    `)) as unknown as Array<{ id: number }>;
+    nachtraegeUmgehaengt += na.length;
+  }
+
+  const lehrerIds = [...new Set(betroffene.map((k) => k.lehrerId))];
+  let dppEntfernt = 0;
+  if (lehrerIds.length > 0) {
+    // Reste: Nachtraege, die noch auf die Pseudo-Periode zeigen (Konflikt
+    // oder Wechsel AUS der Pseudo-Periode) — der Wechsel existiert nach dem
+    // Entfernen der Pseudo-Zeile nicht mehr. Audit-Spur bleibt im audit_log.
+    const naRest = (await tx.execute(sql`
+      DELETE FROM deputat_nachtraege n
+       WHERE n.lehrer_id IN (${sql.join(lehrerIds.map((id) => sql`${id}`), sql`, `)})
+         AND ((n.sy_neu = ${sy} AND n.term_neu = ${PSEUDO})
+           OR (n.sy_alt = ${sy} AND n.term_alt = ${PSEUDO}))
+      RETURNING n.id
+    `)) as unknown as Array<{ id: number }>;
+    nachtraegeVerworfen = naRest.length;
+
+    dppEntfernt = (
+      await tx
+        .delete(schema.deputatProPeriode)
+        .where(
+          and(
+            inArray(schema.deputatProPeriode.lehrerId, lehrerIds),
+            eq(schema.deputatProPeriode.untisSchoolyearId, sy),
+            eq(schema.deputatProPeriode.untisTermId, UNTIS_PSEUDO_TERM_ID),
+          ),
+        )
+        .returning({ id: schema.deputatProPeriode.id })
+    ).length;
+  }
+
+  return { umgehaengt, verworfen, nachtraegeUmgehaengt, nachtraegeVerworfen, dppEntfernt };
+}
+
+/**
  * Wird von /api/untis-terms/sync aufgerufen, sobald fuer ein Schuljahr echte
- * Perioden geliefert wurden. Idempotent: ohne Pseudo-Term passiert nichts;
- * eine bereits gekuerzte Pseudo-Periode wird nicht erneut angefasst.
- *
- * @param p1From            date_from der chronologisch ersten echten Periode (ISO)
- * @param ersteEchteTermId  term_id dieser ersten echten Periode
- * @param letzteEchteTermId term_id der chronologisch letzten echten Periode
+ * Perioden geliefert wurden. Idempotent: ohne Pseudo-Periode passiert nichts,
+ * ein bereits passendes Pseudo-Ende wird nicht erneut angefasst.
  */
 export async function verarbeitePseudoBeiEchtenTerms(params: {
   sy: number;
-  p1From: string;
-  ersteEchteTermId: number;
-  letzteEchteTermId: number;
+  echteTerms: EchteTermInfo[];
 }): Promise<PseudoVerarbeitung> {
-  const { sy, p1From, ersteEchteTermId, letzteEchteTermId } = params;
+  const { sy, echteTerms } = params;
   const PSEUDO = UNTIS_PSEUDO_TERM_ID;
   const leer: PseudoVerarbeitung = {
     aktion: "keine",
@@ -76,6 +229,9 @@ export async function verarbeitePseudoBeiEchtenTerms(params: {
     nachtraegeVerworfen: 0,
     termGeloescht: false,
   };
+  if (echteTerms.length === 0) return leer;
+  const p1 = echteTerms[0];
+  const letzte = echteTerms[echteTerms.length - 1];
 
   // Defensiv: nur den vom n8n-Sync so benannten Pseudo-Term anfassen.
   const [pseudo] = await db
@@ -92,13 +248,28 @@ export async function verarbeitePseudoBeiEchtenTerms(params: {
   if (!pseudo) return leer;
 
   // ---- Normalfall: kuerzen auf den Tag vor Periode 1 ----------------------
-  if (p1From > pseudo.dateFrom) {
-    const neuesBis = isoMinusEinTag(p1From);
-    if (pseudo.dateTo <= neuesBis) {
-      // Bereits gekuerzt (oder Periode 1 beginnt spaeter als das Pseudo-Ende).
-      return { ...leer, aktion: "keine" };
+  if (p1.dateFrom > pseudo.dateFrom) {
+    const neuesBis = isoMinusEinTag(p1.dateFrom);
+    const korrOffen = await db
+      .select({ id: schema.deputatAenderungKorrekturen.id })
+      .from(schema.deputatAenderungKorrekturen)
+      .where(
+        and(
+          eq(schema.deputatAenderungKorrekturen.syNeu, sy),
+          eq(schema.deputatAenderungKorrekturen.termIdNeu, PSEUDO),
+          sql`${schema.deputatAenderungKorrekturen.tatsaechlichesDatum} >= ${p1.dateFrom}`,
+        ),
+      )
+      .limit(1);
+    if (pseudo.dateTo === neuesBis && korrOffen.length === 0) {
+      // Bereits gekuerzt und nichts umzuhaengen.
+      return leer;
     }
+
     const result = await db.transaction(async (tx) => {
+      // Ende nachziehen — in beide Richtungen: kuerzen beim ersten Mal,
+      // wieder verlaengern, falls Untis den Start von Periode 1 nach hinten
+      // verschiebt (sonst bliebe eine Abdeckungsluecke).
       await tx
         .update(schema.untisTerms)
         .set({ dateTo: neuesBis, updatedAt: new Date() })
@@ -110,78 +281,15 @@ export async function verarbeitePseudoBeiEchtenTerms(params: {
           and(
             eq(schema.deputatProPeriode.untisSchoolyearId, sy),
             eq(schema.deputatProPeriode.untisTermId, PSEUDO),
-            gt(schema.deputatProPeriode.gueltigBis, neuesBis),
+            ne(schema.deputatProPeriode.gueltigBis, neuesBis),
           ),
         )
         .returning({ id: schema.deputatProPeriode.id });
-      // Sachbearbeiter-Korrekturen am Wechsel "→ Pseudo-Periode" mit Stichtag AB
-      // Periode 1 (z.B. Vertragsbeginn 01.09. bei Untis-Montag 31.08.): ab dort
-      // gilt Untis-Periode 1, also gehoert die Korrektur an den Wechsel
-      // "→ Periode 1". Die Pseudo-Zeile dieses Lehrers entfaellt, damit
-      // v_deputat_pro_tag (Migration 0014) die Vorgaenger-Periode bis zum
-      // Stichtag verlaengert und ab Stichtag Periode 1 gilt.
-      const korr = (await tx.execute(sql`
-        UPDATE deputat_aenderung_korrekturen k
-           SET term_id_neu = ${ersteEchteTermId}, updated_at = now()
-         WHERE k.sy_neu = ${sy} AND k.term_id_neu = ${PSEUDO}
-           AND k.tatsaechliches_datum >= ${p1From}
-           AND NOT EXISTS (
-             SELECT 1 FROM deputat_aenderung_korrekturen z
-              WHERE z.lehrer_id = k.lehrer_id AND z.sy_neu = ${sy} AND z.term_id_neu = ${ersteEchteTermId}
-           )
-        RETURNING k.id, k.lehrer_id, k.tatsaechliches_datum
-      `)) as unknown as Array<{ id: number; lehrer_id: number; tatsaechliches_datum: string }>;
-      // Konfliktreste (Ziel-Korrektur existiert bereits): verwerfen, protokollieren
-      const korrRest = (await tx.execute(sql`
-        DELETE FROM deputat_aenderung_korrekturen k
-         WHERE k.sy_neu = ${sy} AND k.term_id_neu = ${PSEUDO}
-           AND k.tatsaechliches_datum >= ${p1From}
-        RETURNING k.id, k.lehrer_id, k.tatsaechliches_datum
-      `)) as unknown as Array<{ id: number; lehrer_id: number; tatsaechliches_datum: string }>;
-      const betroffeneLehrer = [...new Set([...korr, ...korrRest].map((r) => r.lehrer_id))];
-      let nachtraegeUmgehaengt = 0;
-      let nachtraegeVerworfen = 0;
-      let dppEntfernt = 0;
-      if (betroffeneLehrer.length > 0) {
-        const ids = sql.join(betroffeneLehrer.map((id) => sql`${id}`), sql`, `);
-        nachtraegeUmgehaengt = ((await tx.execute(sql`
-          UPDATE deputat_nachtraege n
-             SET term_neu = ${ersteEchteTermId}, updated_at = now()
-           WHERE n.sy_neu = ${sy} AND n.term_neu = ${PSEUDO} AND n.lehrer_id IN (${ids})
-             AND NOT EXISTS (
-               SELECT 1 FROM deputat_nachtraege z
-                WHERE z.lehrer_id = n.lehrer_id AND z.sy_alt = n.sy_alt AND z.term_alt = n.term_alt
-                  AND z.sy_neu = ${sy} AND z.term_neu = ${ersteEchteTermId}
-             )
-          RETURNING n.id
-        `)) as unknown as Array<{ id: number }>).length;
-        nachtraegeVerworfen = ((await tx.execute(sql`
-          DELETE FROM deputat_nachtraege n
-           WHERE n.sy_neu = ${sy} AND n.term_neu = ${PSEUDO} AND n.lehrer_id IN (${ids})
-          RETURNING n.id
-        `)) as unknown as Array<{ id: number }>).length;
-        dppEntfernt = (
-          await tx
-            .delete(schema.deputatProPeriode)
-            .where(
-              and(
-                inArray(schema.deputatProPeriode.lehrerId, betroffeneLehrer),
-                eq(schema.deputatProPeriode.untisSchoolyearId, sy),
-                eq(schema.deputatProPeriode.untisTermId, PSEUDO),
-              ),
-            )
-            .returning({ id: schema.deputatProPeriode.id })
-        ).length;
-      }
-      return {
-        dpp: dpp.length,
-        korr,
-        korrRest,
-        nachtraegeUmgehaengt,
-        nachtraegeVerworfen,
-        dppEntfernt,
-      };
+
+      const um = await haengeKorrekturenUm(tx, sy, echteTerms, p1.dateFrom);
+      return { dpp: dpp.length, um };
     });
+
     await writeAuditLog(
       "untis_terms",
       0,
@@ -191,106 +299,72 @@ export async function verarbeitePseudoBeiEchtenTerms(params: {
         schoolYearId: sy,
         termId: PSEUDO,
         dateTo: neuesBis,
-        hinweis: `Pseudo-Periode auf Tag vor Untis-Periode ${ersteEchteTermId} (${p1From}) gekuerzt; ${result.dpp} Lehrer-Zeilen angepasst`,
-        korrekturenAufPeriode1: result.korr,
-        korrekturenVerworfen: result.korrRest,
-        nachtraegeAufPeriode1: result.nachtraegeUmgehaengt,
-        nachtraegeVerworfen: result.nachtraegeVerworfen,
-        pseudoZeilenEntferntWegenKorrektur: result.dppEntfernt,
+        hinweis: `Pseudo-Periode auf Tag vor Untis-Periode ${p1.termId} (${p1.dateFrom}) gesetzt; ${result.dpp} Lehrer-Zeilen angepasst`,
+        korrekturenUmgehaengt: result.um.umgehaengt,
+        korrekturenVerworfen: result.um.verworfen,
+        nachtraegeUmgehaengt: result.um.nachtraegeUmgehaengt,
+        nachtraegeVerworfen: result.um.nachtraegeVerworfen,
+        pseudoZeilenEntferntWegenKorrektur: result.um.dppEntfernt,
       },
       "n8n",
     );
     return {
-      ...leer,
       aktion: "gekuerzt",
+      sy,
       neuesBis,
-      dppGeaendert: result.dpp,
-      korrekturenUmgehaengt: result.korr.length,
-      korrekturenVerworfen: result.korrRest.length,
-      nachtraegeUmgehaengt: result.nachtraegeUmgehaengt,
-      nachtraegeVerworfen: result.nachtraegeVerworfen,
+      dppGeaendert: result.dpp + result.um.dppEntfernt,
+      korrekturenUmgehaengt: result.um.umgehaengt.length,
+      korrekturenVerworfen: result.um.verworfen.length,
+      nachtraegeUmgehaengt: result.um.nachtraegeUmgehaengt,
+      nachtraegeVerworfen: result.um.nachtraegeVerworfen,
+      termGeloescht: false,
     };
   }
 
-  // ---- Sonderfall: Periode 1 beginnt am/vor dem Pseudo-Start → entfernen -----
+  // ---- Sonderfall: Periode 1 beginnt am/vor dem Pseudo-Start → entfernen ----
   const r = await db.transaction(async (tx) => {
-    const korNeu = (await tx.execute(sql`
-      UPDATE deputat_aenderung_korrekturen k
-         SET term_id_neu = ${ersteEchteTermId}, updated_at = now()
-       WHERE k.sy_neu = ${sy} AND k.term_id_neu = ${PSEUDO}
-         AND NOT EXISTS (
-           SELECT 1 FROM deputat_aenderung_korrekturen z
-            WHERE z.lehrer_id = k.lehrer_id AND z.sy_neu = ${sy} AND z.term_id_neu = ${ersteEchteTermId}
-         )
-      RETURNING k.id
-    `)) as unknown as Array<{ id: number }>;
+    // Alle Pseudo-Korrekturen umhaengen (jeder Stichtag liegt jetzt in einer
+    // echten Periode, da Periode 1 am/vor dem Pseudo-Start beginnt).
+    const um = await haengeKorrekturenUm(tx, sy, echteTerms, pseudo.dateFrom);
+    // ALT-Seite (seltener Fall: Wechsel AUS der Pseudo-Periode heraus).
     const korAlt = (await tx.execute(sql`
       UPDATE deputat_aenderung_korrekturen k
-         SET term_id_alt = ${letzteEchteTermId}, updated_at = now()
-       WHERE k.sy_alt = ${sy} AND k.term_id_alt = ${PSEUDO}
+         SET term_id_alt = ${letzte.termId}, updated_at = now()
+       WHERE k.sy_alt = ${sy} AND k.term_id_alt = ${UNTIS_PSEUDO_TERM_ID}
       RETURNING k.id
     `)) as unknown as Array<{ id: number }>;
+    // Reste an der Pseudo-Periode (Stichtag vor Periode 1 kann hier nicht
+    // vorkommen; alles andere ist Konfliktrest) entfernen.
     const korRest = (await tx.execute(sql`
       DELETE FROM deputat_aenderung_korrekturen k
-       WHERE (k.sy_neu = ${sy} AND k.term_id_neu = ${PSEUDO})
-          OR (k.sy_alt = ${sy} AND k.term_id_alt = ${PSEUDO})
-      RETURNING k.id, k.lehrer_id, k.sy_alt, k.term_id_alt, k.sy_neu, k.term_id_neu, k.tatsaechliches_datum
+       WHERE (k.sy_neu = ${sy} AND k.term_id_neu = ${UNTIS_PSEUDO_TERM_ID})
+      RETURNING k.id, k.lehrer_id, k.tatsaechliches_datum
     `)) as unknown as Array<Record<string, unknown>>;
-
-    const naNeu = (await tx.execute(sql`
-      UPDATE deputat_nachtraege n
-         SET term_neu = ${ersteEchteTermId}, updated_at = now()
-       WHERE n.sy_neu = ${sy} AND n.term_neu = ${PSEUDO}
-         AND NOT EXISTS (
-           SELECT 1 FROM deputat_nachtraege z
-            WHERE z.lehrer_id = n.lehrer_id AND z.sy_alt = n.sy_alt AND z.term_alt = n.term_alt
-              AND z.sy_neu = ${sy} AND z.term_neu = ${ersteEchteTermId}
-         )
-      RETURNING n.id
-    `)) as unknown as Array<{ id: number }>;
-    const naAlt = (await tx.execute(sql`
-      UPDATE deputat_nachtraege n
-         SET term_alt = ${letzteEchteTermId}, updated_at = now()
-       WHERE n.sy_alt = ${sy} AND n.term_alt = ${PSEUDO}
-         AND NOT EXISTS (
-           SELECT 1 FROM deputat_nachtraege z
-            WHERE z.lehrer_id = n.lehrer_id AND z.sy_alt = ${sy} AND z.term_alt = ${letzteEchteTermId}
-              AND z.sy_neu = n.sy_neu AND z.term_neu = n.term_neu
-         )
-      RETURNING n.id
-    `)) as unknown as Array<{ id: number }>;
     const naRest = (await tx.execute(sql`
       DELETE FROM deputat_nachtraege n
-       WHERE (n.sy_neu = ${sy} AND n.term_neu = ${PSEUDO})
-          OR (n.sy_alt = ${sy} AND n.term_alt = ${PSEUDO})
-      RETURNING n.id, n.lehrer_id, n.sy_alt, n.term_alt, n.sy_neu, n.term_neu, n.status
-    `)) as unknown as Array<Record<string, unknown>>;
-
+       WHERE (n.sy_neu = ${sy} AND n.term_neu = ${UNTIS_PSEUDO_TERM_ID})
+          OR (n.sy_alt = ${sy} AND n.term_alt = ${UNTIS_PSEUDO_TERM_ID})
+      RETURNING n.id
+    `)) as unknown as Array<{ id: number }>;
     const dpp = await tx
       .delete(schema.deputatProPeriode)
       .where(
         and(
           eq(schema.deputatProPeriode.untisSchoolyearId, sy),
-          eq(schema.deputatProPeriode.untisTermId, PSEUDO),
+          eq(schema.deputatProPeriode.untisTermId, UNTIS_PSEUDO_TERM_ID),
         ),
       )
       .returning({ id: schema.deputatProPeriode.id });
-
     const term = await tx
       .delete(schema.untisTerms)
-      .where(and(eq(schema.untisTerms.schoolYearId, sy), eq(schema.untisTerms.termId, PSEUDO)))
+      .where(
+        and(
+          eq(schema.untisTerms.schoolYearId, sy),
+          eq(schema.untisTerms.termId, UNTIS_PSEUDO_TERM_ID),
+        ),
+      )
       .returning({ termId: schema.untisTerms.termId });
-
-    return {
-      dppGeaendert: dpp.length,
-      korrekturenUmgehaengt: korNeu.length + korAlt.length,
-      korrekturenVerworfen: korRest.length,
-      korrekturenVerworfenDetails: korRest,
-      nachtraegeUmgehaengt: naNeu.length + naAlt.length,
-      nachtraegeVerworfen: naRest.length,
-      nachtraegeVerworfenDetails: naRest,
-      termGeloescht: term.length > 0,
-    };
+    return { um, korAlt, korRest, naRest, dpp: dpp.length, termGeloescht: term.length > 0 };
   });
 
   await writeAuditLog(
@@ -299,12 +373,13 @@ export async function verarbeitePseudoBeiEchtenTerms(params: {
     "DELETE",
     { schoolYearId: sy, termId: PSEUDO, dateFrom: pseudo.dateFrom, dateTo: pseudo.dateTo },
     {
-      hinweis: `Pseudo-Periode entfernt: Untis-Periode ${ersteEchteTermId} beginnt am ${p1From} (am/vor Pseudo-Start)`,
-      dppGeloescht: r.dppGeaendert,
-      korrekturenUmgehaengt: r.korrekturenUmgehaengt,
-      korrekturenVerworfen: r.korrekturenVerworfenDetails,
-      nachtraegeUmgehaengt: r.nachtraegeUmgehaengt,
-      nachtraegeVerworfen: r.nachtraegeVerworfenDetails,
+      hinweis: `Pseudo-Periode entfernt: Untis-Periode ${p1.termId} beginnt am ${p1.dateFrom} (am/vor Pseudo-Start)`,
+      korrekturenUmgehaengt: r.um.umgehaengt,
+      korrekturenAltSeite: r.korAlt.length,
+      korrekturenVerworfen: [...r.um.verworfen, ...r.korRest],
+      nachtraegeUmgehaengt: r.um.nachtraegeUmgehaengt,
+      nachtraegeVerworfen: r.um.nachtraegeVerworfen + r.naRest.length,
+      dppGeloescht: r.dpp,
     },
     "n8n",
   );
@@ -312,11 +387,11 @@ export async function verarbeitePseudoBeiEchtenTerms(params: {
   return {
     aktion: "entfernt",
     sy,
-    dppGeaendert: r.dppGeaendert,
-    korrekturenUmgehaengt: r.korrekturenUmgehaengt,
-    korrekturenVerworfen: r.korrekturenVerworfen,
-    nachtraegeUmgehaengt: r.nachtraegeUmgehaengt,
-    nachtraegeVerworfen: r.nachtraegeVerworfen,
+    dppGeaendert: r.dpp,
+    korrekturenUmgehaengt: r.um.umgehaengt.length + r.korAlt.length,
+    korrekturenVerworfen: r.um.verworfen.length + r.korRest.length,
+    nachtraegeUmgehaengt: r.um.nachtraegeUmgehaengt,
+    nachtraegeVerworfen: r.um.nachtraegeVerworfen + r.naRest.length,
     termGeloescht: r.termGeloescht,
   };
 }

@@ -45,8 +45,6 @@ docker exec -i hr_stellen_ist_berechnung-db-1 psql -U stellenist -d stellenistbe
 |---|---|
 | `verify_bergmann_v1.sql` | Bergmann-Stand mit alter Periodenstruktur (vor Periodenmodell) |
 | `verify_bergmann_v2.sql` | Bergmann-Verifikat im Periodenmodell — drei Sektionen (deputat_pro_periode, v_deputat_aenderungen, v_deputat_monat_tagesgenau) |
-| `verify_david_abrams_2025.sql` | David Abrams Periodencheck SY 2024/25 |
-| `verify_david_abrams_untis.sql` | David Abrams Untis-Rohdaten-Vergleich |
 | `backfill_aenderungshistorie_2025_2026.sql` | Einmaliger Backfill der historischen Wertwechsel (am 2026-04-27 ausgeführt) |
 | `diagnose_untis_2026_2027.sql` | **Untis (MSSQL, via n8n)** — Perioden-Stand des neuen Schuljahres, `SCHOOL_ID`-Spalten, `TERM_ID` im periodenlosen Zustand. Am 2026-09-03 ausgeführt, Ergebnisse in `deployment/v0.8.1_schuljahreswechsel.md` |
 | `diagnose_notifications_prod.sql` | **Prod-Postgres** — warum kommen keine Mails? Ziele, Events, Zustellversuche, Retry-Stau, Sync-Stand. Gibt das HMAC-Secret nicht aus, nur einen Abgleich |

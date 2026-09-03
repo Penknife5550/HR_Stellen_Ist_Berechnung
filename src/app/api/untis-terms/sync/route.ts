@@ -25,13 +25,17 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { untisTermsSyncPayloadSchema } from "@/lib/validation";
 import { writeAuditLog } from "@/lib/audit";
 import { authenticateWebhook } from "@/lib/webhookAuth";
 import { notify } from "@/lib/notifications";
 import { UNTIS_PSEUDO_TERM_ID } from "@/lib/constants";
-import { verarbeitePseudoBeiEchtenTerms, type PseudoVerarbeitung } from "@/lib/db/pseudoPeriode";
+import {
+  ladeEchteTerms,
+  verarbeitePseudoBeiEchtenTerms,
+  type PseudoVerarbeitung,
+} from "@/lib/db/pseudoPeriode";
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -61,8 +65,13 @@ export async function POST(request: NextRequest) {
     const parsed = untisTermsSyncPayloadSchema.safeParse(rawPayload);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]?.message ?? "Ungueltige Eingabedaten.";
-      // n8n schluckt 400er (continueOnFail) — Fehler sichtbar machen.
-      void notify("sync.failed", { error: `Terms-Validierungsfehler: ${firstError}`, schuljahr: null });
+      // n8n schluckt 400er (continueOnFail) — Fehler sichtbar machen. Aber nur
+      // fuer authentifizierte Aufrufer, sonst wird der Event-Versand zum
+      // unauthentifizierten Mail-/Log-Trigger.
+      const key = (rawPayload as { api_key?: unknown })?.api_key;
+      if (typeof key === "string" && (await authenticateWebhook(key, "sync"))) {
+        void notify("sync.failed", { error: `Terms-Validierungsfehler: ${firstError}`, schuljahr: null });
+      }
       return NextResponse.json({ error: `Validierungsfehler: ${firstError}` }, { status: 400 });
     }
 
@@ -159,23 +168,9 @@ export async function POST(request: NextRequest) {
     ];
     const pseudoVerarbeitung: PseudoVerarbeitung[] = [];
     for (const sy of syMitEchtenTerms) {
-      const echte = await db
-        .select({ termId: schema.untisTerms.termId, dateFrom: schema.untisTerms.dateFrom })
-        .from(schema.untisTerms)
-        .where(
-          and(
-            eq(schema.untisTerms.schoolYearId, sy),
-            ne(schema.untisTerms.termId, UNTIS_PSEUDO_TERM_ID),
-          ),
-        )
-        .orderBy(asc(schema.untisTerms.dateFrom), asc(schema.untisTerms.termId));
+      const echte = await ladeEchteTerms(sy);
       if (echte.length === 0) continue;
-      const r = await verarbeitePseudoBeiEchtenTerms({
-        sy,
-        p1From: echte[0].dateFrom,
-        ersteEchteTermId: echte[0].termId,
-        letzteEchteTermId: echte[echte.length - 1].termId,
-      });
+      const r = await verarbeitePseudoBeiEchtenTerms({ sy, echteTerms: echte });
       if (r.aktion !== "keine") pseudoVerarbeitung.push(r);
     }
 

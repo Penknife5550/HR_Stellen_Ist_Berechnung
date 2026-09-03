@@ -71,7 +71,12 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]?.message ?? "Ungueltige Eingabedaten.";
       // Ein verworfener Chunk darf nicht stumm bleiben — n8n schluckt 400er.
-      void notify("sync.failed", { error: `Validierungsfehler: ${firstError}`, schuljahr: null });
+      // Aber nur fuer authentifizierte Aufrufer melden, sonst wird der
+      // Event-Versand zum unauthentifizierten Mail-/Log-Trigger.
+      const key = (rawPayload as { api_key?: unknown })?.api_key;
+      if (typeof key === "string" && (await authenticateWebhook(key, "sync"))) {
+        void notify("sync.failed", { error: `Validierungsfehler: ${firstError}`, schuljahr: null });
+      }
       return NextResponse.json({ error: `Validierungsfehler: ${firstError}` }, { status: 400 });
     }
 

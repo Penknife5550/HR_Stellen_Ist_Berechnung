@@ -87,8 +87,8 @@
     },
     {
       "parameters": {
-        "fromEmail": "CREDO Deputate <noreply@rz.cdc-owl.de>",
-        "toEmail": "=personalbuchhaltung@fes-minden.de",
+        "fromEmail": "ABSENDER_NOREPLY_EINTRAGEN",
+        "toEmail": "EMPFAENGER_FUNKTIONSPOSTFACH_EINTRAGEN",
         "subject": "=# 225 {{ $json.subject }}",
         "html": "={{ $json.html }}",
         "options": {
@@ -107,7 +107,7 @@
       "credentials": {
         "smtp": {
           "id": "nlEYDhsmjIrOUEOU",
-          "name": "SMTP noreply@rz.cdc-owl.de"
+          "name": "SMTP noreply (Deputat-Mails)"
         }
       }
     }
