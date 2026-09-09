@@ -114,7 +114,7 @@ export async function createSlrWertAction(formData: FormData) {
 
   const raw = {
     schuljahrId: Number(formData.get("schuljahrId")),
-    schulformTyp: String(formData.get("schulformTyp") ?? ""),
+    schulformTyp: String(formData.get("schulformTyp") ?? "").trim(),
     relation: String(formData.get("relation") ?? ""),
     quelle: String(formData.get("quelle") ?? "") || undefined,
   };

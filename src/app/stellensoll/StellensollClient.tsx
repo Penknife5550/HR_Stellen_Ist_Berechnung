@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card, KPICard } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { berechneStellensollAction } from "./actions";
+import { ZEITRAUM_OPTIONS } from "@/lib/constants";
 
 type StellensollDetail = {
   stufe: string;
@@ -36,8 +37,18 @@ type Ergebnis = {
   stellensoll: number;
   grundstellenDetails: StellensollDetail[];
   zuschlaege_details: ZuschlagDetail[] | null;
-  berechnetAm: Date;
+  berechnetAmText: string;
+  berechnetVon: string | null;
 };
+
+type BerechnungsFehler = { schule: string; zeitraum: string; details: string };
+type Uebersprungen = { schule: string; zeitraum: string; grund: string };
+
+const ZEITRAEUME = ["jan-jul", "aug-dez"] as const;
+// Labels zentral aus constants.ts (dort auch fuer Stellenanteile genutzt)
+const ZEITRAUM_LABEL: Record<string, string> = Object.fromEntries(
+  ZEITRAUM_OPTIONS.map((o) => [o.value, o.label])
+);
 
 type SchuleDaten = {
   id: number;
@@ -52,29 +63,49 @@ export function StellensollClient({
   schulen,
   hatErgebnisse,
   haushaltsjahrId,
+  stichtage,
 }: {
   schulen: SchuleDaten[];
   hatErgebnisse: boolean;
   haushaltsjahrId: number;
+  /** Formatierte Stichtage des Haushaltsjahres je Zeitraum (fuer den Platzhalter) */
+  stichtage: Record<(typeof ZEITRAEUME)[number], string | null>;
 }) {
   const [activeSchool, setActiveSchool] = useState(schulen[0]?.kurzname ?? "");
   const [berechne, setBerechne] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: "success" | "warning" | "error";
+    text: string;
+    fehler?: BerechnungsFehler[];
+    uebersprungen?: Uebersprungen[];
+  } | null>(null);
 
   const active = schulen.find((s) => s.kurzname === activeSchool);
 
   const handleBerechnung = async () => {
     setBerechne(true);
     setMessage(null);
-    const result = await berechneStellensollAction(haushaltsjahrId);
-    setBerechne(false);
-    if (result.error) {
-      setMessage({ type: "error", text: result.error });
-    } else {
-      setMessage({
-        type: "success",
-        text: result.message ?? "Berechnung abgeschlossen!",
-      });
+    try {
+      const result = await berechneStellensollAction(haushaltsjahrId);
+      if (result.error) {
+        // Auch der Total-Fehler traegt die strukturierten Listen
+        setMessage({ type: "error", text: result.error, fehler: result.fehler, uebersprungen: result.uebersprungen });
+      } else {
+        // Teilfehler oder gar kein Ergebnis sind kein Erfolg: gelb, mit Details darunter
+        const hatFehler = (result.fehler?.length ?? 0) > 0;
+        const ohneErgebnis = (result.ergebnisse?.length ?? 0) === 0;
+        setMessage({
+          type: hatFehler || ohneErgebnis ? "warning" : "success",
+          text: result.message ?? "Berechnung abgeschlossen!",
+          fehler: result.fehler,
+          uebersprungen: result.uebersprungen,
+        });
+      }
+    } catch (err) {
+      console.error("Stellensoll-Berechnung:", err);
+      setMessage({ type: "error", text: "Berechnung fehlgeschlagen — Verbindung pruefen und erneut versuchen." });
+    } finally {
+      setBerechne(false);
     }
   };
 
@@ -87,14 +118,44 @@ export function StellensollClient({
         </Button>
         {message && (
           <span
+            role="status"
+            aria-live={message.type === "error" ? "assertive" : "polite"}
             className={`text-sm font-medium ${
-              message.type === "success" ? "text-green-700" : "text-red-700"
+              message.type === "success"
+                ? "text-green-700"
+                : message.type === "warning"
+                  ? "text-amber-700"
+                  : "text-red-700"
             }`}
           >
             {message.text}
           </span>
         )}
       </div>
+
+      {/* Fehler und uebersprungene Zeitraeume — die Details, die die Kurzmeldung nicht traegt */}
+      {message && ((message.fehler?.length ?? 0) > 0 || (message.uebersprungen?.length ?? 0) > 0) && (
+        <div role="status" aria-live="polite" className="mb-6 p-3 rounded-lg border border-amber-200 bg-amber-50 text-sm text-[#575756]">
+          {message.fehler && message.fehler.length > 0 && (
+            <ul className="list-disc pl-5 space-y-0.5">
+              {message.fehler.map((f, i) => (
+                <li key={`f-${i}`}>
+                  <strong>{f.schule} {ZEITRAUM_LABEL[f.zeitraum] ?? f.zeitraum}:</strong> {f.details}
+                </li>
+              ))}
+            </ul>
+          )}
+          {message.uebersprungen && message.uebersprungen.length > 0 && (
+            <ul className={`list-disc pl-5 space-y-0.5 text-[#6B7280] ${message.fehler?.length ? "mt-2" : ""}`}>
+              {message.uebersprungen.map((u, i) => (
+                <li key={`u-${i}`}>
+                  {u.schule} {ZEITRAUM_LABEL[u.zeitraum] ?? u.zeitraum}: uebersprungen — {u.grund}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* School Tabs */}
       <div className="flex gap-1 border-b border-[#E5E7EB] mb-6" role="tablist">
@@ -124,7 +185,25 @@ export function StellensollClient({
       {/* Ergebnisse */}
       <div id="stellensoll-panel" role="tabpanel">
       {active && active.ergebnisse.length > 0 ? (
-        active.ergebnisse.map((erg) => (
+        ZEITRAEUME.map((zeitraum) => {
+          const erg = active.ergebnisse.find((e) => e.zeitraum === zeitraum);
+          // Fehlender Zeitraum bleibt sichtbar statt kommentarlos zu verschwinden
+          if (!erg) {
+            return (
+              <Card key={zeitraum} className="mb-8">
+                <h3 className="text-lg font-bold text-[#1A1A1A] mb-2">
+                  Schritt 1: Grundstellenberechnung —{" "}
+                  <span className="text-[#6B7280]">{ZEITRAUM_LABEL[zeitraum]}</span>
+                </h3>
+                <p className="text-sm text-[#6B7280]">
+                  Fuer diesen Zeitraum liegt kein aktuelles Ergebnis vor
+                  {stichtage[zeitraum] ? ` (Stichtag ${stichtage[zeitraum]})` : ""}.
+                  Nach &quot;Berechnung durchfuehren&quot; steht der Grund in der Meldung oben.
+                </p>
+              </Card>
+            );
+          }
+          return (
           <div key={erg.zeitraum} className="mb-8">
             {/* KPI-Uebersicht */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -175,12 +254,14 @@ export function StellensollClient({
 
             {/* Schritt 1: Grundstellenberechnung */}
             <Card className="mb-6">
-              <h3 className="text-lg font-bold text-[#1A1A1A] mb-2">
+              <h3 className="text-lg font-bold text-[#1A1A1A] mb-1">
                 Schritt 1: Grundstellenberechnung —{" "}
-                <span className="text-[#6B7280]">
-                  {erg.zeitraum === "jan-jul" ? "Januar - Juli" : "August - Dezember"}
-                </span>
+                <span className="text-[#6B7280]">{ZEITRAUM_LABEL[erg.zeitraum] ?? erg.zeitraum}</span>
               </h3>
+              <p className="text-xs text-[#6B7280] mb-3">
+                Berechnet am {erg.berechnetAmText}
+                {erg.berechnetVon ? ` von ${erg.berechnetVon}` : ""}
+              </p>
 
               <table className="w-full mb-4">
                 <thead>
@@ -399,7 +480,8 @@ export function StellensollClient({
               </Card>
             )}
           </div>
-        ))
+          );
+        })
       ) : (
         <Card>
           <div className="py-12 text-center text-[#6B7280]">

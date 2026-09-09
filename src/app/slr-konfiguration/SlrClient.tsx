@@ -30,9 +30,11 @@ type Props = {
   slrBySchuljahr: Record<number, SlrWert[]>;
   historieBySchuljahr: Record<number, HistorieEintrag[]>;
   defaultSchuljahrId: number;
+  /** Schulform-Typen aus den Schulstufen — muessen zeichengenau uebereinstimmen */
+  schulformTypen: string[];
 };
 
-export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, defaultSchuljahrId }: Props) {
+export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, defaultSchuljahrId, schulformTypen }: Props) {
   const [selectedSjId, setSelectedSjId] = useState(defaultSchuljahrId);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -123,10 +125,19 @@ export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, def
                 <input
                   type="text"
                   name="schulformTyp"
+                  list="schulformTypen"
                   placeholder="z.B. Berufskolleg Vollzeit"
                   required
                   className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-[15px] min-h-[44px]"
                 />
+                <datalist id="schulformTypen">
+                  {schulformTypen.map((typ) => (
+                    <option key={typ} value={typ} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-[#6B7280] mt-1">
+                  Muss zeichengenau dem Typ der Schulstufe entsprechen (Einstellungen → Schulstufen).
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-[#6B7280] mb-1">Schueler je Stelle</label>

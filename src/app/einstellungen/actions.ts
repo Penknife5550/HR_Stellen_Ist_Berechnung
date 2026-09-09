@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/permissions";
 import {
   createSchuljahr,
+  getVorgaengerSchuljahr,
   updateSchuljahrAktiv,
   createHaushaltsjahr,
   updateHaushaltsjahrGesperrt,
@@ -51,15 +52,34 @@ export async function createSchuljahrAction(formData: FormData) {
   const data = parsed.data;
 
   try {
-    const result = await createSchuljahr(data);
+    // SLR-Werte des Vorgaengers uebernehmen: ohne sie scheitert die Stellensoll-
+    // Berechnung fuer jeden Zeitraum, dessen Stichtag im neuen Schuljahr liegt.
+    const vorgaenger = await getVorgaengerSchuljahr(data.startDatum);
+    const { schuljahr, uebernommen } = await createSchuljahr(
+      data,
+      vorgaenger
+        ? { vonSchuljahrId: vorgaenger.id, vonBezeichnung: vorgaenger.bezeichnung, benutzer: session.name }
+        : undefined
+    );
 
-    await writeAuditLog("schuljahre", result.id, "INSERT", null, {
+    await writeAuditLog("schuljahre", schuljahr.id, "INSERT", null, {
       bezeichnung: data.bezeichnung,
+      aktiv: false,
+      slrUebernommenAus: vorgaenger?.bezeichnung ?? null,
+      slrWerte: uebernommen,
     }, session.name);
 
     revalidatePath("/einstellungen");
     revalidatePath("/slr-konfiguration");
-    return { success: true, message: `Schuljahr "${data.bezeichnung}" wurde angelegt.` };
+    revalidatePath("/stellensoll");
+
+    const slrHinweis = uebernommen.length > 0
+      ? `${uebernommen.length} SLR-Werte aus ${vorgaenger?.bezeichnung} uebernommen — bitte unter SLR-Konfiguration pruefen.`
+      : "Keine SLR-Werte zum Uebernehmen gefunden — bitte unter SLR-Konfiguration anlegen, sonst scheitert die Stellensoll-Berechnung fuer dieses Schuljahr.";
+    return {
+      success: true,
+      message: `Schuljahr "${data.bezeichnung}" wurde angelegt (inaktiv). ${slrHinweis}`,
+    };
   } catch (err: unknown) {
     console.error("Fehler beim Anlegen des Schuljahrs:", err instanceof Error ? err.message : "Unbekannt");
     // Unique-Constraint pruefen

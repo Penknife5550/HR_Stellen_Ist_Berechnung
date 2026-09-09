@@ -45,3 +45,9 @@ export function formatTermId(termId: number | null | undefined): string {
   if (termId == null) return "—";
   return termId === UNTIS_PSEUDO_TERM_ID ? "SJ" : `T${termId}`;
 }
+
+/** ISO-Datum (YYYY-MM-DD) -> DD.MM.YYYY, ohne Zeitzonen-Umrechnung */
+export function formatIsoDatumDE(iso: string): string {
+  const [jahr, monat, tag] = iso.split("-");
+  return `${tag}.${monat}.${jahr}`;
+}

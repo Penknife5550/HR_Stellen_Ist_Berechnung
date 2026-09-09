@@ -1,13 +1,16 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
-import { getSchuljahre, getSlrWerteBySchuljahr, getSlrHistorieBySchuljahr } from "@/lib/db/queries";
+import { getSchuljahre, getSlrWerteBySchuljahr, getSlrHistorieBySchuljahr, getAlleAktivenSchulStufen } from "@/lib/db/queries";
 import { SlrClient } from "./SlrClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SlrKonfigurationPage() {
-  const schuljahre = await getSchuljahre();
+  const [schuljahre, schulStufen] = await Promise.all([getSchuljahre(), getAlleAktivenSchulStufen()]);
+
+  // Schulform-Typen, die die Berechnung als Lookup-Schluessel nutzt (Vorschlagsliste gegen Tippfehler)
+  const schulformTypen = [...new Set(schulStufen.map((st) => st.schulformTyp.trim()))].sort();
 
   // Neuestes Schuljahr per Default
   const aktuellesSj = schuljahre[0];
@@ -94,6 +97,7 @@ export default async function SlrKonfigurationPage() {
         slrBySchuljahr={slrBySchuljahr}
         historieBySchuljahr={historieBySchuljahr}
         defaultSchuljahrId={aktuellesSj.id}
+        schulformTypen={schulformTypen}
       />
 
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">

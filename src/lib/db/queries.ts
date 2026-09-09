@@ -34,7 +34,7 @@ import {
   statistikCodes,
   auditLog,
 } from "@/db/schema";
-import { eq, and, desc, asc, sql, inArray, gte, lte, isNull } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, gte, lte, lt, isNull } from "drizzle-orm";
 
 // ============================================================
 // SCHULEN
@@ -295,26 +295,57 @@ export async function getSchuljahre() {
   return db.select().from(schuljahre).orderBy(desc(schuljahre.bezeichnung));
 }
 
-export async function getAktuellesSchuljahr() {
+/**
+ * Legt ein Schuljahr INAKTIV an (der Admin setzt es bewusst aktiv; updateSchuljahrAktiv
+ * deaktiviert dann alle anderen) und uebernimmt optional die SLR-Werte eines Vorgaengers.
+ * Ohne SLR-Werte scheitert die Stellensoll-Berechnung fuer jeden Zeitraum, dessen
+ * Stichtag im neuen Schuljahr liegt. Beides in einer Transaktion.
+ */
+export async function createSchuljahr(
+  data: { bezeichnung: string; startDatum: string; endDatum: string },
+  slrUebernahme?: { vonSchuljahrId: number; vonBezeichnung: string; benutzer: string }
+) {
+  return db.transaction(async (tx) => {
+    const [schuljahr] = await tx
+      .insert(schuljahre)
+      .values({ ...data, aktiv: false })
+      .returning();
+
+    const uebernommen: Array<{ schulformTyp: string; relation: string }> = [];
+    if (slrUebernahme) {
+      const vorlagen = await tx
+        .select()
+        .from(slrWerte)
+        .where(eq(slrWerte.schuljahrId, slrUebernahme.vonSchuljahrId));
+      if (vorlagen.length > 0) {
+        // Der Pruef-Vermerk hat Vorrang; die Originalquelle wird auf die Spaltenlaenge (200) gekuerzt
+        const zusatz = `uebernommen aus ${slrUebernahme.vonBezeichnung} — pruefen`;
+        const restLaenge = 200 - zusatz.length - 3;
+        await tx.insert(slrWerte).values(
+          vorlagen.map((v) => ({
+            schuljahrId: schuljahr.id,
+            schulformTyp: v.schulformTyp,
+            relation: v.relation,
+            quelle: v.quelle ? `${zusatz} | ${v.quelle.slice(0, restLaenge)}` : zusatz,
+            geaendertVon: slrUebernahme.benutzer,
+          }))
+        );
+        uebernommen.push(...vorlagen.map((v) => ({ schulformTyp: v.schulformTyp, relation: v.relation })));
+      }
+    }
+    return { schuljahr, uebernommen };
+  });
+}
+
+/** Zuletzt begonnenes Schuljahr vor dem gegebenen Startdatum — dieselbe Datumslogik wie die Berechnung. */
+export async function getVorgaengerSchuljahr(startDatum: string) {
   const [result] = await db
     .select()
     .from(schuljahre)
-    .where(eq(schuljahre.aktiv, true))
-    .orderBy(desc(schuljahre.bezeichnung))
+    .where(lt(schuljahre.startDatum, startDatum))
+    .orderBy(desc(schuljahre.startDatum))
     .limit(1);
   return result ?? null;
-}
-
-export async function createSchuljahr(data: {
-  bezeichnung: string;
-  startDatum: string;
-  endDatum: string;
-}) {
-  const [result] = await db
-    .insert(schuljahre)
-    .values(data)
-    .returning();
-  return result;
 }
 
 export async function updateSchuljahrAktiv(id: number, aktiv: boolean) {

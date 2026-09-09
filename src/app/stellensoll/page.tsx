@@ -7,6 +7,7 @@ import {
   getRegeldeputateMap,
 } from "@/lib/db/queries";
 import { getSelectedHaushaltsjahr } from "@/lib/haushaltsjahr-utils";
+import { formatIsoDatumDE } from "@/lib/format";
 import { HaushaltsjahrSelector } from "@/components/ui/HaushaltsjahrSelector";
 import { StellensollClient } from "./StellensollClient";
 
@@ -67,7 +68,16 @@ export default async function StellensollPage({ searchParams }: { searchParams: 
           stellensoll: Number(e.stellensoll),
           grundstellenDetails: e.grundstellenDetails as StellensollDetail[],
           zuschlaege_details: e.zuschlaege_details as ZuschlagDetail[] | null,
-          berechnetAm: e.berechnetAm,
+          // Server-seitig formatiert (keine Hydration-Differenz durch Client-Locale)
+          berechnetAmText: new Date(e.berechnetAm).toLocaleString("de-DE", {
+            timeZone: "Europe/Berlin",
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          berechnetVon: e.berechnetVon,
         })),
       };
     })
@@ -87,7 +97,16 @@ export default async function StellensollPage({ searchParams }: { searchParams: 
       />
       {hjOptions.length > 1 && <div className="flex justify-end mb-4"><HaushaltsjahrSelector options={hjOptions} selectedJahr={hj.jahr} /></div>}
 
-      <StellensollClient schulen={schulenMitErgebnissen} hatErgebnisse={hatErgebnisse} haushaltsjahrId={hj.id} />
+      <StellensollClient
+        key={hj.id}
+        schulen={schulenMitErgebnissen}
+        hatErgebnisse={hatErgebnisse}
+        haushaltsjahrId={hj.id}
+        stichtage={{
+          "jan-jul": hj.stichtagVorjahr ? formatIsoDatumDE(hj.stichtagVorjahr) : null,
+          "aug-dez": hj.stichtagLaufend ? formatIsoDatumDE(hj.stichtagLaufend) : null,
+        }}
+      />
 
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">
         <strong>Rechtsgrundlage:</strong> Stellensollberechnung nach{" "}

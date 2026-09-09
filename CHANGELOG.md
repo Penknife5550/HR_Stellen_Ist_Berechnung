@@ -1,5 +1,59 @@
 # Changelog — Stellenistberechnung
 
+## [Unreleased]
+
+### Stellensoll: Schuljahreswechsel liess die Berechnung fuer GES/GYM scheitern (09.09.2026)
+
+Meldung aus der Personalabteilung: "4 Fehler: GES, GES, GYM, GYM", Aug-Dez
+fehlt, Jan-Jul wirkt wie mit alten Schuelerzahlen gerechnet. Diagnose-SQL:
+`docs/sql/diagnose_stellensoll_hj2026.sql`.
+
+- **SLR-Satz je Zeitraum statt "aktuelles Schuljahr"** — Jan-Jul rechnet mit
+  dem Schuljahr, in dem der Vorjahres-Stichtag liegt (2025/2026), Aug-Dez mit
+  dem des laufenden Stichtags (2026/2027). Vorher lieferte
+  `getAktuellesSchuljahr()` das neueste aktive Schuljahr fuer BEIDE Zeitraeume;
+  sobald `2026/2027` angelegt war (Deploy-Checkliste v0.8.1 Pkt. 8), rechnete
+  die App mit dessen leerem SLR-Satz und brach fuer GES/GYM ab — ohne dass
+  etwas gespeichert wurde, die alte Jan-Jul-Zeile blieb sichtbar.
+  (`src/lib/berechnungen/schuljahrZuordnung.ts`, `src/app/stellensoll/actions.ts`)
+- **Neues Schuljahr wird inaktiv angelegt und uebernimmt die SLR-Werte des
+  Vorgaengers** (Quelle "... | uebernommen aus 2025/2026 — pruefen"); die
+  Meldung nennt die Anzahl. Vorher: aktiv per Schema-Default, ohne SLR-Werte,
+  ohne Hinweis. (`createSchuljahr`, `createSchuljahrAction`)
+- **Fehlerdetails und uebersprungene Zeitraeume sind sichtbar** — Teilfehler
+  erscheinen gelb statt gruen, mit Schule, Zeitraum, Schuljahr und fehlendem
+  Typ; fehlende Schuelerzahlen zum Stichtag werden als "uebersprungen"
+  gelistet statt still verschluckt. Beides auch im Audit-Log.
+- **Berechnungsdatum je Zeitraum und Platzhalter fuer fehlende Zeitraeume** —
+  ein stehengebliebenes Altergebnis ist als solches erkennbar.
+- **Schulform-Typ wird getrimmt** (beide Seiten des Lookups) und beim Anlegen
+  eines SLR-Werts aus den Schulstufen vorgeschlagen (datalist).
+- **Mehrdeutige SLR-Werte werden gemeldet statt still aufgeloest** — zwei
+  Zeilen, die sich nur durch Leerzeichen unterscheiden (vor dem Fix konnte die
+  SLR-Eingabe das erzeugen) und verschiedene Relationen tragen, ergeben jetzt
+  "Mehrdeutige SLR-Werte (Schuljahr …)" fuer den betroffenen Zeitraum.
+  (`findeSlrKonflikte`, mit Tests)
+- Total-Fehler ("alle Schulen gescheitert") liefert dieselben strukturierten
+  Fehler-/Uebersprungen-Listen wie der Teil-Fehler; fehlende Stichtage und
+  fehlende Schuljahre werden einmal fuer "Alle Schulen" gemeldet, nicht je Schule.
+- SLR-Uebernahme: Vorgaenger wird ueber das Startdatum bestimmt (dieselbe
+  Datumslogik wie die Berechnung), der Pruef-Vermerk in `quelle` steht vorn und
+  ueberlebt die Kuerzung auf 200 Zeichen, das Audit-Log traegt Typ UND Relation
+  je uebernommenem Wert.
+- Stellensoll-Seite: Meldungen mit `aria-live`, Client-State wird beim
+  Haushaltsjahr-Wechsel zurueckgesetzt (`key={hj.id}`), Zeitraum-Labels aus
+  `constants.ts`.
+- `getAktuellesSchuljahr()` entfernt (kein Aufrufer mehr; kodierte genau die
+  Semantik "neuestes aktives Schuljahr = massgeblich", die den Fehler ausloeste).
+  Das `aktiv`-Flag bleibt als Markierung in /einstellungen bestehen.
+- Berechnungs-Button: try/finally (bleibt bei Netzwerkfehler nicht haengen);
+  0 Ergebnisse werden gelb statt gruen gemeldet.
+- Bekannte Altlast (nicht Teil dieses Fixes): zwei gleichzeitige Berechnungen
+  koennen doppelte `ist_aktuell`-Zeilen erzeugen — der partielle Index auf
+  `berechnung_stellensoll` ist nicht UNIQUE. Migration folgt separat.
+- Bewusst offen: `istImAufbau` (§ 3 FESchVO) wird von der Stellensoll-
+  Berechnung weiterhin nicht angewendet — fachliche Klaerung noetig.
+
 ## [0.8.1] — 2026-09-03
 
 > Deployed auf `deputat.fes-credo.de` am 03.09.2026. Aug–Dez 2026 in

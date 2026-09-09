@@ -16,7 +16,14 @@ import {
   getAlleZuschlaegeByHaushaltsjahr,
   getAlleGenehmigteStellenanteileByHj,
 } from "@/lib/db/queries";
-import { getSlrWerteBySchuljahr, getAktuellesSchuljahr } from "@/lib/db/queries";
+import { getSlrWerteBySchuljahr, getSchuljahre } from "@/lib/db/queries";
+import {
+  findeSchuljahrFuerStichtag,
+  baueSlrLookup,
+  findeSlrKonflikte,
+  normalisiereSchulformTyp,
+} from "@/lib/berechnungen/schuljahrZuordnung";
+import { formatIsoDatumDE } from "@/lib/format";
 import { berechneGrundstellen } from "@/lib/berechnungen/grundstellen";
 import { aktualisiereVergleich } from "@/lib/berechnungen/vergleich";
 import { writeAuditLog } from "@/lib/audit";
@@ -31,22 +38,28 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
       : await getAktuellesHaushaltsjahr();
     if (!aktuellesHj) return { error: "Haushaltsjahr nicht gefunden." };
 
-    const aktuellesSj = await getAktuellesSchuljahr();
-    if (!aktuellesSj) return { error: "Kein aktuelles Schuljahr gefunden." };
-
     const schulen = await getSchulen();
-    const slrWerte = await getSlrWerteBySchuljahr(aktuellesSj.id);
-
-    // SLR als Lookup: schulformTyp → relation
-    const slrLookup: Record<string, number> = {};
-    for (const slr of slrWerte) {
-      slrLookup[slr.schulformTyp] = Number(slr.relation);
-    }
 
     // Batch-Loading: Alle Daten VOR der Schleife laden (vermeidet N+1 Queries)
     const stichtage = [aktuellesHj.stichtagVorjahr, aktuellesHj.stichtagLaufend].filter(
       (s): s is string => s !== null && s !== undefined
     );
+
+    // SLR je Stichtag: Der Stichtag liegt im Schuljahr seines Zeitraums (Jan-Jul -> Vorjahres-
+    // Schuljahr, Aug-Dez -> laufendes Schuljahr) und bestimmt damit den SLR-Satz.
+    const alleSchuljahre = await getSchuljahre();
+    const schuljahrByStichtag = new Map(
+      stichtage.map((st) => [st, findeSchuljahrFuerStichtag(alleSchuljahre, st)] as const)
+    );
+    const slrLookupBySchuljahr = new Map<number, Record<string, number>>();
+    const slrKonflikteBySchuljahr = new Map<number, string[]>();
+    for (const sj of schuljahrByStichtag.values()) {
+      if (sj && !slrLookupBySchuljahr.has(sj.id)) {
+        const slrWerte = await getSlrWerteBySchuljahr(sj.id);
+        slrLookupBySchuljahr.set(sj.id, baueSlrLookup(slrWerte));
+        slrKonflikteBySchuljahr.set(sj.id, findeSlrKonflikte(slrWerte));
+      }
+    }
 
     const [alleSchulStufen, alleSchuelerzahlen, alleZuschlaege, alleStellenanteile] = await Promise.all([
       getAlleAktivenSchulStufen(),
@@ -94,8 +107,30 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
       grundstellen: number;
       zuschlaege: number;
       stellensoll: number;
+      slrSchuljahr: string;
     }> = [];
-    const fehlerListe: Array<{ schule: string; details: string }> = [];
+    const fehlerListe: Array<{ schule: string; zeitraum: string; details: string }> = [];
+    // Zeitraeume ohne Berechnungsgrundlage — kein Fehler, aber sichtbar statt still verschluckt
+    const uebersprungen: Array<{ schule: string; zeitraum: string; grund: string }> = [];
+
+    // Fuer beide Zeitraeume berechnen (jan-jul = Vorjahr-Stichtag, aug-dez = laufender Stichtag)
+    const zeitraeume = [
+      { key: "jan-jul", stichtag: aktuellesHj.stichtagVorjahr },
+      { key: "aug-dez", stichtag: aktuellesHj.stichtagLaufend },
+    ] as const;
+
+    // Fehlende Stichtage oder Schuljahre sind Haushaltsjahr-Probleme — einmal melden, nicht je Schule
+    for (const zr of zeitraeume) {
+      if (!zr.stichtag) {
+        uebersprungen.push({ schule: "Alle Schulen", zeitraum: zr.key, grund: "Kein Stichtag im Haushaltsjahr konfiguriert" });
+      } else if (!schuljahrByStichtag.get(zr.stichtag)) {
+        fehlerListe.push({
+          schule: "Alle Schulen",
+          zeitraum: zr.key,
+          details: `Kein Schuljahr fuer Stichtag ${formatIsoDatumDE(zr.stichtag)} angelegt (Einstellungen → Schuljahre)`,
+        });
+      }
+    }
 
     for (const schule of schulen) {
       const stufen = stufenBySchule.get(schule.id) ?? [];
@@ -105,35 +140,58 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
       const stellenanteileRows = stellenanteileBySchule.get(schule.id) ?? [];
       const zuschlaegeRows = zuschlaegeBySchule.get(schule.id) ?? [];
 
-      // Fuer beide Zeitraeume berechnen (jan-jul = Vorjahr-Stichtag, aug-dez = laufender Stichtag)
-      const zeitraeume = [
-        { key: "jan-jul", stichtag: aktuellesHj.stichtagVorjahr },
-        { key: "aug-dez", stichtag: aktuellesHj.stichtagLaufend },
-      ] as const;
-
       let schuleHatFehler = false;
 
       for (const zr of zeitraeume) {
-        if (!zr.stichtag) continue;
+        if (!zr.stichtag) continue; // oben einmal fuer alle Schulen gemeldet
 
         // Schuelerzahlen aus vorgeladenem Lookup
         const zahlen = zahlenBySchuleStichtag.get(`${schule.id}_${zr.stichtag}`) ?? [];
 
-        if (zahlen.length === 0) continue;
+        if (zahlen.length === 0) {
+          uebersprungen.push({
+            schule: schule.kurzname,
+            zeitraum: zr.key,
+            grund: `Keine Schuelerzahlen zum Stichtag ${formatIsoDatumDE(zr.stichtag)}`,
+          });
+          continue;
+        }
+
+        const schuljahr = schuljahrByStichtag.get(zr.stichtag) ?? null;
+        if (!schuljahr) {
+          schuleHatFehler = true; // oben einmal fuer alle Schulen gemeldet
+          continue;
+        }
+        const slrLookup = slrLookupBySchuljahr.get(schuljahr.id) ?? {};
+
+        // Mehrdeutige SLR-Werte (Typ doppelt, z.B. mit Leerzeichen-Variante) nicht still aufloesen
+        const konflikte = (slrKonflikteBySchuljahr.get(schuljahr.id) ?? []).filter((k) =>
+          zahlen.some((z) => normalisiereSchulformTyp(z.schulformTyp) === k)
+        );
+        if (konflikte.length > 0) {
+          fehlerListe.push({
+            schule: schule.kurzname,
+            zeitraum: zr.key,
+            details: `Mehrdeutige SLR-Werte (Schuljahr ${schuljahr.bezeichnung}): ${konflikte.join(", ")} — Duplikate in der SLR-Konfiguration bereinigen`,
+          });
+          schuleHatFehler = true;
+          continue;
+        }
 
         // SLR-Validierung: Pruefen ob alle benoetigten SLR-Werte vorhanden und > 0
         const stufenDaten = zahlen.map((z) => ({
           stufe: z.stufe,
           schulformTyp: z.schulformTyp,
           schueler: z.anzahl,
-          slr: slrLookup[z.schulformTyp] ?? 0,
+          slr: slrLookup[normalisiereSchulformTyp(z.schulformTyp)] ?? 0,
         }));
 
         const fehlendeSLR = stufenDaten.filter((s) => s.slr <= 0);
         if (fehlendeSLR.length > 0) {
           fehlerListe.push({
             schule: schule.kurzname,
-            details: `Fehlende SLR-Werte: ${fehlendeSLR.map((s) => s.schulformTyp).join(", ")}`,
+            zeitraum: zr.key,
+            details: `Fehlende SLR-Werte (Schuljahr ${schuljahr.bezeichnung}): ${fehlendeSLR.map((s) => s.schulformTyp).join(", ")}`,
           });
           schuleHatFehler = true;
           continue; // Diesen Zeitraum ueberspringen, naechsten versuchen
@@ -246,6 +304,7 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
           grundstellen: grundstellenResult.grundstellenzahl,
           zuschlaege: zuschlaegeSumme,
           stellensoll: Math.round(stellensollWert * 10) / 10,
+          slrSchuljahr: schuljahr.bezeichnung,
         });
       }
 
@@ -264,8 +323,10 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
         schule: e.schule,
         zeitraum: e.zeitraum,
         stellensoll: e.stellensoll,
+        slrSchuljahr: e.slrSchuljahr,
       })),
       fehler: fehlerListe,
+      uebersprungen,
     }, session.name);
 
     revalidatePath("/stellensoll");
@@ -275,7 +336,9 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
     // Zusammenfassung mit Erfolgen und Fehlern zurueckgeben
     if (fehlerListe.length > 0 && ergebnisse.length === 0) {
       return {
-        error: `Berechnung fuer alle Schulen fehlgeschlagen. ${fehlerListe.map((f) => `${f.schule}: ${f.details}`).join("; ")}. Bitte SLR-Konfiguration pruefen.`,
+        error: "Berechnung fuer alle Schulen fehlgeschlagen — nichts gespeichert. Bitte Schuljahre und SLR-Konfiguration pruefen.",
+        fehler: fehlerListe,
+        uebersprungen: uebersprungen.length > 0 ? uebersprungen : undefined,
       };
     }
 
@@ -283,10 +346,12 @@ export async function berechneStellensollAction(haushaltsjahrId?: number) {
       success: true,
       ergebnisse,
       fehler: fehlerListe.length > 0 ? fehlerListe : undefined,
+      uebersprungen: uebersprungen.length > 0 ? uebersprungen : undefined,
       message: `Stellensoll fuer ${ergebnisse.length} Zeitraeume berechnet.`
         + (fehlerListe.length > 0
-          ? ` ${fehlerListe.length} Fehler: ${fehlerListe.map((f) => f.schule).join(", ")}.`
-          : ""),
+          ? ` ${fehlerListe.length} Zeitraeume mit Fehlern — dort wurde nichts gespeichert, das bisherige Ergebnis bleibt stehen.`
+          : "")
+        + (uebersprungen.length > 0 ? ` ${uebersprungen.length} Zeitraeume uebersprungen.` : ""),
     };
   } catch (err: unknown) {
     console.error("Berechnung fehlgeschlagen:", err instanceof Error ? err.message : "Unbekannt");
