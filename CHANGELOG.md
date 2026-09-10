@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### SLR-Konfiguration: Typ-Auswahl statt Freitext (10.09.2026)
+
+Vorfall: Die Personalabteilung hatte fuer 2026/2027 "GYM G9", "GYM Sek II" und
+"Gesamtschule SEK I" eingetragen — die Berechnung sucht zeichengenau ueber den
+Typ der Schulstufe und meldete weiter "Fehlende SLR-Werte". Ausserdem war
+2026/2027 vor dem Fix 171ca3d angelegt worden und hatte deshalb gar keine
+SLR-Werte (die Uebernahme aus dem Vorjahr greift nur beim Neuanlegen).
+
+- **Schulform-Typ ist ein Dropdown** mit den Typen der aktiven Schulstufen;
+  Typen, die im Schuljahr schon einen Wert haben, sind ausgegraut. Sind alle
+  belegt, ist "+ Neuen SLR-Wert" deaktiviert. Die datalist-Vorschlagsliste
+  (Freitext) entfaellt. (`SlrClient.tsx`)
+- **Server-Validierung:** `createSlrWertAction` lehnt jeden Typ ab, der zu
+  keiner aktiven Schulstufe gehoert ("… gehoert zu keiner aktiven Schulstufe.
+  Bitte aus der Auswahl waehlen."). Duplikate werden normalisiert erkannt, eine
+  Unique-Constraint-Verletzung (`slr_werte_unique`) wird als deutsche Meldung
+  statt als 500 zurueckgegeben. Anlegen und Loeschen revalidieren jetzt auch
+  `/stellensoll`.
+- **Luecken-Hinweis ueber der Tabelle:** gelbe Box nennt die Typen aktiver
+  Schulstufen, fuer die im gewaehlten Schuljahr noch ein SLR-Wert fehlt —
+  genau die Typen, an denen die Berechnung scheitern wuerde.
+- **Button "Fehlende Werte aus <Vorgaenger> uebernehmen"** (neue Action
+  `uebernehmeSlrAusVorjahrAction`, Query `uebernehmeFehlendeSlrWerte`): kopiert
+  in einer Transaktion nur fehlende, benoetigte Typen aus dem Vorgaenger,
+  ueberschreibt nie, Quelle-Vermerk "uebernommen aus … — pruefen" wie beim
+  Neuanlegen, ein Audit-Log-Eintrag je Uebernahme. Fuer Schuljahre, die vor
+  der automatischen Uebernahme angelegt wurden.
+- **Rotes Badge "Keiner Schulstufe zugeordnet"** an Zeilen, deren Typ von
+  keiner aktiven Schulstufe verwendet wird (Tippfehler-Altlasten); Bearbeiten
+  und Loeschen bleiben moeglich.
+- Reine Hilfsfunktionen mit Tests in `schuljahrZuordnung.ts`
+  (`ermittleBenoetigteSchulformTypen`, `ermittleFehlendeSlrTypen`,
+  `ermittleVerwaisteSlrTypen`, `findeVorgaengerSchuljahr`,
+  `filterUebernehmbareSlrWerte`); Action-Tests in `tests/lib/slrActions.test.ts`.
+  `createSchuljahr` verhaelt sich unveraendert.
+- Review-Nachzug: Unique-Verletzung wird ueber die Fehlerkette (`err.cause`,
+  Drizzle wrappt in `DrizzleQueryError`) erkannt statt ueber die Meldung;
+  Uebernahme nutzt `ON CONFLICT DO NOTHING` und faengt parallele Klicks mit
+  deutscher Meldung ab, der Client sperrt Buttons bei einem Serverfehler nicht
+  mehr dauerhaft. Relation muss > 0 sein (Anlegen und Bearbeiten), 0-Vorlagen
+  werden nicht uebernommen, vorhandene 0-Altlasten nennt die Luecken-Box
+  getrennt ("bitte ueber Bearbeiten korrigieren"). Der Hinweis zum
+  deaktivierten "+ Neuen SLR-Wert" ist jetzt ohne Klick sichtbar.
+
 ### Stellensoll: Schuljahreswechsel liess die Berechnung fuer GES/GYM scheitern (09.09.2026)
 
 Meldung aus der Personalabteilung: "4 Fehler: GES, GES, GYM, GYM", Aug-Dez

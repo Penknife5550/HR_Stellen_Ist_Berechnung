@@ -35,6 +35,7 @@ import {
   auditLog,
 } from "@/db/schema";
 import { eq, and, desc, asc, sql, inArray, gte, lte, lt, isNull } from "drizzle-orm";
+import { filterUebernehmbareSlrWerte, normalisiereSchulformTyp } from "@/lib/berechnungen/schuljahrZuordnung";
 
 // ============================================================
 // SCHULEN
@@ -295,6 +296,21 @@ export async function getSchuljahre() {
   return db.select().from(schuljahre).orderBy(desc(schuljahre.bezeichnung));
 }
 
+export async function getSchuljahrById(id: number) {
+  const [result] = await db.select().from(schuljahre).where(eq(schuljahre.id, id));
+  return result ?? null;
+}
+
+/**
+ * Quelle-Vermerk fuer uebernommene SLR-Werte. Der Pruef-Vermerk steht vorn und
+ * ueberlebt die Kuerzung; die Originalquelle wird auf die Spaltenlaenge (200) gekuerzt.
+ */
+function baueUebernahmeQuelle(vonBezeichnung: string, originalQuelle: string | null): string {
+  const zusatz = `uebernommen aus ${vonBezeichnung} — pruefen`;
+  const restLaenge = 200 - zusatz.length - 3;
+  return originalQuelle ? `${zusatz} | ${originalQuelle.slice(0, restLaenge)}` : zusatz;
+}
+
 /**
  * Legt ein Schuljahr INAKTIV an (der Admin setzt es bewusst aktiv; updateSchuljahrAktiv
  * deaktiviert dann alle anderen) und uebernimmt optional die SLR-Werte eines Vorgaengers.
@@ -318,15 +334,12 @@ export async function createSchuljahr(
         .from(slrWerte)
         .where(eq(slrWerte.schuljahrId, slrUebernahme.vonSchuljahrId));
       if (vorlagen.length > 0) {
-        // Der Pruef-Vermerk hat Vorrang; die Originalquelle wird auf die Spaltenlaenge (200) gekuerzt
-        const zusatz = `uebernommen aus ${slrUebernahme.vonBezeichnung} — pruefen`;
-        const restLaenge = 200 - zusatz.length - 3;
         await tx.insert(slrWerte).values(
           vorlagen.map((v) => ({
             schuljahrId: schuljahr.id,
             schulformTyp: v.schulformTyp,
             relation: v.relation,
-            quelle: v.quelle ? `${zusatz} | ${v.quelle.slice(0, restLaenge)}` : zusatz,
+            quelle: baueUebernahmeQuelle(slrUebernahme.vonBezeichnung, v.quelle),
             geaendertVon: slrUebernahme.benutzer,
           }))
         );
@@ -334,6 +347,52 @@ export async function createSchuljahr(
       }
     }
     return { schuljahr, uebernommen };
+  });
+}
+
+/**
+ * Uebernimmt in ein BESTEHENDES Schuljahr die SLR-Werte des Vorgaengers, die dort
+ * noch fehlen und von einer aktiven Schulstufe benoetigt werden. Vorhandene Werte
+ * werden nie ueberschrieben, verwaiste Typen des Vorgaengers nicht mitkopiert.
+ * Der Typ wird normalisiert (getrimmt) angelegt. Alles in einer Transaktion.
+ */
+export async function uebernehmeFehlendeSlrWerte(params: {
+  zielSchuljahrId: number;
+  vonSchuljahrId: number;
+  vonBezeichnung: string;
+  benoetigteTypen: string[];
+  benutzer: string;
+}): Promise<Array<{ schulformTyp: string; relation: string }>> {
+  return db.transaction(async (tx) => {
+    const vorlagen = await tx
+      .select()
+      .from(slrWerte)
+      .where(eq(slrWerte.schuljahrId, params.vonSchuljahrId));
+    const vorhandene = await tx
+      .select({ schulformTyp: slrWerte.schulformTyp })
+      .from(slrWerte)
+      .where(eq(slrWerte.schuljahrId, params.zielSchuljahrId));
+
+    const kopieren = filterUebernehmbareSlrWerte(vorlagen, vorhandene, params.benoetigteTypen);
+    if (kopieren.length === 0) return [];
+
+    // SELECT + INSERT ohne Sperre: bei zwei parallelen Uebernahmen (zwei Tabs/Nutzer) haette
+    // die zweite slr_werte_unique verletzt. Bereits angelegte Typen werden uebersprungen,
+    // zurueckgegeben werden nur die tatsaechlich eingefuegten Zeilen.
+    const eingefuegt = await tx
+      .insert(slrWerte)
+      .values(
+        kopieren.map((v) => ({
+          schuljahrId: params.zielSchuljahrId,
+          schulformTyp: normalisiereSchulformTyp(v.schulformTyp),
+          relation: v.relation,
+          quelle: baueUebernahmeQuelle(params.vonBezeichnung, v.quelle),
+          geaendertVon: params.benutzer,
+        }))
+      )
+      .onConflictDoNothing({ target: [slrWerte.schuljahrId, slrWerte.schulformTyp] })
+      .returning({ schulformTyp: slrWerte.schulformTyp, relation: slrWerte.relation });
+    return eingefuegt;
   });
 }
 

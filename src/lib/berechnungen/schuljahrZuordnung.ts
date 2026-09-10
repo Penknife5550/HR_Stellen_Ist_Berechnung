@@ -59,6 +59,92 @@ export function baueSlrLookup(
 }
 
 /**
+ * Schulform-Typen, die die Berechnung als SLR-Lookup-Schluessel braucht:
+ * nur aktive Schulstufen (aktiv !== false), normalisiert, dedupliziert, sortiert.
+ * Einzige Quelle fuer die Typ-Auswahl in der SLR-Konfiguration.
+ */
+export function ermittleBenoetigteSchulformTypen(
+  schulStufen: Array<{ schulformTyp: string; aktiv?: boolean }>
+): string[] {
+  const typen = new Set<string>();
+  for (const st of schulStufen) {
+    if (st.aktiv === false) continue;
+    const typ = normalisiereSchulformTyp(st.schulformTyp);
+    if (typ) typen.add(typ);
+  }
+  return [...typen].sort((a, b) => a.localeCompare(b, "de"));
+}
+
+/**
+ * Benoetigte Typen, fuer die kein SLR-Wert > 0 vorliegt — genau die Typen, an
+ * denen die Stellensoll-Berechnung mit "Fehlende SLR-Werte" scheitern wuerde.
+ */
+export function ermittleFehlendeSlrTypen(
+  benoetigteTypen: string[],
+  slrWerte: Array<{ schulformTyp: string; relation: string | number }>
+): string[] {
+  const lookup = baueSlrLookup(slrWerte);
+  return benoetigteTypen.filter((typ) => lookup[normalisiereSchulformTyp(typ)] === undefined);
+}
+
+/**
+ * SLR-Typen, die zu keiner aktiven Schulstufe gehoeren (z.B. Tippfehler wie
+ * "Gesamtschule SEK I"). Sie fliessen nicht in die Berechnung ein.
+ */
+export function ermittleVerwaisteSlrTypen(
+  benoetigteTypen: string[],
+  slrWerte: Array<{ schulformTyp: string }>
+): string[] {
+  const benoetigt = new Set(benoetigteTypen.map(normalisiereSchulformTyp));
+  const verwaist = new Set<string>();
+  for (const slr of slrWerte) {
+    const typ = normalisiereSchulformTyp(slr.schulformTyp);
+    if (!benoetigt.has(typ)) verwaist.add(typ);
+  }
+  return [...verwaist];
+}
+
+/**
+ * Zuletzt begonnenes Schuljahr vor dem gegebenen Startdatum — dieselbe Logik
+ * wie getVorgaengerSchuljahr in queries.ts, nur ohne DB.
+ */
+export function findeVorgaengerSchuljahr<T extends SchuljahrRef>(
+  schuljahre: T[],
+  startDatum: string
+): T | null {
+  let treffer: T | null = null;
+  for (const sj of schuljahre) {
+    if (sj.startDatum < startDatum && (!treffer || sj.startDatum > treffer.startDatum)) treffer = sj;
+  }
+  return treffer;
+}
+
+/**
+ * Vorlagen (SLR-Werte des Vorgaengers), die ins Ziel-Schuljahr uebernommen
+ * werden duerfen: Typ wird von einer aktiven Schulstufe benoetigt UND fehlt im
+ * Ziel (normalisiert). Vorhandene Werte werden nie ueberschrieben. Faellt eine
+ * zweite Vorlage auf denselben normalisierten Typ, gewinnt die erste. Vorlagen
+ * mit Relation <= 0 werden nicht kopiert — sie waeren im Ziel sofort wieder
+ * "fehlend" (baueSlrLookup), der Typ aber belegt.
+ */
+export function filterUebernehmbareSlrWerte<T extends { schulformTyp: string; relation: string | number }>(
+  vorlagen: T[],
+  vorhandene: Array<{ schulformTyp: string }>,
+  benoetigteTypen: string[]
+): T[] {
+  const benoetigt = new Set(benoetigteTypen.map(normalisiereSchulformTyp));
+  const vorhanden = new Set(vorhandene.map((v) => normalisiereSchulformTyp(v.schulformTyp)));
+  const gesehen = new Set<string>();
+  return vorlagen.filter((v) => {
+    const typ = normalisiereSchulformTyp(v.schulformTyp);
+    if (!(Number(v.relation) > 0)) return false;
+    if (!benoetigt.has(typ) || vorhanden.has(typ) || gesehen.has(typ)) return false;
+    gesehen.add(typ);
+    return true;
+  });
+}
+
+/**
  * Schulform-Typen, die nach Normalisierung auf denselben Schluessel fallen, aber
  * verschiedene Relationen tragen (z.B. "Gymnasium Sek II" und "Gymnasium Sek II ").
  * Die Berechnung meldet das als Fehler, statt still einen der Werte zu waehlen.

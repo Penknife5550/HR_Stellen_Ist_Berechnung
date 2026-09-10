@@ -3,17 +3,35 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { slrWerte, slrHistorie } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
+import {
+  getAlleAktivenSchulStufen,
+  getSchuljahrById,
+  getVorgaengerSchuljahr,
+  uebernehmeFehlendeSlrWerte,
+} from "@/lib/db/queries";
+import {
+  ermittleBenoetigteSchulformTypen,
+  normalisiereSchulformTyp,
+} from "@/lib/berechnungen/schuljahrZuordnung";
 import { z } from "zod";
+
+/**
+ * Relation "Schueler je Stelle": Komma -> Punkt, max. 3 Vor- und 2 Nachkommastellen,
+ * und > 0 — eine 0 wuerde die Berechnung (baueSlrLookup) als "fehlend" werten,
+ * das Dropdown den Typ aber als belegt sperren (Sackgasse).
+ */
+const relationSchema = z
+  .string()
+  .transform((v) => v.replace(",", "."))
+  .pipe(z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, "Format: z.B. 18.63 oder 21,95"))
+  .refine((v) => Number(v) > 0, "Schueler je Stelle muss groesser als 0 sein.");
 
 const slrUpdateSchema = z.object({
   id: z.number().int().positive(),
-  relation: z
-    .string()
-    .transform((v) => v.replace(",", "."))
-    .pipe(z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, "Format: z.B. 18.63 oder 21,95")),
+  relation: relationSchema,
   quelle: z.string().max(200).optional(),
   grund: z.string().min(1, "Aenderungsgrund ist erforderlich.").max(500),
 });
@@ -21,12 +39,34 @@ const slrUpdateSchema = z.object({
 const slrCreateSchema = z.object({
   schuljahrId: z.number().int().positive(),
   schulformTyp: z.string().min(1, "Schulform-Typ erforderlich.").max(50),
-  relation: z
-    .string()
-    .transform((v) => v.replace(",", "."))
-    .pipe(z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, "Format: z.B. 18.63 oder 21,95")),
+  relation: relationSchema,
   quelle: z.string().max(200).optional(),
 });
+
+/**
+ * PostgreSQL-Errorcode aus einem Drizzle-Fehler holen. Drizzle wrappt jede
+ * Treiber-Exception in DrizzleQueryError ("Failed query: ..."), der eigentliche
+ * PostgresError mit code haengt an err.cause — deshalb die Kette durchlaufen.
+ */
+function pgErrorCode(err: unknown): string | undefined {
+  let e = err;
+  while (e && typeof e === "object") {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/** Unique-Constraint-Verletzung (slr_werte_unique) erkennen. */
+function istUniqueVerletzung(err: unknown): boolean {
+  return pgErrorCode(err) === "23505";
+}
+
+function revalidateSlrPfade() {
+  revalidatePath("/slr-konfiguration");
+  revalidatePath("/stellensoll");
+}
 
 /**
  * SLR-Wert aktualisieren mit Versionierung.
@@ -97,8 +137,7 @@ export async function updateSlrWertAction(formData: FormData) {
     grund,
   }, session.name);
 
-  revalidatePath("/slr-konfiguration");
-  revalidatePath("/stellensoll");
+  revalidateSlrPfade();
 
   return {
     success: true,
@@ -108,6 +147,9 @@ export async function updateSlrWertAction(formData: FormData) {
 
 /**
  * Neuen SLR-Wert hinzufuegen.
+ * Der Typ muss zu einer aktiven Schulstufe gehoeren — sonst findet die
+ * Stellensoll-Berechnung den Wert nie (Vorfall 10.09.2026: "GYM G9" statt
+ * "Gymnasium Sek I (G9)" -> "Fehlende SLR-Werte").
  */
 export async function createSlrWertAction(formData: FormData) {
   const session = await requireWriteAccess();
@@ -124,40 +166,56 @@ export async function createSlrWertAction(formData: FormData) {
     return { error: parsed.error.issues[0]?.message ?? "Ungueltige Eingabe." };
   }
 
-  // Duplikat pruefen
-  const [existing] = await db
-    .select()
-    .from(slrWerte)
-    .where(
-      and(
-        eq(slrWerte.schuljahrId, parsed.data.schuljahrId),
-        eq(slrWerte.schulformTyp, parsed.data.schulformTyp)
-      )
-    );
+  const schulformTyp = normalisiereSchulformTyp(parsed.data.schulformTyp);
 
-  if (existing) {
-    return { error: `SLR fuer "${parsed.data.schulformTyp}" existiert bereits in diesem Schuljahr.` };
+  // Typ muss von einer aktiven Schulstufe verwendet werden
+  const benoetigteTypen = ermittleBenoetigteSchulformTypen(await getAlleAktivenSchulStufen());
+  if (!benoetigteTypen.includes(schulformTyp)) {
+    return {
+      error: `Schulform-Typ "${schulformTyp}" gehoert zu keiner aktiven Schulstufe. Bitte aus der Auswahl waehlen.`,
+    };
   }
 
-  const [created] = await db
-    .insert(slrWerte)
-    .values({
-      schuljahrId: parsed.data.schuljahrId,
-      schulformTyp: parsed.data.schulformTyp,
-      relation: parsed.data.relation,
-      quelle: parsed.data.quelle ?? null,
-      geaendertVon: session.name,
-    })
-    .returning();
+  // Duplikat pruefen (normalisiert, damit "Typ " und "Typ" nicht nebeneinander landen)
+  const vorhandene = await db
+    .select()
+    .from(slrWerte)
+    .where(eq(slrWerte.schuljahrId, parsed.data.schuljahrId));
 
-  await writeAuditLog("slr_werte", created.id, "INSERT", null, {
-    schulformTyp: parsed.data.schulformTyp,
+  const existing = vorhandene.find((v) => normalisiereSchulformTyp(v.schulformTyp) === schulformTyp);
+  if (existing) {
+    return { error: `SLR fuer "${schulformTyp}" existiert bereits in diesem Schuljahr.` };
+  }
+
+  let createdId: number;
+  try {
+    const [created] = await db
+      .insert(slrWerte)
+      .values({
+        schuljahrId: parsed.data.schuljahrId,
+        schulformTyp,
+        relation: parsed.data.relation,
+        quelle: parsed.data.quelle ?? null,
+        geaendertVon: session.name,
+      })
+      .returning();
+    createdId = created.id;
+  } catch (err: unknown) {
+    if (istUniqueVerletzung(err)) {
+      return { error: `SLR fuer "${schulformTyp}" existiert bereits in diesem Schuljahr.` };
+    }
+    console.error("Fehler beim Anlegen des SLR-Werts:", err instanceof Error ? err.message : "Unbekannt");
+    return { error: "Fehler beim Anlegen des SLR-Werts." };
+  }
+
+  await writeAuditLog("slr_werte", createdId, "INSERT", null, {
+    schulformTyp,
     relation: parsed.data.relation,
   }, session.name);
 
-  revalidatePath("/slr-konfiguration");
+  revalidateSlrPfade();
 
-  return { success: true, message: `SLR "${parsed.data.schulformTyp}" hinzugefuegt.` };
+  return { success: true, message: `SLR "${schulformTyp}" hinzugefuegt.` };
 }
 
 /**
@@ -179,6 +237,72 @@ export async function deleteSlrWertAction(formData: FormData) {
     relation: existing.relation,
   }, null, session.name);
 
-  revalidatePath("/slr-konfiguration");
+  revalidateSlrPfade();
   return { success: true, message: `SLR "${existing.schulformTyp}" geloescht.` };
+}
+
+/**
+ * Fehlende SLR-Werte aus dem Vorgaenger-Schuljahr uebernehmen.
+ * Fuer Schuljahre, die VOR der automatischen Uebernahme (createSchuljahr) angelegt
+ * wurden oder bei denen einzelne Typen fehlen. Vorhandene Werte bleiben unberuehrt.
+ */
+export async function uebernehmeSlrAusVorjahrAction(formData: FormData) {
+  const session = await requireWriteAccess();
+
+  const schuljahrId = Number(formData.get("schuljahrId"));
+  if (!Number.isInteger(schuljahrId) || schuljahrId <= 0) {
+    return { error: "Ungueltiges Schuljahr." };
+  }
+
+  const ziel = await getSchuljahrById(schuljahrId);
+  if (!ziel) {
+    return { error: "Schuljahr nicht gefunden." };
+  }
+
+  const vorgaenger = await getVorgaengerSchuljahr(ziel.startDatum);
+  if (!vorgaenger) {
+    return { error: "Kein Vorgaenger-Schuljahr gefunden." };
+  }
+
+  const benoetigteTypen = ermittleBenoetigteSchulformTypen(await getAlleAktivenSchulStufen());
+
+  let uebernommen: Array<{ schulformTyp: string; relation: string }>;
+  try {
+    uebernommen = await uebernehmeFehlendeSlrWerte({
+      zielSchuljahrId: ziel.id,
+      vonSchuljahrId: vorgaenger.id,
+      vonBezeichnung: vorgaenger.bezeichnung,
+      benoetigteTypen,
+      benutzer: session.name,
+    });
+  } catch (err: unknown) {
+    // Zwei parallele Uebernahmen (zwei Tabs/Nutzer): die zweite scheitert an slr_werte_unique,
+    // die Daten der ersten sind korrekt — nur die Seite muss neu geladen werden.
+    if (istUniqueVerletzung(err)) {
+      revalidateSlrPfade();
+      return { error: "Die SLR-Werte wurden gerade parallel angelegt — bitte Seite neu laden und pruefen." };
+    }
+    console.error("Fehler beim Uebernehmen der SLR-Werte:", err instanceof Error ? err.message : "Unbekannt");
+    return { error: "Fehler beim Uebernehmen der SLR-Werte." };
+  }
+
+  if (uebernommen.length > 0) {
+    await writeAuditLog("slr_werte", ziel.id, "INSERT", null, {
+      uebernommenAus: vorgaenger.bezeichnung,
+      werte: uebernommen,
+    }, session.name);
+  }
+
+  revalidateSlrPfade();
+
+  if (uebernommen.length === 0) {
+    return {
+      success: true,
+      message: `Keine fehlenden Werte, die aus ${vorgaenger.bezeichnung} uebernommen werden koennten.`,
+    };
+  }
+  return {
+    success: true,
+    message: `${uebernommen.length} SLR-Werte aus ${vorgaenger.bezeichnung} uebernommen — bitte pruefen.`,
+  };
 }

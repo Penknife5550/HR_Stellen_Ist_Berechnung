@@ -2,6 +2,7 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
 import { getSchuljahre, getSlrWerteBySchuljahr, getSlrHistorieBySchuljahr, getAlleAktivenSchulStufen } from "@/lib/db/queries";
+import { ermittleBenoetigteSchulformTypen, findeVorgaengerSchuljahr } from "@/lib/berechnungen/schuljahrZuordnung";
 import { SlrClient } from "./SlrClient";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +10,8 @@ export const dynamic = "force-dynamic";
 export default async function SlrKonfigurationPage() {
   const [schuljahre, schulStufen] = await Promise.all([getSchuljahre(), getAlleAktivenSchulStufen()]);
 
-  // Schulform-Typen, die die Berechnung als Lookup-Schluessel nutzt (Vorschlagsliste gegen Tippfehler)
-  const schulformTypen = [...new Set(schulStufen.map((st) => st.schulformTyp.trim()))].sort();
+  // Schulform-Typen, die die Berechnung als Lookup-Schluessel nutzt — einzige waehlbare Typen
+  const schulformTypen = ermittleBenoetigteSchulformTypen(schulStufen);
 
   // Neuestes Schuljahr per Default
   const aktuellesSj = schuljahre[0];
@@ -93,6 +94,10 @@ export default async function SlrKonfigurationPage() {
         schuljahre={schuljahre.map((sj) => ({
           id: sj.id,
           bezeichnung: sj.bezeichnung,
+          startDatum: sj.startDatum,
+          endDatum: sj.endDatum,
+          // Vorgaenger fuer "Fehlende Werte uebernehmen" — dieselbe Datumslogik wie getVorgaengerSchuljahr
+          vorgaengerBezeichnung: findeVorgaengerSchuljahr(schuljahre, sj.startDatum)?.bezeichnung ?? null,
         }))}
         slrBySchuljahr={slrBySchuljahr}
         historieBySchuljahr={historieBySchuljahr}

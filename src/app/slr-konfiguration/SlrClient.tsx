@@ -3,7 +3,17 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { updateSlrWertAction, createSlrWertAction, deleteSlrWertAction } from "./actions";
+import {
+  updateSlrWertAction,
+  createSlrWertAction,
+  deleteSlrWertAction,
+  uebernehmeSlrAusVorjahrAction,
+} from "./actions";
+import {
+  ermittleFehlendeSlrTypen,
+  ermittleVerwaisteSlrTypen,
+  normalisiereSchulformTyp,
+} from "@/lib/berechnungen/schuljahrZuordnung";
 
 type SlrWert = {
   id: number;
@@ -25,14 +35,26 @@ type HistorieEintrag = {
   geaendertAm: string;
 };
 
+type Schuljahr = {
+  id: number;
+  bezeichnung: string;
+  startDatum: string;
+  endDatum: string;
+  /** Bezeichnung des zuletzt begonnenen Vorgaengers — null beim aeltesten Schuljahr */
+  vorgaengerBezeichnung: string | null;
+};
+
 type Props = {
-  schuljahre: Array<{ id: number; bezeichnung: string }>;
+  schuljahre: Schuljahr[];
   slrBySchuljahr: Record<number, SlrWert[]>;
   historieBySchuljahr: Record<number, HistorieEintrag[]>;
   defaultSchuljahrId: number;
-  /** Schulform-Typen aus den Schulstufen — muessen zeichengenau uebereinstimmen */
+  /** Typen der aktiven Schulstufen (normalisiert, sortiert) — die Berechnung sucht SLR-Werte genau darueber */
   schulformTypen: string[];
 };
+
+const VERWAIST_TOOLTIP =
+  "Dieser Typ wird von keiner aktiven Schulstufe verwendet und fliesst nicht in die Berechnung ein.";
 
 export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, defaultSchuljahrId, schulformTypen }: Props) {
   const [selectedSjId, setSelectedSjId] = useState(defaultSchuljahrId);
@@ -47,18 +69,38 @@ export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, def
   const historie = historieBySchuljahr[selectedSjId] ?? [];
   const selectedSj = schuljahre.find((sj) => sj.id === selectedSjId);
 
+  // Luecken und Tippfehler fuer das gewaehlte Schuljahr — dieselbe Normalisierung wie die Berechnung
+  const fehlendeTypen = ermittleFehlendeSlrTypen(schulformTypen, slrWerte);
+  const verwaisteTypen = new Set(ermittleVerwaisteSlrTypen(schulformTypen, slrWerte));
+  const vorhandeneTypen = new Set(slrWerte.map((slr) => normalisiereSchulformTyp(slr.schulformTyp)));
+  const waehlbareTypen = schulformTypen.filter((typ) => !vorhandeneTypen.has(typ));
+  // "Fehlend" heisst: kein Wert > 0. Eine Altlast-Zeile mit Relation 0 ist zwar vorhanden (Typ im
+  // Dropdown gesperrt, Uebernahme ueberspringt ihn), zaehlt fuer die Berechnung aber als fehlend.
+  const echtFehlendeTypen = fehlendeTypen.filter((typ) => !vorhandeneTypen.has(typ));
+  const nullWertTypen = fehlendeTypen.filter((typ) => vorhandeneTypen.has(typ));
+  const keinTypWaehlbarHinweis =
+    schulformTypen.length === 0
+      ? "Keine aktiven Schulstufen vorhanden — bitte zuerst unter Einstellungen → Schulstufen anlegen."
+      : "Alle Schulstufen-Typen haben bereits einen SLR-Wert.";
+
   async function handleAction(action: (fd: FormData) => Promise<{ success?: boolean; error?: string; message?: string }>, formData: FormData) {
     setSaving(true);
     setMessage(null);
-    const result = await action(formData);
-    setSaving(false);
-    if (result.error) {
-      setMessage({ type: "error", text: result.error });
-    } else {
-      setMessage({ type: "success", text: result.message ?? "Gespeichert!" });
-      setEditingId(null);
-      setShowAdd(false);
-      setConfirmDelete(null);
+    try {
+      const result = await action(formData);
+      if (result.error) {
+        setMessage({ type: "error", text: result.error });
+      } else {
+        setMessage({ type: "success", text: result.message ?? "Gespeichert!" });
+        setEditingId(null);
+        setShowAdd(false);
+        setConfirmDelete(null);
+      }
+    } catch {
+      // Server-Action rejected (Netz, unerwarteter Serverfehler): Buttons nicht dauerhaft sperren
+      setMessage({ type: "error", text: "Aktion fehlgeschlagen. Bitte Seite neu laden." });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -95,48 +137,58 @@ export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, def
           <Button
             size="sm"
             onClick={() => { setShowAdd(true); setEditingId(null); setMessage(null); }}
-            disabled={showAdd}
+            disabled={showAdd || waehlbareTypen.length === 0}
+            title={waehlbareTypen.length === 0 ? keinTypWaehlbarHinweis : undefined}
           >
             + Neuen SLR-Wert
           </Button>
         </div>
       </div>
+      {/* Erklaert den deaktivierten Button — der Hinweis muss ohne Klick sichtbar sein */}
+      {waehlbareTypen.length === 0 && (
+        <p className="-mt-4 mb-4 text-right text-xs text-[#6B7280]">{keinTypWaehlbarHinweis}</p>
+      )}
 
       {/* Meldung */}
       {message && (
-        <div className={`mb-4 p-3 rounded-lg text-sm font-medium ${
-          message.type === "success"
-            ? "bg-green-50 text-green-800 border border-green-200"
-            : "bg-red-50 text-red-800 border border-red-200"
-        }`}>
+        <div
+          role="status"
+          aria-live={message.type === "error" ? "assertive" : "polite"}
+          className={`mb-4 p-3 rounded-lg text-sm font-medium ${
+            message.type === "success"
+              ? "bg-green-50 text-green-800 border border-green-200"
+              : "bg-red-50 text-red-800 border border-red-200"
+          }`}
+        >
           {message.text}
         </div>
       )}
 
       {/* Neuen Wert hinzufuegen */}
-      {showAdd && (
+      {showAdd && waehlbareTypen.length > 0 && (
         <Card className="mb-4 border-[#6BAA24]">
           <form action={(fd) => handleAction(createSlrWertAction, fd)}>
             <input type="hidden" name="schuljahrId" value={selectedSjId} />
             <h3 className="text-[15px] font-bold mb-3">Neuen SLR-Wert hinzufuegen</h3>
             <div className="grid grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs font-bold text-[#6B7280] mb-1">Schulform-Typ</label>
-                <input
-                  type="text"
+                <label htmlFor="slr-schulformTyp" className="block text-xs font-bold text-[#6B7280] mb-1">Schulform-Typ</label>
+                <select
+                  id="slr-schulformTyp"
                   name="schulformTyp"
-                  list="schulformTypen"
-                  placeholder="z.B. Berufskolleg Vollzeit"
                   required
-                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-[15px] min-h-[44px]"
-                />
-                <datalist id="schulformTypen">
+                  defaultValue=""
+                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-[15px] min-h-[44px] bg-white"
+                >
+                  <option value="">Bitte waehlen ...</option>
                   {schulformTypen.map((typ) => (
-                    <option key={typ} value={typ} />
+                    <option key={typ} value={typ} disabled={vorhandeneTypen.has(typ)}>
+                      {typ}
+                    </option>
                   ))}
-                </datalist>
+                </select>
                 <p className="text-xs text-[#6B7280] mt-1">
-                  Muss zeichengenau dem Typ der Schulstufe entsprechen (Einstellungen → Schulstufen).
+                  Nur Typen aktiver Schulstufen (Einstellungen → Schulstufen); bereits belegte Typen sind ausgegraut.
                 </p>
               </div>
               <div>
@@ -169,6 +221,38 @@ export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, def
             </div>
           </form>
         </Card>
+      )}
+
+      {/* Luecken-Hinweis: Typen aktiver Schulstufen ohne SLR-Wert — daran scheitert die Berechnung */}
+      {fehlendeTypen.length > 0 && selectedSj && (
+        <div role="status" aria-live="polite" className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 text-sm text-[#575756]">
+          {echtFehlendeTypen.length > 0 && (
+            <>
+              <p>
+                Fuer diese Schulstufen-Typen fehlt im Schuljahr {selectedSj.bezeichnung} noch ein SLR-Wert:{" "}
+                <strong>{echtFehlendeTypen.join(", ")}</strong>.
+              </p>
+              {selectedSj.vorgaengerBezeichnung ? (
+                <form action={(fd) => handleAction(uebernehmeSlrAusVorjahrAction, fd)} className="mt-2">
+                  <input type="hidden" name="schuljahrId" value={selectedSj.id} />
+                  <Button type="submit" variant="secondary" size="sm" disabled={saving}>
+                    {saving ? "Uebernehme..." : `Fehlende Werte aus ${selectedSj.vorgaengerBezeichnung} uebernehmen`}
+                  </Button>
+                </form>
+              ) : (
+                <p className="mt-1 text-[#6B7280]">
+                  Kein Vorgaenger-Schuljahr vorhanden — bitte die Werte ueber &quot;+ Neuen SLR-Wert&quot; anlegen.
+                </p>
+              )}
+            </>
+          )}
+          {nullWertTypen.length > 0 && (
+            <p className={echtFehlendeTypen.length > 0 ? "mt-2" : undefined}>
+              Wert 0 fuer <strong>{nullWertTypen.join(", ")}</strong> — die Berechnung wertet das als fehlend.
+              Bitte ueber &quot;Bearbeiten&quot; korrigieren.
+            </p>
+          )}
+        </div>
       )}
 
       {/* HISTORIE-ANSICHT */}
@@ -293,7 +377,19 @@ export function SlrClient({ schuljahre, slrBySchuljahr, historieBySchuljahr, def
                   ) : (
                     /* ANZEIGE-MODUS */
                     <tr key={slr.id} className={i % 2 === 0 ? "bg-white" : "bg-[#F9FAFB]"}>
-                      <td className="py-3 px-4 text-[15px] font-medium">{slr.schulformTyp}</td>
+                      <td className="py-3 px-4 text-[15px] font-medium">
+                        <span className="inline-flex items-center gap-2 flex-wrap">
+                          {slr.schulformTyp}
+                          {verwaisteTypen.has(normalisiereSchulformTyp(slr.schulformTyp)) && (
+                            <span
+                              title={VERWAIST_TOOLTIP}
+                              className="text-xs font-medium border border-[#E2001A] text-[#E2001A] rounded px-1.5 py-0.5"
+                            >
+                              Keiner Schulstufe zugeordnet
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       <td className="py-3 px-4 text-[15px] text-right tabular-nums font-bold">
                         {Number(slr.relation).toLocaleString("de-DE", {
                           minimumFractionDigits: 2,
