@@ -34,7 +34,7 @@ import {
   statistikCodes,
   auditLog,
 } from "@/db/schema";
-import { eq, and, desc, asc, sql, inArray, gte, lte, lt, isNull } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, gte, lte, isNull } from "drizzle-orm";
 import {
   baueUebernahmeQuelle,
   filterUebernehmbareSlrWerte,
@@ -201,23 +201,6 @@ export async function getSchulStufenBySchule(schuleId: number) {
     .orderBy(asc(schulStufen.stufe));
 }
 
-export async function getAllSchulStufen() {
-  return db
-    .select({
-      id: schulStufen.id,
-      schuleId: schulStufen.schuleId,
-      stufe: schulStufen.stufe,
-      schulformTyp: schulStufen.schulformTyp,
-      aktiv: schulStufen.aktiv,
-      schulKurzname: schulen.kurzname,
-      schulFarbe: schulen.farbe,
-    })
-    .from(schulStufen)
-    .innerJoin(schulen, eq(schulStufen.schuleId, schulen.id))
-    .where(eq(schulStufen.aktiv, true))
-    .orderBy(asc(schulen.kurzname), asc(schulStufen.stufe));
-}
-
 export async function getAlleSchulStufenAdmin() {
   return db
     .select({
@@ -328,13 +311,13 @@ export async function getBenoetigteSchulStufen() {
 // SCHULJAHRE
 // ============================================================
 
+/**
+ * Alle Schuljahre, neuestes zuerst. Auch die Grundlage fuer den Vorgaenger eines
+ * Schuljahres (findeVorgaengerSchuljahr in schuljahrZuordnung.ts) — die Regel
+ * liegt bewusst nur einmal in TS, nicht zusaetzlich als SQL.
+ */
 export async function getSchuljahre() {
   return db.select().from(schuljahre).orderBy(desc(schuljahre.bezeichnung));
-}
-
-export async function getSchuljahrById(id: number) {
-  const [result] = await db.select().from(schuljahre).where(eq(schuljahre.id, id));
-  return result ?? null;
 }
 
 /**
@@ -390,10 +373,13 @@ export async function uebernehmeFehlendeSlrWerte(params: {
   benutzer: string;
 }): Promise<Array<{ schulformTyp: string; relation: string }>> {
   return db.transaction(async (tx) => {
+    // Nach id, damit bei Leerzeichen-Duplikaten im Vorgaenger deterministisch die
+    // zuerst angelegte Vorlage gewinnt (filterUebernehmbareSlrWerte: "die erste gewinnt")
     const vorlagen = await tx
       .select()
       .from(slrWerte)
-      .where(eq(slrWerte.schuljahrId, params.vonSchuljahrId));
+      .where(eq(slrWerte.schuljahrId, params.vonSchuljahrId))
+      .orderBy(asc(slrWerte.id));
     const vorhandene = await tx
       .select({ schulformTyp: slrWerte.schulformTyp })
       .from(slrWerte)
@@ -420,17 +406,6 @@ export async function uebernehmeFehlendeSlrWerte(params: {
       .returning({ schulformTyp: slrWerte.schulformTyp, relation: slrWerte.relation });
     return eingefuegt;
   });
-}
-
-/** Zuletzt begonnenes Schuljahr vor dem gegebenen Startdatum — dieselbe Datumslogik wie die Berechnung. */
-export async function getVorgaengerSchuljahr(startDatum: string) {
-  const [result] = await db
-    .select()
-    .from(schuljahre)
-    .where(lt(schuljahre.startDatum, startDatum))
-    .orderBy(desc(schuljahre.startDatum))
-    .limit(1);
-  return result ?? null;
 }
 
 export async function updateSchuljahrAktiv(id: number, aktiv: boolean) {

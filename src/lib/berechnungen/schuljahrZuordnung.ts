@@ -122,8 +122,10 @@ export function ermittleVerwaisteSlrTypen(
 }
 
 /**
- * Zuletzt begonnenes Schuljahr vor dem gegebenen Startdatum — dieselbe Logik
- * wie getVorgaengerSchuljahr in queries.ts, nur ohne DB.
+ * Zuletzt begonnenes Schuljahr vor dem gegebenen Startdatum (Grenze exklusiv).
+ * Bei gleichem Startdatum gewinnt die hoehere id — deterministisch, unabhaengig
+ * von der Eingabereihenfolge. Einzige Stelle, die den Vorgaenger bestimmt:
+ * SLR-Seite, Vorjahres-Uebernahme und Schuljahr-Anlage entscheiden darueber.
  */
 export function findeVorgaengerSchuljahr<T extends SchuljahrRef>(
   schuljahre: T[],
@@ -131,7 +133,14 @@ export function findeVorgaengerSchuljahr<T extends SchuljahrRef>(
 ): T | null {
   let treffer: T | null = null;
   for (const sj of schuljahre) {
-    if (sj.startDatum < startDatum && (!treffer || sj.startDatum > treffer.startDatum)) treffer = sj;
+    if (sj.startDatum >= startDatum) continue;
+    if (
+      !treffer ||
+      sj.startDatum > treffer.startDatum ||
+      (sj.startDatum === treffer.startDatum && sj.id > treffer.id)
+    ) {
+      treffer = sj;
+    }
   }
   return treffer;
 }
@@ -170,8 +179,9 @@ export function baueUebernahmeQuelle(vonBezeichnung: string, originalQuelle: str
   const restLaenge = 200 - zusatz.length - 3;
   // Traegt die Originalquelle selbst schon einen Uebernahme-Vermerk (Wert wurde im Vorjahr
   // uebernommen), faellt er weg — sonst waechst die Quelle mit jedem Schuljahreswechsel
-  // um ein weiteres "uebernommen aus … | ".
-  const kern = originalQuelle?.replace(UEBERNAHME_VERMERK_PREFIX, "").trim() || null;
+  // um ein weiteres "uebernommen aus … | ". Erst trimmen: der Vermerk-Anker (^) muss auch
+  // bei fuehrendem Leerzeichen aus Altdaten greifen.
+  const kern = originalQuelle?.trim().replace(UEBERNAHME_VERMERK_PREFIX, "").trim() || null;
   return kern ? `${zusatz} | ${kern.slice(0, restLaenge)}` : zusatz;
 }
 

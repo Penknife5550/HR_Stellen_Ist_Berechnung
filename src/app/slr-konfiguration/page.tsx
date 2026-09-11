@@ -110,7 +110,7 @@ export default async function SlrKonfigurationPage() {
       <SlrClient
         schuljahre={schuljahre.map((sj) => {
           // Vorgaenger fuer "Fehlende Werte uebernehmen" und die Vorbelegung im Neu-Formular —
-          // dieselbe Datumslogik wie getVorgaengerSchuljahr
+          // dieselbe Funktion wie uebernehmeSlrAusVorjahrAction und createSchuljahrAction
           const vorgaenger = findeVorgaengerSchuljahr(schuljahre, sj.startDatum);
           return {
             id: sj.id,

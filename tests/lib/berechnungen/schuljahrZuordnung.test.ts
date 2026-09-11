@@ -248,6 +248,15 @@ describe("findeVorgaengerSchuljahr", () => {
   it("ist unabhaengig von der Reihenfolge der Eingabe", () => {
     expect(findeVorgaengerSchuljahr([...schuljahre].reverse(), "2026-08-01")?.id).toBe(2);
   });
+
+  it("nimmt bei identischem Startdatum die hoehere id — unabhaengig von der Eingabereihenfolge", () => {
+    const doppelt = [
+      ...schuljahre,
+      { id: 7, bezeichnung: "2025/2026 (Duplikat)", startDatum: "2025-08-01", endDatum: "2026-07-31" },
+    ];
+    expect(findeVorgaengerSchuljahr(doppelt, "2026-08-01")?.id).toBe(7);
+    expect(findeVorgaengerSchuljahr([...doppelt].reverse(), "2026-08-01")?.id).toBe(7);
+  });
 });
 
 describe("filterUebernehmbareSlrWerte", () => {
@@ -364,6 +373,12 @@ describe("baueUebernahmeQuelle", () => {
   it("liefert nur den neuen Vermerk, wenn die Originalquelle nur aus einem Vermerk bestand", () => {
     expect(baueUebernahmeQuelle("2026/2027", "uebernommen aus 2025/2026 — pruefen")).toBe(
       "uebernommen aus 2026/2027 — pruefen"
+    );
+  });
+
+  it("ersetzt den alten Vermerk auch bei fuehrendem Leerzeichen (Altdaten, Freitext-Eingabe)", () => {
+    expect(baueUebernahmeQuelle("2026/2027", "  uebernommen aus 2025/2026 — pruefen | § 8 VO ")).toBe(
+      "uebernommen aus 2026/2027 — pruefen | § 8 VO"
     );
   });
 });

@@ -9,13 +9,13 @@ import { requireWriteAccess } from "@/lib/auth/permissions";
 import {
   getAlleSchulStufen,
   getBenoetigteSchulStufen,
-  getSchuljahrById,
-  getVorgaengerSchuljahr,
+  getSchuljahre,
   uebernehmeFehlendeSlrWerte,
 } from "@/lib/db/queries";
 import {
   ermittleBenoetigteSchulformTypen,
   ermittleZulaessigeSchulformTypen,
+  findeVorgaengerSchuljahr,
   normalisiereSchulformTyp,
 } from "@/lib/berechnungen/schuljahrZuordnung";
 import { z } from "zod";
@@ -31,10 +31,13 @@ const relationSchema = z
   .pipe(z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, "Format: z.B. 18.63 oder 21,95"))
   .refine((v) => Number(v) > 0, "Schueler je Stelle muss groesser als 0 sein.");
 
+/** Quelle / Rechtsgrundlage: Spaltenlaenge 200 (slr_werte.quelle), leer -> undefined (siehe Actions). */
+const quelleSchema = z.string().max(200, "Quelle darf hoechstens 200 Zeichen haben.").optional();
+
 const slrUpdateSchema = z.object({
   id: z.number().int().positive(),
   relation: relationSchema,
-  quelle: z.string().max(200).optional(),
+  quelle: quelleSchema,
   grund: z.string().min(1, "Aenderungsgrund ist erforderlich.").max(500),
 });
 
@@ -42,7 +45,7 @@ const slrCreateSchema = z.object({
   schuljahrId: z.number().int().positive(),
   schulformTyp: z.string().min(1, "Schulform-Typ erforderlich.").max(50),
   relation: relationSchema,
-  quelle: z.string().max(200).optional(),
+  quelle: quelleSchema,
 });
 
 /**
@@ -80,7 +83,7 @@ export async function updateSlrWertAction(formData: FormData) {
   const raw = {
     id: Number(formData.get("id")),
     relation: String(formData.get("relation") ?? ""),
-    quelle: String(formData.get("quelle") ?? "") || undefined,
+    quelle: String(formData.get("quelle") ?? "").trim() || undefined,
     grund: String(formData.get("grund") ?? ""),
   };
 
@@ -161,7 +164,7 @@ export async function createSlrWertAction(formData: FormData) {
     schuljahrId: Number(formData.get("schuljahrId")),
     schulformTyp: String(formData.get("schulformTyp") ?? "").trim(),
     relation: String(formData.get("relation") ?? ""),
-    quelle: String(formData.get("quelle") ?? "") || undefined,
+    quelle: String(formData.get("quelle") ?? "").trim() || undefined,
   };
 
   const parsed = slrCreateSchema.safeParse(raw);
@@ -211,9 +214,12 @@ export async function createSlrWertAction(formData: FormData) {
     return { error: "Fehler beim Anlegen des SLR-Werts." };
   }
 
+  // schuljahrId und quelle mitschreiben — wie beim DELETE-Audit
   await writeAuditLog("slr_werte", createdId, "INSERT", null, {
+    schuljahrId: parsed.data.schuljahrId,
     schulformTyp,
     relation: parsed.data.relation,
+    quelle: parsed.data.quelle ?? null,
   }, session.name);
 
   revalidateSlrPfade();
@@ -284,12 +290,15 @@ export async function uebernehmeSlrAusVorjahrAction(formData: FormData) {
     return { error: "Ungueltiges Schuljahr." };
   }
 
-  const ziel = await getSchuljahrById(schuljahrId);
+  // Ziel und Vorgaenger aus derselben Liste — die Seite (page.tsx) entscheidet ueber
+  // dieselbe Funktion, welcher Vorgaenger im Button steht
+  const alle = await getSchuljahre();
+  const ziel = alle.find((sj) => sj.id === schuljahrId);
   if (!ziel) {
     return { error: "Schuljahr nicht gefunden." };
   }
 
-  const vorgaenger = await getVorgaengerSchuljahr(ziel.startDatum);
+  const vorgaenger = findeVorgaengerSchuljahr(alle, ziel.startDatum);
   if (!vorgaenger) {
     return { error: "Kein Vorgaenger-Schuljahr gefunden." };
   }
@@ -307,8 +316,9 @@ export async function uebernehmeSlrAusVorjahrAction(formData: FormData) {
       benutzer: session.name,
     });
   } catch (err: unknown) {
-    // Zwei parallele Uebernahmen (zwei Tabs/Nutzer): die zweite scheitert an slr_werte_unique,
-    // die Daten der ersten sind korrekt — nur die Seite muss neu geladen werden.
+    // Parallele Uebernahmen (zwei Tabs/Nutzer) faengt uebernehmeFehlendeSlrWerte per
+    // ON CONFLICT DO NOTHING ab; der Catch bleibt als Absicherung fuer sonstige
+    // Unique-Verletzungen — die Daten sind dann korrekt, nur die Seite ist veraltet.
     if (istUniqueVerletzung(err)) {
       revalidateSlrPfade();
       return { error: "Die SLR-Werte wurden gerade parallel angelegt — bitte Seite neu laden und pruefen." };
@@ -317,10 +327,12 @@ export async function uebernehmeSlrAusVorjahrAction(formData: FormData) {
     return { error: "Fehler beim Uebernehmen der SLR-Werte." };
   }
 
+  // Audit unter dem Schuljahr (datensatzId = ziel.id), wie bei createSchuljahrAction —
+  // die einzelnen slr_werte-Ids liegen nach dem Batch-Insert nicht vor
   if (uebernommen.length > 0) {
-    await writeAuditLog("slr_werte", ziel.id, "INSERT", null, {
-      uebernommenAus: vorgaenger.bezeichnung,
-      werte: uebernommen,
+    await writeAuditLog("schuljahre", ziel.id, "UPDATE", null, {
+      slrUebernommenAus: vorgaenger.bezeichnung,
+      slrWerte: uebernommen,
     }, session.name);
   }
 
@@ -329,7 +341,9 @@ export async function uebernehmeSlrAusVorjahrAction(formData: FormData) {
   if (uebernommen.length === 0) {
     return {
       success: true,
-      message: `Keine fehlenden Werte, die aus ${vorgaenger.bezeichnung} uebernommen werden koennten.`,
+      message:
+        `Keine fehlenden Werte, die aus ${vorgaenger.bezeichnung} uebernommen werden koennten — ` +
+        'fehlende Typen bitte ueber "+ Neuen SLR-Wert" anlegen.',
     };
   }
   return {

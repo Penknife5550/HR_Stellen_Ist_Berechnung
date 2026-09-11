@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { eq } from "drizzle-orm";
+import { slrWerte } from "@/db/schema";
 
 // Mocks muessen vor den Imports stehen
 const revalidatePathMock = vi.fn();
@@ -16,27 +18,39 @@ vi.mock("@/lib/audit", () => ({
 
 const getAlleSchulStufenMock = vi.fn();
 const getBenoetigteSchulStufenMock = vi.fn();
-const getSchuljahrByIdMock = vi.fn();
-const getVorgaengerSchuljahrMock = vi.fn();
+const getSchuljahreMock = vi.fn();
 const uebernehmeFehlendeSlrWerteMock = vi.fn();
 vi.mock("@/lib/db/queries", () => ({
   getAlleSchulStufen: (...args: unknown[]) => getAlleSchulStufenMock(...args),
   getBenoetigteSchulStufen: (...args: unknown[]) => getBenoetigteSchulStufenMock(...args),
-  getSchuljahrById: (...args: unknown[]) => getSchuljahrByIdMock(...args),
-  getVorgaengerSchuljahr: (...args: unknown[]) => getVorgaengerSchuljahrMock(...args),
+  getSchuljahre: (...args: unknown[]) => getSchuljahreMock(...args),
   uebernehmeFehlendeSlrWerte: (...args: unknown[]) => uebernehmeFehlendeSlrWerteMock(...args),
 }));
 
 // db.select().from().where() fuer Duplikat-Pruefung, Laden und Historie-Zaehlung,
-// db.insert().values().returning() fuer das Anlegen, db.delete().where() fuer das Loeschen
+// db.insert().values().returning() fuer das Anlegen, db.delete().where() fuer das Loeschen,
+// db.transaction(tx => ...) mit tx.insert().values() (Historie) und tx.update().set().where() (Bearbeiten)
 const dbSelectMock = vi.fn();
+const dbWhereMock = vi.fn();
 const dbInsertValuesMock = vi.fn();
 const dbDeleteWhereMock = vi.fn();
+const txInsertValuesMock = vi.fn();
+const txUpdateSetMock = vi.fn();
 vi.mock("@/db", () => ({
   db: {
     select: (...args: unknown[]) => dbSelectMock(...args),
     insert: () => ({ values: (...args: unknown[]) => dbInsertValuesMock(...args) }),
     delete: () => ({ where: (...args: unknown[]) => dbDeleteWhereMock(...args) }),
+    transaction: (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        insert: () => ({ values: (...args: unknown[]) => txInsertValuesMock(...args) }),
+        update: () => ({
+          set: (...args: unknown[]) => {
+            txUpdateSetMock(...args);
+            return { where: () => Promise.resolve(undefined) };
+          },
+        }),
+      }),
   },
 }));
 
@@ -72,12 +86,21 @@ const alleSchulStufen = [
   { id: 5, schuleId: 3, stufe: "Primarstufe", schulformTyp: "Grundschule", aktiv: false },
 ];
 
+const sj2425 = { id: 1, bezeichnung: "2024/2025", startDatum: "2024-08-01", endDatum: "2025-07-31", aktiv: false };
 const sj2526 = { id: 2, bezeichnung: "2025/2026", startDatum: "2025-08-01", endDatum: "2026-07-31", aktiv: true };
 const sj2627 = { id: 3, bezeichnung: "2026/2027", startDatum: "2026-08-01", endDatum: "2027-07-31", aktiv: false };
+const sj2728 = { id: 4, bezeichnung: "2027/2028", startDatum: "2027-08-01", endDatum: "2028-07-31", aktiv: false };
 
-/** Ergebnis fuer einen db.select(...).from(...).where(...)-Aufruf */
+/** Ergebnis fuer einen db.select(...).from(...).where(...)-Aufruf; where() wird zur Pruefung erfasst */
 function selectErgebnis(rows: unknown[]) {
-  return { from: () => ({ where: () => Promise.resolve(rows) }) };
+  return {
+    from: () => ({
+      where: (...args: unknown[]) => {
+        dbWhereMock(...args);
+        return Promise.resolve(rows);
+      },
+    }),
+  };
 }
 
 beforeEach(() => {
@@ -85,10 +108,13 @@ beforeEach(() => {
   requireWriteAccessMock.mockResolvedValue({ name: "TestUser", rolle: "mitarbeiter" });
   getAlleSchulStufenMock.mockResolvedValue(alleSchulStufen);
   getBenoetigteSchulStufenMock.mockResolvedValue(benoetigteSchulStufen);
+  // Default: zwei Schuljahre, neuestes zuerst (wie getSchuljahre: bezeichnung DESC)
+  getSchuljahreMock.mockResolvedValue([sj2627, sj2526]);
   // Default: keine vorhandenen SLR-Werte im Schuljahr
   dbSelectMock.mockReturnValue(selectErgebnis([]));
   dbInsertValuesMock.mockReturnValue({ returning: () => Promise.resolve([{ id: 42 }]) });
   dbDeleteWhereMock.mockResolvedValue(undefined);
+  txInsertValuesMock.mockResolvedValue(undefined);
 });
 
 function fd(entries: Record<string, string>): FormData {
@@ -157,16 +183,44 @@ describe("createSlrWertAction", () => {
       }),
     );
     expect(writeAuditLogMock).toHaveBeenCalledTimes(1);
+    // schuljahrId und quelle wie beim DELETE-Audit — sonst ist der Bezug spaeter nicht rekonstruierbar
     expect(writeAuditLogMock).toHaveBeenCalledWith(
       "slr_werte", 42, "INSERT", null,
-      { schulformTyp: "Gymnasium Sek II", relation: "12.70" },
+      { schuljahrId: 3, schulformTyp: "Gymnasium Sek II", relation: "12.70", quelle: "§ 8 VO" },
       "TestUser",
     );
     expect(revalidatePathMock).toHaveBeenCalledWith("/slr-konfiguration");
     expect(revalidatePathMock).toHaveBeenCalledWith("/stellensoll");
   });
 
-  it("meldet ein Duplikat (normalisiert verglichen) ohne Insert", async () => {
+  it("speichert die Quelle getrimmt (Insert und Audit)", async () => {
+    await createSlrWertAction(
+      fd({ schuljahrId: "3", schulformTyp: "Gymnasium Sek II", relation: "12,70", quelle: "  § 8 VO  " }),
+    );
+    expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({ quelle: "§ 8 VO" }));
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      "slr_werte", 42, "INSERT", null, expect.objectContaining({ quelle: "§ 8 VO" }), "TestUser",
+    );
+  });
+
+  it("speichert eine nur aus Leerzeichen bestehende Quelle als null", async () => {
+    await createSlrWertAction(
+      fd({ schuljahrId: "3", schulformTyp: "Gymnasium Sek II", relation: "12,70", quelle: "   " }),
+    );
+    expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({ quelle: null }));
+  });
+
+  it("lehnt eine Quelle mit 201 Zeichen mit deutscher Meldung ab, ohne DB-Zugriff", async () => {
+    const result = await createSlrWertAction(
+      fd({ schuljahrId: "3", schulformTyp: "Gymnasium Sek II", relation: "12,70", quelle: "x".repeat(201) }),
+    );
+    expect(result).toEqual({ error: "Quelle darf hoechstens 200 Zeichen haben." });
+    expect(getAlleSchulStufenMock).not.toHaveBeenCalled();
+    expect(dbSelectMock).not.toHaveBeenCalled();
+    expect(dbInsertValuesMock).not.toHaveBeenCalled();
+  });
+
+  it("meldet ein Duplikat (normalisiert verglichen) ohne Insert — Pruefung laeuft ueber das Ziel-Schuljahr", async () => {
     dbSelectMock.mockReturnValueOnce(
       selectErgebnis([{ id: 7, schuljahrId: 3, schulformTyp: "Gymnasium Sek II ", relation: "12.70" }]),
     );
@@ -174,6 +228,9 @@ describe("createSlrWertAction", () => {
       fd({ schuljahrId: "3", schulformTyp: "Gymnasium Sek II", relation: "13,00" }),
     );
     expect(result).toEqual({ error: 'SLR fuer "Gymnasium Sek II" existiert bereits in diesem Schuljahr.' });
+    // Drizzle-SQL-Objekte werden strukturell verglichen
+    expect(dbWhereMock).toHaveBeenCalledTimes(1);
+    expect(dbWhereMock).toHaveBeenCalledWith(eq(slrWerte.schuljahrId, 3));
     expect(dbInsertValuesMock).not.toHaveBeenCalled();
     expect(writeAuditLogMock).not.toHaveBeenCalled();
   });
@@ -232,10 +289,60 @@ describe("createSlrWertAction", () => {
 });
 
 describe("updateSlrWertAction", () => {
+  const bestand = {
+    id: 7,
+    schuljahrId: 3,
+    schulformTyp: "Gymnasium Sek II",
+    relation: "12.70",
+    quelle: "§ 8 VO",
+    geaendertVon: "TestUser",
+  };
+
   it("lehnt Relation 0 auch beim Bearbeiten ab, ohne DB-Zugriff", async () => {
     const result = await updateSlrWertAction(fd({ id: "7", relation: "0,00", grund: "Test" }));
     expect(result).toEqual({ error: "Schueler je Stelle muss groesser als 0 sein." });
     expect(dbSelectMock).not.toHaveBeenCalled();
+    expect(writeAuditLogMock).not.toHaveBeenCalled();
+  });
+
+  it("lehnt eine Quelle mit 201 Zeichen mit deutscher Meldung ab, ohne DB-Zugriff", async () => {
+    const result = await updateSlrWertAction(
+      fd({ id: "7", relation: "13,00", quelle: "x".repeat(201), grund: "Test" }),
+    );
+    expect(result).toEqual({ error: "Quelle darf hoechstens 200 Zeichen haben." });
+    expect(dbSelectMock).not.toHaveBeenCalled();
+    expect(txUpdateSetMock).not.toHaveBeenCalled();
+    expect(writeAuditLogMock).not.toHaveBeenCalled();
+  });
+
+  it("speichert die Quelle getrimmt — in Historie, Wert und Audit", async () => {
+    dbSelectMock.mockReturnValueOnce(selectErgebnis([bestand]));
+    const result = await updateSlrWertAction(
+      fd({ id: "7", relation: "13,00", quelle: "  Bewirtschaftungserlass 2026/27  ", grund: "Erlass" }),
+    );
+    expect(result).toEqual({
+      success: true,
+      message: 'SLR fuer "Gymnasium Sek II" von 12.70 auf 13.00 geaendert.',
+    });
+    expect(txInsertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ slrWertId: 7, quelleAlt: "§ 8 VO", quelleNeu: "Bewirtschaftungserlass 2026/27" }),
+    );
+    expect(txUpdateSetMock).toHaveBeenCalledWith(
+      expect.objectContaining({ relation: "13.00", quelle: "Bewirtschaftungserlass 2026/27", geaendertVon: "TestUser" }),
+    );
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      "slr_werte", 7, "UPDATE",
+      { relation: "12.70", quelle: "§ 8 VO" },
+      { relation: "13.00", quelle: "Bewirtschaftungserlass 2026/27", grund: "Erlass" },
+      "TestUser",
+    );
+  });
+
+  it("wertet eine nur um Leerzeichen abweichende Quelle bei gleicher Relation als 'Keine Aenderung'", async () => {
+    dbSelectMock.mockReturnValueOnce(selectErgebnis([bestand]));
+    const result = await updateSlrWertAction(fd({ id: "7", relation: "12,70", quelle: " § 8 VO ", grund: "Test" }));
+    expect(result).toEqual({ error: "Keine Aenderung vorgenommen." });
+    expect(txUpdateSetMock).not.toHaveBeenCalled();
     expect(writeAuditLogMock).not.toHaveBeenCalled();
   });
 });
@@ -332,8 +439,7 @@ describe("uebernehmeSlrAusVorjahrAction", () => {
   it("blockt ohne Schreibrecht (requireWriteAccess rejected) und greift nicht auf die DB zu", async () => {
     requireWriteAccessMock.mockRejectedValueOnce(new Error("Nicht autorisiert."));
     await expect(uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }))).rejects.toThrow();
-    expect(getSchuljahrByIdMock).not.toHaveBeenCalled();
-    expect(getVorgaengerSchuljahrMock).not.toHaveBeenCalled();
+    expect(getSchuljahreMock).not.toHaveBeenCalled();
     expect(uebernehmeFehlendeSlrWerteMock).not.toHaveBeenCalled();
     expect(writeAuditLogMock).not.toHaveBeenCalled();
   });
@@ -341,29 +447,36 @@ describe("uebernehmeSlrAusVorjahrAction", () => {
   it("liefert Fehler bei ungueltiger Schuljahr-ID", async () => {
     const result = await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "x" }));
     expect(result).toEqual({ error: "Ungueltiges Schuljahr." });
-    expect(getSchuljahrByIdMock).not.toHaveBeenCalled();
+    expect(getSchuljahreMock).not.toHaveBeenCalled();
   });
 
   it("liefert Fehler, wenn das Schuljahr nicht existiert", async () => {
-    getSchuljahrByIdMock.mockResolvedValueOnce(null);
     const result = await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "99" }));
     expect(result).toEqual({ error: "Schuljahr nicht gefunden." });
+    expect(getSchuljahreMock).toHaveBeenCalledTimes(1);
     expect(uebernehmeFehlendeSlrWerteMock).not.toHaveBeenCalled();
   });
 
-  it("liefert Fehler ohne Vorgaenger-Schuljahr", async () => {
-    getSchuljahrByIdMock.mockResolvedValueOnce(sj2627);
-    getVorgaengerSchuljahrMock.mockResolvedValueOnce(null);
+  it("liefert Fehler ohne Vorgaenger-Schuljahr — ein spaeter beginnendes Jahr zaehlt nicht", async () => {
+    getSchuljahreMock.mockResolvedValueOnce([sj2728, sj2627]);
     const result = await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }));
     expect(result).toEqual({ error: "Kein Vorgaenger-Schuljahr gefunden." });
-    expect(getVorgaengerSchuljahrMock).toHaveBeenCalledWith("2026-08-01");
     expect(uebernehmeFehlendeSlrWerteMock).not.toHaveBeenCalled();
     expect(writeAuditLogMock).not.toHaveBeenCalled();
   });
 
-  it("uebernimmt n Werte: Meldung nennt Anzahl und Vorgaenger, Audit-Log genau einmal", async () => {
-    getSchuljahrByIdMock.mockResolvedValueOnce(sj2627);
-    getVorgaengerSchuljahrMock.mockResolvedValueOnce(sj2526);
+  it("bestimmt den Vorgaenger ueber findeVorgaengerSchuljahr: das zuletzt begonnene Jahr VOR dem Ziel, nicht das neueste", async () => {
+    getSchuljahreMock.mockResolvedValueOnce([sj2728, sj2627, sj2526, sj2425]);
+    uebernehmeFehlendeSlrWerteMock.mockResolvedValueOnce([]);
+
+    await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }));
+
+    expect(uebernehmeFehlendeSlrWerteMock).toHaveBeenCalledWith(
+      expect.objectContaining({ zielSchuljahrId: 3, vonSchuljahrId: 2, vonBezeichnung: "2025/2026" }),
+    );
+  });
+
+  it("uebernimmt n Werte: Meldung nennt Anzahl und Vorgaenger, Audit-Log genau einmal unter 'schuljahre'", async () => {
     const werte = [
       { schulformTyp: "Gesamtschule Sek I", relation: "18.63" },
       { schulformTyp: "Gymnasium Sek I (G9)", relation: "19.87" },
@@ -384,9 +497,10 @@ describe("uebernehmeSlrAusVorjahrAction", () => {
       benutzer: "TestUser",
     });
     expect(writeAuditLogMock).toHaveBeenCalledTimes(1);
+    // Audit am Schuljahr (wie createSchuljahrAction) — datensatzId ist die Schuljahr-Id, kein slr_werte-Datensatz
     expect(writeAuditLogMock).toHaveBeenCalledWith(
-      "slr_werte", 3, "INSERT", null,
-      { uebernommenAus: "2025/2026", werte },
+      "schuljahre", 3, "UPDATE", null,
+      { slrUebernommenAus: "2025/2026", slrWerte: werte },
       "TestUser",
     );
     expect(revalidatePathMock).toHaveBeenCalledWith("/slr-konfiguration");
@@ -394,8 +508,6 @@ describe("uebernehmeSlrAusVorjahrAction", () => {
   });
 
   it("uebergibt nur benoetigte Typen — der Typ einer inaktiven Stufe (Grundschule) wird NICHT kopiert", async () => {
-    getSchuljahrByIdMock.mockResolvedValueOnce(sj2627);
-    getVorgaengerSchuljahrMock.mockResolvedValueOnce(sj2526);
     uebernehmeFehlendeSlrWerteMock.mockResolvedValueOnce([]);
 
     await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }));
@@ -407,23 +519,23 @@ describe("uebernehmeSlrAusVorjahrAction", () => {
     expect(benoetigteTypen).toEqual(["Gesamtschule Sek I", "Gesamtschule Sek II", "Gymnasium Sek I (G9)", "Gymnasium Sek II"]);
   });
 
-  it("meldet 0 kopierte Werte als Erfolg mit Hinweis, ohne Audit-Log", async () => {
-    getSchuljahrByIdMock.mockResolvedValueOnce(sj2627);
-    getVorgaengerSchuljahrMock.mockResolvedValueOnce(sj2526);
+  it("meldet 0 kopierte Werte als Erfolg mit Hinweis auf '+ Neuen SLR-Wert', ohne Audit-Log", async () => {
     uebernehmeFehlendeSlrWerteMock.mockResolvedValueOnce([]);
 
     const result = await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }));
 
     expect(result).toEqual({
       success: true,
-      message: "Keine fehlenden Werte, die aus 2025/2026 uebernommen werden koennten.",
+      message:
+        "Keine fehlenden Werte, die aus 2025/2026 uebernommen werden koennten — " +
+        'fehlende Typen bitte ueber "+ Neuen SLR-Wert" anlegen.',
     });
     expect(writeAuditLogMock).not.toHaveBeenCalled();
   });
 
-  it("uebersetzt eine parallele Uebernahme (slr_werte_unique, 23505 in .cause) in eine deutsche Meldung", async () => {
-    getSchuljahrByIdMock.mockResolvedValueOnce(sj2627);
-    getVorgaengerSchuljahrMock.mockResolvedValueOnce(sj2526);
+  it("sonstige Unique-Verletzung (23505) in der Uebernahme wird deutsch gemeldet", async () => {
+    // Parallele Uebernahmen schliesst uebernehmeFehlendeSlrWerte per ON CONFLICT DO NOTHING aus;
+    // der Catch bleibt als Absicherung
     uebernehmeFehlendeSlrWerteMock.mockRejectedValueOnce(drizzleUniqueError());
 
     const result = await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }));
@@ -439,8 +551,6 @@ describe("uebernehmeSlrAusVorjahrAction", () => {
 
   it("liefert bei sonstigen DB-Fehlern eine deutsche Meldung statt zu werfen", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    getSchuljahrByIdMock.mockResolvedValueOnce(sj2627);
-    getVorgaengerSchuljahrMock.mockResolvedValueOnce(sj2526);
     uebernehmeFehlendeSlrWerteMock.mockRejectedValueOnce(new Error("connection refused"));
 
     const result = await uebernehmeSlrAusVorjahrAction(fd({ schuljahrId: "3" }));

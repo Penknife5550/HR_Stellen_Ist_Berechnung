@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/permissions";
 import {
   createSchuljahr,
-  getVorgaengerSchuljahr,
+  getSchuljahre,
   updateSchuljahrAktiv,
   createHaushaltsjahr,
   updateHaushaltsjahrGesperrt,
@@ -29,6 +29,7 @@ import {
   safeFormNumber,
   safeFormString,
 } from "@/lib/validation";
+import { findeVorgaengerSchuljahr } from "@/lib/berechnungen/schuljahrZuordnung";
 import { writeAuditLog } from "@/lib/audit";
 
 // ============================================================
@@ -54,7 +55,8 @@ export async function createSchuljahrAction(formData: FormData) {
   try {
     // SLR-Werte des Vorgaengers uebernehmen: ohne sie scheitert die Stellensoll-
     // Berechnung fuer jeden Zeitraum, dessen Stichtag im neuen Schuljahr liegt.
-    const vorgaenger = await getVorgaengerSchuljahr(data.startDatum);
+    // Vorgaenger ueber dieselbe Funktion wie SLR-Seite und Vorjahres-Uebernahme.
+    const vorgaenger = findeVorgaengerSchuljahr(await getSchuljahre(), data.startDatum);
     const { schuljahr, uebernommen } = await createSchuljahr(
       data,
       vorgaenger

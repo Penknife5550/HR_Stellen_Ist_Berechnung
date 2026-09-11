@@ -13,6 +13,7 @@ import {
   ermittleFehlendeSlrTypen,
   ermittleSlrVorschlag,
   ermittleVerwaisteSlrTypen,
+  filterUebernehmbareSlrWerte,
   normalisiereSchulformTyp,
   type SlrVorschlag,
 } from "@/lib/berechnungen/schuljahrZuordnung";
@@ -114,6 +115,13 @@ export function SlrClient({
   // Dropdown gesperrt, Uebernahme ueberspringt ihn), zaehlt fuer die Berechnung aber als fehlend.
   const echtFehlendeTypen = fehlendeTypen.filter((typ) => !vorhandeneTypen.has(typ));
   const nullWertTypen = fehlendeTypen.filter((typ) => vorhandeneTypen.has(typ));
+  // Was die Uebernahme aus dem Vorgaenger tatsaechlich kopieren wuerde (dieselbe reine Funktion
+  // wie uebernehmeFehlendeSlrWerte) — der Button erscheint nur, wenn es etwas zu kopieren gibt.
+  // Fehlende Typen, fuer die der Vorgaenger keinen Wert > 0 hat, muessen neu angelegt werden.
+  const vorgaengerWerte = selectedSj?.vorgaengerId ? (slrBySchuljahr[selectedSj.vorgaengerId] ?? []) : [];
+  const uebernehmbar = filterUebernehmbareSlrWerte(vorgaengerWerte, slrWerte, benoetigteTypen);
+  const uebernehmbareTypen = new Set(uebernehmbar.map((v) => normalisiereSchulformTyp(v.schulformTyp)));
+  const nichtUebernehmbar = echtFehlendeTypen.filter((typ) => !uebernehmbareTypen.has(normalisiereSchulformTyp(typ)));
   const keinTypWaehlbarHinweis =
     zulaessigeTypen.length === 0
       ? "Keine Schulstufen vorhanden — bitte zuerst unter Einstellungen → Schulstufen anlegen."
@@ -125,7 +133,7 @@ export function SlrClient({
   function handleNeuTypChange(typ: string) {
     if (typ === neuFormular.schulformTyp) return;
     const vorgaenger = selectedSj?.vorgaengerId
-      ? { bezeichnung: selectedSj.vorgaengerBezeichnung ?? "", werte: slrBySchuljahr[selectedSj.vorgaengerId] ?? [] }
+      ? { bezeichnung: selectedSj.vorgaengerBezeichnung ?? "", werte: vorgaengerWerte }
       : null;
     const vorschlag = ermittleSlrVorschlag(typ, vorgaenger, SLR_DEFAULTS_2025_2026, SLR_DEFAULTS_QUELLE);
     setNeuFormular({ schulformTyp: typ, ...vorschlag });
@@ -333,6 +341,12 @@ export function SlrClient({
                     Kein Vorgaenger-Schuljahr vorhanden — bitte die Werte ueber &quot;+ Neuen SLR-Wert&quot; anlegen.
                   </p>
                 )}
+                {selectedSj.vorgaengerBezeichnung && nichtUebernehmbar.length > 0 && (
+                  <p className="mt-1 text-[#6B7280]">
+                    In {selectedSj.vorgaengerBezeichnung} ist fuer <strong>{nichtUebernehmbar.join(", ")}</strong> kein
+                    Wert (&gt; 0) hinterlegt — bitte ueber &quot;+ Neuen SLR-Wert&quot; anlegen.
+                  </p>
+                )}
               </>
             )}
             {nullWertTypen.length > 0 && (
@@ -343,8 +357,9 @@ export function SlrClient({
             )}
           </div>
           {/* Kein <form>: Dieser Block wird serverseitig gerendert — ein Klick vor der Hydration wuerde
-              als native GET-Navigation (?schuljahrId=...) landen. Ein type="button" tut ohne React nichts. */}
-          {echtFehlendeTypen.length > 0 && selectedSj.vorgaengerBezeichnung && (
+              als native GET-Navigation (?schuljahrId=...) landen. Ein type="button" tut ohne React nichts.
+              Nur wenn der Vorgaenger tatsaechlich kopierbare Werte hat — sonst liefe die Action ins Leere. */}
+          {uebernehmbar.length > 0 && selectedSj.vorgaengerBezeichnung && (
             <div className="mt-2">
               <Button
                 type="button"

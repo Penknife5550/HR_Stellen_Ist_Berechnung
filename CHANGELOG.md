@@ -10,83 +10,105 @@ Typ der Schulstufe und meldete weiter "Fehlende SLR-Werte". Ausserdem war
 2026/2027 vor dem Fix 171ca3d angelegt worden und hatte deshalb gar keine
 SLR-Werte (die Uebernahme aus dem Vorjahr greift nur beim Neuanlegen).
 
-- **Schulform-Typ ist ein Dropdown** mit den Typen der aktiven Schulstufen;
-  Typen, die im Schuljahr schon einen Wert haben, sind ausgegraut. Sind alle
-  belegt, ist "+ Neuen SLR-Wert" deaktiviert. Die datalist-Vorschlagsliste
-  (Freitext) entfaellt. (`SlrClient.tsx`)
+Zwei Typ-Mengen ziehen sich durch alles: **zulaessig** sind die Typen ALLER
+Schulstufen (auch inaktive und die inaktiver Schulen — eine deaktivierte Stufe
+kann am Stichtag noch Schuelerzahlen haben), **benoetigt** die Typen aktiver
+Stufen aktiver Schulen — genau die, fuer die die Berechnung sicher einen
+SLR-Wert braucht. Queries `getAlleSchulStufen`/`getBenoetigteSchulStufen`,
+Funktionen `ermittleZulaessigeSchulformTypen`/`ermittleBenoetigteSchulformTypen`.
+Die Berechnung selbst ist unveraendert.
+
+- **Schulform-Typ ist ein Dropdown** mit den zulaessigen Typen: benoetigte
+  zuerst, die uebrigen unter "Weitere Schulstufen (inaktiv oder inaktive
+  Schule)" (optgroup). Typen, die im Schuljahr schon einen Wert haben, sind
+  ausgegraut; sind alle belegt, ist "+ Neuen SLR-Wert" deaktiviert und der
+  Grund steht ohne Klick daneben. Die datalist-Vorschlagsliste (Freitext)
+  entfaellt. (`SlrClient.tsx`)
 - **Server-Validierung:** `createSlrWertAction` lehnt jeden Typ ab, der zu
-  keiner aktiven Schulstufe gehoert ("… gehoert zu keiner aktiven Schulstufe.
-  Bitte aus der Auswahl waehlen."). Duplikate werden normalisiert erkannt, eine
-  Unique-Constraint-Verletzung (`slr_werte_unique`) wird als deutsche Meldung
-  statt als 500 zurueckgegeben. Anlegen und Loeschen revalidieren jetzt auch
-  `/stellensoll`.
-- **Luecken-Hinweis ueber der Tabelle:** gelbe Box nennt die Typen aktiver
-  Schulstufen, fuer die im gewaehlten Schuljahr noch ein SLR-Wert fehlt —
-  genau die Typen, an denen die Berechnung scheitern wuerde.
-- **Button "Fehlende Werte aus <Vorgaenger> uebernehmen"** (neue Action
-  `uebernehmeSlrAusVorjahrAction`, Query `uebernehmeFehlendeSlrWerte`): kopiert
-  in einer Transaktion nur fehlende, benoetigte Typen aus dem Vorgaenger,
-  ueberschreibt nie, Quelle-Vermerk "uebernommen aus … — pruefen" wie beim
-  Neuanlegen, ein Audit-Log-Eintrag je Uebernahme. Fuer Schuljahre, die vor
-  der automatischen Uebernahme angelegt wurden.
-- **Rotes Badge "Keiner Schulstufe zugeordnet"** an Zeilen, deren Typ von
-  keiner aktiven Schulstufe verwendet wird (Tippfehler-Altlasten); Bearbeiten
-  und Loeschen bleiben moeglich.
-- Reine Hilfsfunktionen mit Tests in `schuljahrZuordnung.ts`
-  (`ermittleBenoetigteSchulformTypen`, `ermittleFehlendeSlrTypen`,
-  `ermittleVerwaisteSlrTypen`, `findeVorgaengerSchuljahr`,
-  `filterUebernehmbareSlrWerte`); Action-Tests in `tests/lib/slrActions.test.ts`.
-  `createSchuljahr` uebernimmt weiterhin alle Vorgaenger-Werte, nur der
-  Quelle-Vermerk wird jetzt ueber `baueUebernahmeQuelle` dedupliziert.
-- Review-Nachzug: Unique-Verletzung wird ueber die Fehlerkette (`err.cause`,
-  Drizzle wrappt in `DrizzleQueryError`) erkannt statt ueber die Meldung;
-  Uebernahme nutzt `ON CONFLICT DO NOTHING` und faengt parallele Klicks mit
-  deutscher Meldung ab, der Client sperrt Buttons bei einem Serverfehler nicht
-  mehr dauerhaft. Relation muss > 0 sein (Anlegen und Bearbeiten), 0-Vorlagen
-  werden nicht uebernommen, vorhandene 0-Altlasten nennt die Luecken-Box
-  getrennt ("bitte ueber Bearbeiten korrigieren"). Der Hinweis zum
-  deaktivierten "+ Neuen SLR-Wert" ist jetzt ohne Klick sichtbar.
+  keiner Schulstufe gehoert ("… gehoert zu keiner Schulstufe. Bitte aus der
+  Auswahl waehlen."). Duplikate werden normalisiert erkannt; eine
+  Unique-Verletzung (`slr_werte_unique`) wird ueber die Fehlerkette
+  (`err.cause`, Drizzle wrappt in `DrizzleQueryError`) erkannt und deutsch
+  gemeldet statt als 500. Relation muss > 0 sein (Anlegen und Bearbeiten) —
+  eine 0-Zeile waere fuer die Berechnung "fehlend", im Dropdown aber belegt.
+  Quelle wird getrimmt und ist auf 200 Zeichen begrenzt ("Quelle darf
+  hoechstens 200 Zeichen haben."). Anlegen, Bearbeiten, Loeschen und
+  Uebernahme revalidieren auch `/stellensoll`.
+- **Luecken-Box ueber der Tabelle** (gelb): nennt die benoetigten Typen, fuer
+  die im gewaehlten Schuljahr kein SLR-Wert > 0 vorliegt — genau die Typen, an
+  denen die Berechnung scheitern wuerde; vorhandene 0-Altlasten getrennt
+  ("bitte ueber Bearbeiten korrigieren").
+- **Button "Fehlende Werte aus <Vorgaenger> uebernehmen"** (Action
+  `uebernehmeSlrAusVorjahrAction`, Query `uebernehmeFehlendeSlrWerte`) —
+  erscheint nur, wenn der Vorgaenger tatsaechlich kopierbare Werte hat
+  (dieselbe reine Funktion `filterUebernehmbareSlrWerte` wie der Server).
+  Kopiert in einer Transaktion nur fehlende, benoetigte Typen mit Relation
+  > 0, Vorlagen nach id (bei Leerzeichen-Duplikaten gewinnt die zuerst
+  angelegte), Typ normalisiert, `ON CONFLICT DO NOTHING` (parallele Klicks),
+  ueberschreibt nie; Quelle-Vermerk "uebernommen aus … — pruefen". Fehlt ein
+  Typ auch im Vorgaenger, sagt die Box das ("In 2025/2026 ist fuer … kein
+  Wert (> 0) hinterlegt — bitte ueber '+ Neuen SLR-Wert' anlegen"), ohne
+  Vorgaenger ebenso. Fuer Schuljahre, die vor der automatischen Uebernahme
+  angelegt wurden. Ein Audit-Log-Eintrag je Uebernahme unter `schuljahre`
+  (UPDATE, `slrUebernommenAus` + `slrWerte`) — konsistent zum Anlegen eines
+  Schuljahres.
+- **Vorgaenger-Regel nur einmal, in TS:** `findeVorgaengerSchuljahr` (zuletzt
+  begonnenes Schuljahr vor dem Startdatum; bei gleichem Startdatum gewinnt die
+  hoehere id, unabhaengig von der Eingabereihenfolge). SLR-Seite,
+  Uebernahme-Action und `createSchuljahrAction` entscheiden ueber dieselbe
+  Funktion auf `getSchuljahre()`; die SQL-Varianten `getVorgaengerSchuljahr`
+  und `getSchuljahrById` sind entfernt, ebenso die unbenutzte
+  `getAllSchulStufen` (Name kollidierte fast mit `getAlleSchulStufen`).
+- **Rotes Badge "Keiner Schulstufe zugeordnet"** nur an Zeilen, deren Typ
+  keine Schulstufe verwendet — auch keine inaktive (Tippfehler-Altlasten);
+  Tooltip "Dieser Typ gehoert zu keiner Schulstufe — die Berechnung findet ihn
+  nicht." Bearbeiten und Loeschen bleiben moeglich.
 - **Vorbelegung "Schueler je Stelle" + Quelle beim Typ-Wechsel** im
   Neu-Formular: zuerst der Wert des Vorgaenger-Schuljahres fuer den Typ
-  (normalisiert, Relation > 0; Quelle mit demselben "uebernommen aus … —
-  pruefen"-Vermerk wie die Server-Uebernahme), sonst der Standardwert aus
-  `SLR_DEFAULTS_2025_2026` mit Quelle `SLR_DEFAULTS_QUELLE` (§ 8 VO zu § 93
-  Abs. 2 SchulG), sonst leer. Ein Hinweis unter dem Feld nennt die Herkunft
-  ("Vorbelegt aus 2025/2026 — bitte pruefen"), beide Felder bleiben editierbar;
-  Wechsel des Typs ueberschreibt die Vorbelegung immer. Neue reine Funktionen
-  `ermittleSlrVorschlag`, `formatiereRelationDE`, `baueUebernahmeQuelle`
-  (aus `queries.ts` verschoben) in `schuljahrZuordnung.ts`, mit Tests.
-  `baueUebernahmeQuelle` ersetzt einen bereits vorhandenen Uebernahme-Vermerk
-  statt ihn zu verketten (gilt auch fuer die Server-Uebernahme und das
-  Neuanlegen eines Schuljahres), sonst waere die Quelle nach jedem
-  Schuljahreswechsel um ein weiteres "uebernommen aus … |" gewachsen.
-- **Review-Nachzug (11.09.2026):**
-  - Formulare rufen die Server-Actions per `onSubmit` direkt auf statt ueber
-    `<form action>`: eine Form-Action laeuft in React 19 als Transition, das
-    Sperr-Flag wurde nie gerendert (Doppelklick loeste die Action zweimal aus),
-    und React setzte das Formular auch bei Fehler-Result zurueck (Dropdown
-    sprang auf "Bitte waehlen ..."). Pending-Status je Aktion — nur der
-    ausloesende Button zeigt "Speichere..."/"Uebernehme..."/"Loesche...", die
-    anderen sind gesperrt, Abbrechen bleibt frei. Erneute Wahl desselben Typs
-    ueberschreibt eine korrigierte Relation nicht mehr; die Live-Region der
-    Luecken-Box umfasst nur noch den Text, nicht den Uebernahme-Button.
-    (`SlrClient.tsx`)
-  - Zulaessige vs. benoetigte Typen: waehlbar und serverseitig gueltig sind
-    jetzt die Typen ALLER Schulstufen — auch inaktive und die inaktiver
-    Schulen, denn eine deaktivierte Stufe kann am Stichtag noch Schuelerzahlen
-    haben (vorher Sackgasse); im Dropdown unter "Weitere Schulstufen (inaktiv
-    oder inaktive Schule)". Luecken-Box, Uebernahme-Button und
-    `uebernehmeSlrAusVorjahrAction` pruefen nur noch gegen aktive Stufen aktiver
-    Schulen (vorher Fehlalarm fuer Stufen deaktivierter Schulen). Neue Queries
-    `getAlleSchulStufen`/`getBenoetigteSchulStufen`, neue Funktion
-    `ermittleZulaessigeSchulformTypen`, Badge-Tooltip "Dieser Typ gehoert zu
-    keiner Schulstufe". Die Berechnung selbst ist unveraendert.
-  - Loeschen: `slr_historie.slr_wert_id` hat kein `ON DELETE CASCADE` — ein je
-    bearbeiteter Wert war unloeschbar, der DB-Fehler (23503) kam als "Aktion
-    fehlgeschlagen" an. `deleteSlrWertAction` prueft die Historie vorab und
-    erklaert ("… hat eine Aenderungshistorie — bitte ueber Bearbeiten
-    korrigieren"), faengt 23503 mit derselben Meldung ab und schreibt
-    `schuljahrId` und `quelle` ins Audit-Log des Deletes.
+  (normalisiert, Relation > 0; Quelle mit demselben Uebernahme-Vermerk wie die
+  Server-Uebernahme), sonst der Standardwert aus `SLR_DEFAULTS_2025_2026` mit
+  Quelle `SLR_DEFAULTS_QUELLE` (§ 8 VO zu § 93 Abs. 2 SchulG), sonst leer. Ein
+  Hinweis unter dem Feld nennt die Herkunft ("Vorbelegt aus 2025/2026 — bitte
+  pruefen"), beide Felder bleiben editierbar; ein Typ-WECHSEL ueberschreibt
+  die Vorbelegung, dieselbe Auswahl noch einmal laesst eine korrigierte
+  Relation stehen. (`ermittleSlrVorschlag`, `formatiereRelationDE`)
+- **Vermerk-Dedupe:** `baueUebernahmeQuelle` (aus `queries.ts` nach
+  `schuljahrZuordnung.ts` verschoben) ersetzt einen vorhandenen
+  Uebernahme-Vermerk — auch mehrfach verkettete aus Altdaten, auch bei
+  fuehrendem Leerzeichen — statt ihn zu verketten; sonst waere die Quelle nach
+  jedem Schuljahreswechsel um ein weiteres "uebernommen aus … |" gewachsen.
+  Gilt fuer Server-Uebernahme, Vorbelegung und das Neuanlegen eines
+  Schuljahres (`createSchuljahr` kopiert weiterhin alle Vorgaenger-Werte).
+- **Formulare rufen die Server-Actions per `onSubmit`** direkt auf statt ueber
+  `<form action>`: eine Form-Action laeuft in React 19 als Transition (das
+  Sperr-Flag wurde nie gerendert, Doppelklick loeste die Action zweimal aus),
+  und React setzte das Formular auch bei Fehler-Result zurueck (Dropdown
+  sprang auf "Bitte waehlen ..."). Pending-Status je Aktion — nur der
+  ausloesende Button zeigt "Speichere..."/"Uebernehme..."/"Loesche...", die
+  anderen sind gesperrt, Abbrechen bleibt frei; ein Serverfehler sperrt die
+  Buttons nicht dauerhaft. Die Live-Region der Luecken-Box umfasst nur den
+  Text, nicht den Uebernahme-Button.
+- **Loeschen mit Historie-Pruefung:** `slr_historie.slr_wert_id` hat kein
+  `ON DELETE CASCADE` — `deleteSlrWertAction` prueft die Historie vorab und
+  erklaert ("… hat eine Aenderungshistorie — bitte ueber Bearbeiten
+  korrigieren"), faengt 23503 (Historie parallel entstanden) mit derselben
+  Meldung ab. INSERT- und DELETE-Audit tragen `schuljahrId` und `quelle`.
+- Review-Nachzug (11.09.2026, zwei Runden): Der erste Stand hatte nur Typen
+  aktiver Schulstufen zugelassen (Sackgasse fuer deaktivierte Stufen mit
+  Schuelerzahlen), die Formulare ueber `<form action>` gefahren, Loeschen mit
+  Historie als "Aktion fehlgeschlagen" gemeldet und die Vorgaenger-Regel
+  doppelt (SQL + TS) gefuehrt. Die zweite Runde: Vorgaenger-Regel nur noch in
+  TS mit Tiebreaker; Uebernahme-Button nur bei kopierbaren Werten, sonst
+  Hinweis je Typ; Audit der Uebernahme unter `schuljahre`; Quelle getrimmt
+  vor dem Vermerk-Strip und deutsche 200-Zeichen-Meldung; Vorlagen nach id;
+  Tests an der DB-Grenze.
+- Tests: `tests/lib/berechnungen/schuljahrZuordnung.test.ts` (53, reine
+  Funktionen), `tests/lib/slrActions.test.ts` (36, Actions mit gemockten
+  Queries/DB — Duplikat-Pruefung ueber das Ziel-Schuljahr, Quelle getrimmt,
+  Vorgaenger ueber `findeVorgaengerSchuljahr`), neu `tests/lib/queriesSlr.test.ts`
+  (8, DB-Grenze: Insert-Zeilen, Konflikt-Schluessel `(schuljahr_id,
+  schulform_typ)`, `returning()`-Rueckgabe, `createSchuljahr` inaktiv mit
+  Vermerk-Dedupe). Gesamt 322 gruen, tsc 0 Fehler.
 
 ### Stellensoll: Schuljahreswechsel liess die Berechnung fuer GES/GYM scheitern (09.09.2026)
 
