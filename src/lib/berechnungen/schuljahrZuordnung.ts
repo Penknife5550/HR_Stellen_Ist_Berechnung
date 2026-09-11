@@ -58,21 +58,38 @@ export function baueSlrLookup(
   return lookup;
 }
 
-/**
- * Schulform-Typen, die die Berechnung als SLR-Lookup-Schluessel braucht:
- * nur aktive Schulstufen (aktiv !== false), normalisiert, dedupliziert, sortiert.
- * Einzige Quelle fuer die Typ-Auswahl in der SLR-Konfiguration.
- */
-export function ermittleBenoetigteSchulformTypen(
-  schulStufen: Array<{ schulformTyp: string; aktiv?: boolean }>
-): string[] {
+/** Schulform-Typen der Schulstufen: normalisiert, ohne Leere, dedupliziert, sortiert (de). */
+function sammleSchulformTypen(schulStufen: Array<{ schulformTyp: string }>): string[] {
   const typen = new Set<string>();
   for (const st of schulStufen) {
-    if (st.aktiv === false) continue;
     const typ = normalisiereSchulformTyp(st.schulformTyp);
     if (typ) typen.add(typ);
   }
   return [...typen].sort((a, b) => a.localeCompare(b, "de"));
+}
+
+/**
+ * Schulform-Typen, die die Berechnung sicher als SLR-Lookup-Schluessel braucht:
+ * nur aktive Schulstufen (aktiv !== false). Der Aufrufer uebergibt nur Stufen
+ * aktiver Schulen (getBenoetigteSchulStufen). Quelle fuer den Luecken-Hinweis
+ * und die Vorjahres-Uebernahme in der SLR-Konfiguration.
+ */
+export function ermittleBenoetigteSchulformTypen(
+  schulStufen: Array<{ schulformTyp: string; aktiv?: boolean }>
+): string[] {
+  return sammleSchulformTypen(schulStufen.filter((st) => st.aktiv !== false));
+}
+
+/**
+ * Schulform-Typen ALLER uebergebenen Schulstufen — auch inaktive und die inaktiver
+ * Schulen. Quelle fuer die Typ-Auswahl und die Server-Validierung beim Anlegen:
+ * eine deaktivierte Stufe kann am Stichtag noch Schuelerzahlen haben und braucht
+ * dann trotzdem einen SLR-Wert.
+ */
+export function ermittleZulaessigeSchulformTypen(
+  schulStufen: Array<{ schulformTyp: string }>
+): string[] {
+  return sammleSchulformTypen(schulStufen);
 }
 
 /**
@@ -88,18 +105,18 @@ export function ermittleFehlendeSlrTypen(
 }
 
 /**
- * SLR-Typen, die zu keiner aktiven Schulstufe gehoeren (z.B. Tippfehler wie
- * "Gesamtschule SEK I"). Sie fliessen nicht in die Berechnung ein.
+ * SLR-Typen, die zu keiner der uebergebenen Schulstufen-Typen gehoeren (z.B.
+ * Tippfehler wie "Gesamtschule SEK I"). Die Berechnung findet sie nie.
  */
 export function ermittleVerwaisteSlrTypen(
-  benoetigteTypen: string[],
+  zulaessigeTypen: string[],
   slrWerte: Array<{ schulformTyp: string }>
 ): string[] {
-  const benoetigt = new Set(benoetigteTypen.map(normalisiereSchulformTyp));
+  const zulaessig = new Set(zulaessigeTypen.map(normalisiereSchulformTyp));
   const verwaist = new Set<string>();
   for (const slr of slrWerte) {
     const typ = normalisiereSchulformTyp(slr.schulformTyp);
-    if (!benoetigt.has(typ)) verwaist.add(typ);
+    if (!zulaessig.has(typ)) verwaist.add(typ);
   }
   return [...verwaist];
 }
@@ -142,6 +159,78 @@ export function filterUebernehmbareSlrWerte<T extends { schulformTyp: string; re
     gesehen.add(typ);
     return true;
   });
+}
+
+/**
+ * Quelle-Vermerk fuer uebernommene SLR-Werte. Der Pruef-Vermerk steht vorn und
+ * ueberlebt die Kuerzung; die Originalquelle wird auf die Spaltenlaenge (200) gekuerzt.
+ */
+export function baueUebernahmeQuelle(vonBezeichnung: string, originalQuelle: string | null): string {
+  const zusatz = `uebernommen aus ${vonBezeichnung} — pruefen`;
+  const restLaenge = 200 - zusatz.length - 3;
+  // Traegt die Originalquelle selbst schon einen Uebernahme-Vermerk (Wert wurde im Vorjahr
+  // uebernommen), faellt er weg — sonst waechst die Quelle mit jedem Schuljahreswechsel
+  // um ein weiteres "uebernommen aus … | ".
+  const kern = originalQuelle?.replace(UEBERNAHME_VERMERK_PREFIX, "").trim() || null;
+  return kern ? `${zusatz} | ${kern.slice(0, restLaenge)}` : zusatz;
+}
+
+/** Ein oder mehrere fuehrende "uebernommen aus … — pruefen | "-Vermerke, auch ohne folgenden Trenner. */
+const UEBERNAHME_VERMERK_PREFIX = /^(?:uebernommen aus .+? — pruefen(?:\s*\|\s*|$))+/;
+
+/**
+ * Relation fuer das Eingabefeld: zwei Nachkommastellen, Komma als Dezimaltrenner.
+ * Bewusst ohne toLocaleString — das Ergebnis muss auf Server und Client identisch sein.
+ */
+export function formatiereRelationDE(relation: string | number): string {
+  return Number(relation).toFixed(2).replace(".", ",");
+}
+
+export type SlrVorschlag = {
+  relation: string;
+  quelle: string;
+  herkunft: "vorjahr" | "standard" | null;
+};
+
+/**
+ * Vorbelegung fuer "Schueler je Stelle" + Quelle beim Anlegen eines SLR-Werts:
+ * 1. Wert des Vorgaenger-Schuljahres fuer den Typ (normalisiert, Relation > 0),
+ *    Quelle mit demselben Uebernahme-Vermerk wie die Server-Uebernahme;
+ * 2. sonst der Standardwert (SLR_DEFAULTS_2025_2026) mit dessen Quelle;
+ * 3. sonst leer. Die Felder bleiben im Formular frei editierbar.
+ */
+export function ermittleSlrVorschlag(
+  typ: string,
+  vorgaenger: {
+    bezeichnung: string;
+    werte: Array<{ schulformTyp: string; relation: string | number; quelle: string | null }>;
+  } | null,
+  defaults: Record<string, number>,
+  defaultsQuelle: string
+): SlrVorschlag {
+  const key = normalisiereSchulformTyp(typ);
+
+  const vorjahr = vorgaenger?.werte.find(
+    (w) => normalisiereSchulformTyp(w.schulformTyp) === key && Number(w.relation) > 0
+  );
+  if (vorgaenger && vorjahr) {
+    return {
+      relation: formatiereRelationDE(vorjahr.relation),
+      quelle: baueUebernahmeQuelle(vorgaenger.bezeichnung, vorjahr.quelle),
+      herkunft: "vorjahr",
+    };
+  }
+
+  const standardKey = Object.keys(defaults).find((k) => normalisiereSchulformTyp(k) === key);
+  if (standardKey !== undefined && defaults[standardKey] > 0) {
+    return {
+      relation: formatiereRelationDE(defaults[standardKey]),
+      quelle: defaultsQuelle,
+      herkunft: "standard",
+    };
+  }
+
+  return { relation: "", quelle: "", herkunft: null };
 }
 
 /**

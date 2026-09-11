@@ -62,6 +62,9 @@ export const SLR_DEFAULTS_2025_2026 = {
   "Berufskolleg Vollzeit": 16.18,
 } as const;
 
+/** Quelle-Text der SLR-Standardwerte — identisch zum Seed (seed.ts / seed_initial.sql). */
+export const SLR_DEFAULTS_QUELLE = "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)";
+
 // Monate (deutsch)
 export const MONATE = [
   "Januar", "Februar", "Maerz", "April", "Mai", "Juni",

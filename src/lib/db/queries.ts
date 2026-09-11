@@ -35,7 +35,11 @@ import {
   auditLog,
 } from "@/db/schema";
 import { eq, and, desc, asc, sql, inArray, gte, lte, lt, isNull } from "drizzle-orm";
-import { filterUebernehmbareSlrWerte, normalisiereSchulformTyp } from "@/lib/berechnungen/schuljahrZuordnung";
+import {
+  baueUebernahmeQuelle,
+  filterUebernehmbareSlrWerte,
+  normalisiereSchulformTyp,
+} from "@/lib/berechnungen/schuljahrZuordnung";
 
 // ============================================================
 // SCHULEN
@@ -288,6 +292,38 @@ export async function getAlleAktivenSchulStufen() {
     .orderBy(asc(schulStufen.schuleId), asc(schulStufen.stufe));
 }
 
+/**
+ * Alle Schulstufen — auch inaktive und die inaktiver Schulen. Liefert die ZULAESSIGEN
+ * Schulform-Typen der SLR-Konfiguration: eine deaktivierte Stufe kann am Stichtag noch
+ * Schuelerzahlen haben und braucht dann trotzdem einen SLR-Wert.
+ */
+export async function getAlleSchulStufen() {
+  return db
+    .select()
+    .from(schulStufen)
+    .orderBy(asc(schulStufen.schuleId), asc(schulStufen.stufe));
+}
+
+/**
+ * Schulstufen, deren Typ die Stellensoll-Berechnung sicher als SLR-Schluessel braucht:
+ * aktive Stufen an aktiven Schulen. Nur die schul_stufen-Spalten (Luecken-Hinweis und
+ * Vorjahres-Uebernahme in der SLR-Konfiguration).
+ */
+export async function getBenoetigteSchulStufen() {
+  return db
+    .select({
+      id: schulStufen.id,
+      schuleId: schulStufen.schuleId,
+      stufe: schulStufen.stufe,
+      schulformTyp: schulStufen.schulformTyp,
+      aktiv: schulStufen.aktiv,
+    })
+    .from(schulStufen)
+    .innerJoin(schulen, eq(schulStufen.schuleId, schulen.id))
+    .where(and(eq(schulStufen.aktiv, true), eq(schulen.aktiv, true)))
+    .orderBy(asc(schulStufen.schuleId), asc(schulStufen.stufe));
+}
+
 // ============================================================
 // SCHULJAHRE
 // ============================================================
@@ -299,16 +335,6 @@ export async function getSchuljahre() {
 export async function getSchuljahrById(id: number) {
   const [result] = await db.select().from(schuljahre).where(eq(schuljahre.id, id));
   return result ?? null;
-}
-
-/**
- * Quelle-Vermerk fuer uebernommene SLR-Werte. Der Pruef-Vermerk steht vorn und
- * ueberlebt die Kuerzung; die Originalquelle wird auf die Spaltenlaenge (200) gekuerzt.
- */
-function baueUebernahmeQuelle(vonBezeichnung: string, originalQuelle: string | null): string {
-  const zusatz = `uebernommen aus ${vonBezeichnung} — pruefen`;
-  const restLaenge = 200 - zusatz.length - 3;
-  return originalQuelle ? `${zusatz} | ${originalQuelle.slice(0, restLaenge)}` : zusatz;
 }
 
 /**

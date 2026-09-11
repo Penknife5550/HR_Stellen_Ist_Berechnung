@@ -5,10 +5,14 @@ import {
   normalisiereSchulformTyp,
   findeSlrKonflikte,
   ermittleBenoetigteSchulformTypen,
+  ermittleZulaessigeSchulformTypen,
   ermittleFehlendeSlrTypen,
   ermittleVerwaisteSlrTypen,
   findeVorgaengerSchuljahr,
   filterUebernehmbareSlrWerte,
+  baueUebernahmeQuelle,
+  formatiereRelationDE,
+  ermittleSlrVorschlag,
 } from "@/lib/berechnungen/schuljahrZuordnung";
 
 const schuljahre = [
@@ -124,6 +128,43 @@ describe("ermittleBenoetigteSchulformTypen", () => {
 
   it("laesst leere Typen weg", () => {
     expect(ermittleBenoetigteSchulformTypen([{ schulformTyp: "   " }])).toEqual([]);
+  });
+});
+
+describe("ermittleZulaessigeSchulformTypen", () => {
+  it("enthaelt auch die Typen inaktiver Schulstufen (deaktivierte Stufe mit Schuelerzahlen am Stichtag)", () => {
+    // aktiv wird bewusst ignoriert — dieselben Zeilen, die ermittleBenoetigteSchulformTypen filtert
+    const stufen = [
+      { schulformTyp: "Grundschule", aktiv: false },
+      { schulformTyp: "Hauptschule", aktiv: true },
+    ];
+    expect(ermittleZulaessigeSchulformTypen(stufen)).toEqual(["Grundschule", "Hauptschule"]);
+    expect(ermittleBenoetigteSchulformTypen(stufen)).toEqual(["Hauptschule"]);
+  });
+
+  it("normalisiert, dedupliziert und sortiert wie ermittleBenoetigteSchulformTypen", () => {
+    const typen = ermittleZulaessigeSchulformTypen([
+      { schulformTyp: "Gymnasium Sek II" },
+      { schulformTyp: " Gymnasium Sek II" },
+      { schulformTyp: "Gesamtschule Sek I " },
+      { schulformTyp: "Gesamtschule Sek I" },
+    ]);
+    expect(typen).toEqual(["Gesamtschule Sek I", "Gymnasium Sek II"]);
+  });
+
+  it("laesst leere Typen weg", () => {
+    expect(ermittleZulaessigeSchulformTypen([{ schulformTyp: "   " }])).toEqual([]);
+  });
+
+  it("ist eine Obermenge der benoetigten Typen derselben Stufen", () => {
+    const stufen = [
+      { schulformTyp: "Grundschule", aktiv: false },
+      { schulformTyp: "Gymnasium Sek I (G9)", aktiv: true },
+      { schulformTyp: "Gymnasium Sek II", aktiv: true },
+    ];
+    const zulaessig = ermittleZulaessigeSchulformTypen(stufen);
+    for (const typ of ermittleBenoetigteSchulformTypen(stufen)) expect(zulaessig).toContain(typ);
+    expect(zulaessig).toContain("Grundschule");
   });
 });
 
@@ -273,5 +314,113 @@ describe("filterUebernehmbareSlrWerte", () => {
       benoetigteTypen
     );
     expect(ergebnis).toEqual([{ schulformTyp: "Gymnasium Sek I (G9)", relation: 19.87 }]);
+  });
+});
+
+describe("formatiereRelationDE", () => {
+  it("formatiert numeric-Strings der DB mit zwei Nachkommastellen und Komma", () => {
+    expect(formatiereRelationDE("12.7")).toBe("12,70");
+    expect(formatiereRelationDE("18.63")).toBe("18,63");
+  });
+
+  it("formatiert Zahlen (Standardwerte aus constants.ts)", () => {
+    expect(formatiereRelationDE(18.63)).toBe("18,63");
+    expect(formatiereRelationDE(41.64)).toBe("41,64");
+  });
+});
+
+describe("baueUebernahmeQuelle", () => {
+  it("stellt den Pruef-Vermerk vor die Originalquelle", () => {
+    expect(baueUebernahmeQuelle("2025/2026", "§ 8 VO zu § 93 Abs. 2 SchulG")).toBe(
+      "uebernommen aus 2025/2026 — pruefen | § 8 VO zu § 93 Abs. 2 SchulG"
+    );
+  });
+
+  it("liefert ohne Originalquelle nur den Vermerk", () => {
+    expect(baueUebernahmeQuelle("2025/2026", null)).toBe("uebernommen aus 2025/2026 — pruefen");
+  });
+
+  it("kuerzt auf die Spaltenlaenge 200, der Vermerk ueberlebt", () => {
+    const quelle = baueUebernahmeQuelle("2025/2026", "x".repeat(300));
+    expect(quelle).toHaveLength(200);
+    expect(quelle.startsWith("uebernommen aus 2025/2026 — pruefen | ")).toBe(true);
+  });
+
+  it("ersetzt einen vorhandenen Uebernahme-Vermerk statt ihn zu verketten", () => {
+    expect(
+      baueUebernahmeQuelle("2026/2027", "uebernommen aus 2025/2026 — pruefen | § 8 VO zu § 93 Abs. 2 SchulG")
+    ).toBe("uebernommen aus 2026/2027 — pruefen | § 8 VO zu § 93 Abs. 2 SchulG");
+  });
+
+  it("entfernt auch mehrfach verkettete Vermerke aus Altdaten", () => {
+    expect(
+      baueUebernahmeQuelle(
+        "2027/2028",
+        "uebernommen aus 2026/2027 — pruefen | uebernommen aus 2025/2026 — pruefen | § 8 VO"
+      )
+    ).toBe("uebernommen aus 2027/2028 — pruefen | § 8 VO");
+  });
+
+  it("liefert nur den neuen Vermerk, wenn die Originalquelle nur aus einem Vermerk bestand", () => {
+    expect(baueUebernahmeQuelle("2026/2027", "uebernommen aus 2025/2026 — pruefen")).toBe(
+      "uebernommen aus 2026/2027 — pruefen"
+    );
+  });
+});
+
+describe("ermittleSlrVorschlag", () => {
+  const defaults = { "Gesamtschule Sek I": 18.63, "Gymnasium Sek II": 12.7 };
+  const defaultsQuelle = "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)";
+  const vorgaenger = {
+    bezeichnung: "2025/2026",
+    werte: [
+      { schulformTyp: "Gesamtschule Sek I", relation: "18.90", quelle: "Bewirtschaftungserlass 2025/26" },
+      { schulformTyp: " Gymnasium Sek II ", relation: "12.58", quelle: null },
+      { schulformTyp: "Grundschule", relation: "0", quelle: null },
+    ],
+  };
+
+  it("nimmt den Vorjahreswert vor dem Standardwert, Quelle mit Uebernahme-Vermerk", () => {
+    expect(ermittleSlrVorschlag("Gesamtschule Sek I", vorgaenger, defaults, defaultsQuelle)).toEqual({
+      relation: "18,90",
+      quelle: "uebernommen aus 2025/2026 — pruefen | Bewirtschaftungserlass 2025/26",
+      herkunft: "vorjahr",
+    });
+  });
+
+  it("findet den Vorjahreswert auch in der Leerzeichen-Variante, ohne Originalquelle nur der Vermerk", () => {
+    expect(ermittleSlrVorschlag("Gymnasium Sek II", vorgaenger, defaults, defaultsQuelle)).toEqual({
+      relation: "12,58",
+      quelle: "uebernommen aus 2025/2026 — pruefen",
+      herkunft: "vorjahr",
+    });
+  });
+
+  it("wertet Vorjahres-Relation 0 als nicht vorhanden und faellt auf den Standardwert zurueck", () => {
+    expect(
+      ermittleSlrVorschlag("Grundschule", vorgaenger, { ...defaults, Grundschule: 21.95 }, defaultsQuelle)
+    ).toEqual({ relation: "21,95", quelle: defaultsQuelle, herkunft: "standard" });
+  });
+
+  it("nimmt ohne Vorgaenger den Standardwert mit exakter Quelle", () => {
+    expect(ermittleSlrVorschlag("Gymnasium Sek II", null, defaults, defaultsQuelle)).toEqual({
+      relation: "12,70",
+      quelle: "§ 8 VO zu § 93 Abs. 2 SchulG (GV. NRW. S. 349 vom 28.06.2024)",
+      herkunft: "standard",
+    });
+  });
+
+  it("vergleicht die Standardwert-Keys normalisiert", () => {
+    expect(
+      ermittleSlrVorschlag(" Gymnasium Sek II ", null, { "Gymnasium Sek II ": 12.7 }, defaultsQuelle).herkunft
+    ).toBe("standard");
+  });
+
+  it("liefert leer fuer unbekannte Typen", () => {
+    expect(ermittleSlrVorschlag("Berufskolleg Dual", vorgaenger, defaults, defaultsQuelle)).toEqual({
+      relation: "",
+      quelle: "",
+      herkunft: null,
+    });
   });
 });

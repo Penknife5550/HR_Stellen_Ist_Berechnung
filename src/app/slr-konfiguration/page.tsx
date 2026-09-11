@@ -1,17 +1,34 @@
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
-import { getSchuljahre, getSlrWerteBySchuljahr, getSlrHistorieBySchuljahr, getAlleAktivenSchulStufen } from "@/lib/db/queries";
-import { ermittleBenoetigteSchulformTypen, findeVorgaengerSchuljahr } from "@/lib/berechnungen/schuljahrZuordnung";
+import {
+  getSchuljahre,
+  getSlrWerteBySchuljahr,
+  getSlrHistorieBySchuljahr,
+  getAlleSchulStufen,
+  getBenoetigteSchulStufen,
+} from "@/lib/db/queries";
+import {
+  ermittleBenoetigteSchulformTypen,
+  ermittleZulaessigeSchulformTypen,
+  findeVorgaengerSchuljahr,
+} from "@/lib/berechnungen/schuljahrZuordnung";
 import { SlrClient } from "./SlrClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SlrKonfigurationPage() {
-  const [schuljahre, schulStufen] = await Promise.all([getSchuljahre(), getAlleAktivenSchulStufen()]);
+  const [schuljahre, alleSchulStufen, benoetigteSchulStufen] = await Promise.all([
+    getSchuljahre(),
+    getAlleSchulStufen(),
+    getBenoetigteSchulStufen(),
+  ]);
 
-  // Schulform-Typen, die die Berechnung als Lookup-Schluessel nutzt — einzige waehlbare Typen
-  const schulformTypen = ermittleBenoetigteSchulformTypen(schulStufen);
+  // Zulaessig: Typen ALLER Schulstufen (Dropdown, Server-Validierung) — auch inaktive Stufen koennen
+  // am Stichtag Schuelerzahlen haben. Benoetigt: aktive Stufen an aktiven Schulen — genau die Typen,
+  // fuer die die Berechnung sicher einen SLR-Wert braucht (Luecken-Hinweis, Uebernahme).
+  const zulaessigeTypen = ermittleZulaessigeSchulformTypen(alleSchulStufen);
+  const benoetigteTypen = ermittleBenoetigteSchulformTypen(benoetigteSchulStufen);
 
   // Neuestes Schuljahr per Default
   const aktuellesSj = schuljahre[0];
@@ -91,18 +108,24 @@ export default async function SlrKonfigurationPage() {
       />
 
       <SlrClient
-        schuljahre={schuljahre.map((sj) => ({
-          id: sj.id,
-          bezeichnung: sj.bezeichnung,
-          startDatum: sj.startDatum,
-          endDatum: sj.endDatum,
-          // Vorgaenger fuer "Fehlende Werte uebernehmen" — dieselbe Datumslogik wie getVorgaengerSchuljahr
-          vorgaengerBezeichnung: findeVorgaengerSchuljahr(schuljahre, sj.startDatum)?.bezeichnung ?? null,
-        }))}
+        schuljahre={schuljahre.map((sj) => {
+          // Vorgaenger fuer "Fehlende Werte uebernehmen" und die Vorbelegung im Neu-Formular —
+          // dieselbe Datumslogik wie getVorgaengerSchuljahr
+          const vorgaenger = findeVorgaengerSchuljahr(schuljahre, sj.startDatum);
+          return {
+            id: sj.id,
+            bezeichnung: sj.bezeichnung,
+            startDatum: sj.startDatum,
+            endDatum: sj.endDatum,
+            vorgaengerId: vorgaenger?.id ?? null,
+            vorgaengerBezeichnung: vorgaenger?.bezeichnung ?? null,
+          };
+        })}
         slrBySchuljahr={slrBySchuljahr}
         historieBySchuljahr={historieBySchuljahr}
         defaultSchuljahrId={aktuellesSj.id}
-        schulformTypen={schulformTypen}
+        zulaessigeTypen={zulaessigeTypen}
+        benoetigteTypen={benoetigteTypen}
       />
 
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-[#575756]">

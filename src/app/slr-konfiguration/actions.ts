@@ -3,17 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { slrWerte, slrHistorie } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { writeAuditLog } from "@/lib/audit";
 import { requireWriteAccess } from "@/lib/auth/permissions";
 import {
-  getAlleAktivenSchulStufen,
+  getAlleSchulStufen,
+  getBenoetigteSchulStufen,
   getSchuljahrById,
   getVorgaengerSchuljahr,
   uebernehmeFehlendeSlrWerte,
 } from "@/lib/db/queries";
 import {
   ermittleBenoetigteSchulformTypen,
+  ermittleZulaessigeSchulformTypen,
   normalisiereSchulformTyp,
 } from "@/lib/berechnungen/schuljahrZuordnung";
 import { z } from "zod";
@@ -147,9 +149,10 @@ export async function updateSlrWertAction(formData: FormData) {
 
 /**
  * Neuen SLR-Wert hinzufuegen.
- * Der Typ muss zu einer aktiven Schulstufe gehoeren — sonst findet die
- * Stellensoll-Berechnung den Wert nie (Vorfall 10.09.2026: "GYM G9" statt
- * "Gymnasium Sek I (G9)" -> "Fehlende SLR-Werte").
+ * Der Typ muss zu einer Schulstufe gehoeren — sonst findet die Stellensoll-
+ * Berechnung den Wert nie (Vorfall 10.09.2026: "GYM G9" statt
+ * "Gymnasium Sek I (G9)" -> "Fehlende SLR-Werte"). Auch inaktive Stufen zaehlen:
+ * eine deaktivierte Stufe mit Schuelerzahlen am Stichtag braucht den Wert trotzdem.
  */
 export async function createSlrWertAction(formData: FormData) {
   const session = await requireWriteAccess();
@@ -168,11 +171,11 @@ export async function createSlrWertAction(formData: FormData) {
 
   const schulformTyp = normalisiereSchulformTyp(parsed.data.schulformTyp);
 
-  // Typ muss von einer aktiven Schulstufe verwendet werden
-  const benoetigteTypen = ermittleBenoetigteSchulformTypen(await getAlleAktivenSchulStufen());
-  if (!benoetigteTypen.includes(schulformTyp)) {
+  // Typ muss von irgendeiner Schulstufe verwendet werden (zulaessige Typen, auch inaktive)
+  const zulaessigeTypen = ermittleZulaessigeSchulformTypen(await getAlleSchulStufen());
+  if (!zulaessigeTypen.includes(schulformTyp)) {
     return {
-      error: `Schulform-Typ "${schulformTyp}" gehoert zu keiner aktiven Schulstufe. Bitte aus der Auswahl waehlen.`,
+      error: `Schulform-Typ "${schulformTyp}" gehoert zu keiner Schulstufe. Bitte aus der Auswahl waehlen.`,
     };
   }
 
@@ -219,7 +222,10 @@ export async function createSlrWertAction(formData: FormData) {
 }
 
 /**
- * SLR-Wert loeschen (mit Historie-Vermerk).
+ * SLR-Wert loeschen.
+ * slr_historie.slr_wert_id referenziert slr_werte.id ohne ON DELETE CASCADE — ein
+ * je bearbeiteter Wert ist deshalb nicht loeschbar (23503). Das wird vorab geprueft
+ * und als Meldung erklaert, statt als "Aktion fehlgeschlagen" beim Nutzer anzukommen.
  */
 export async function deleteSlrWertAction(formData: FormData) {
   const session = await requireWriteAccess();
@@ -230,11 +236,35 @@ export async function deleteSlrWertAction(formData: FormData) {
     return { error: "SLR-Wert nicht gefunden." };
   }
 
-  await db.delete(slrWerte).where(eq(slrWerte.id, id));
+  const nichtLoeschbar =
+    `SLR-Wert fuer "${existing.schulformTyp}" wurde bereits bearbeitet und hat eine Aenderungshistorie — ` +
+    'er kann nicht geloescht werden. Bitte den Wert ueber "Bearbeiten" korrigieren.';
 
+  const [historie] = await db
+    .select({ n: count() })
+    .from(slrHistorie)
+    .where(eq(slrHistorie.slrWertId, id));
+  if ((historie?.n ?? 0) > 0) {
+    return { error: nichtLoeschbar };
+  }
+
+  try {
+    await db.delete(slrWerte).where(eq(slrWerte.id, id));
+  } catch (err: unknown) {
+    // Historie-Eintrag zwischen Pruefung und Delete entstanden (paralleles Bearbeiten)
+    if (pgErrorCode(err) === "23503") {
+      return { error: nichtLoeschbar };
+    }
+    console.error("Fehler beim Loeschen des SLR-Werts:", err instanceof Error ? err.message : "Unbekannt");
+    return { error: "Fehler beim Loeschen des SLR-Werts." };
+  }
+
+  // schuljahrId und quelle mitschreiben — nach dem Loeschen ist der Bezug sonst nicht rekonstruierbar
   await writeAuditLog("slr_werte", id, "DELETE", {
+    schuljahrId: existing.schuljahrId,
     schulformTyp: existing.schulformTyp,
     relation: existing.relation,
+    quelle: existing.quelle,
   }, null, session.name);
 
   revalidateSlrPfade();
@@ -264,7 +294,8 @@ export async function uebernehmeSlrAusVorjahrAction(formData: FormData) {
     return { error: "Kein Vorgaenger-Schuljahr gefunden." };
   }
 
-  const benoetigteTypen = ermittleBenoetigteSchulformTypen(await getAlleAktivenSchulStufen());
+  // Nur Typen aktiver Stufen an aktiven Schulen — genau die, fuer die die Berechnung sicher einen Wert braucht
+  const benoetigteTypen = ermittleBenoetigteSchulformTypen(await getBenoetigteSchulStufen());
 
   let uebernommen: Array<{ schulformTyp: string; relation: string }>;
   try {

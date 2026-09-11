@@ -36,7 +36,8 @@ SLR-Werte (die Uebernahme aus dem Vorjahr greift nur beim Neuanlegen).
   (`ermittleBenoetigteSchulformTypen`, `ermittleFehlendeSlrTypen`,
   `ermittleVerwaisteSlrTypen`, `findeVorgaengerSchuljahr`,
   `filterUebernehmbareSlrWerte`); Action-Tests in `tests/lib/slrActions.test.ts`.
-  `createSchuljahr` verhaelt sich unveraendert.
+  `createSchuljahr` uebernimmt weiterhin alle Vorgaenger-Werte, nur der
+  Quelle-Vermerk wird jetzt ueber `baueUebernahmeQuelle` dedupliziert.
 - Review-Nachzug: Unique-Verletzung wird ueber die Fehlerkette (`err.cause`,
   Drizzle wrappt in `DrizzleQueryError`) erkannt statt ueber die Meldung;
   Uebernahme nutzt `ON CONFLICT DO NOTHING` und faengt parallele Klicks mit
@@ -45,6 +46,47 @@ SLR-Werte (die Uebernahme aus dem Vorjahr greift nur beim Neuanlegen).
   werden nicht uebernommen, vorhandene 0-Altlasten nennt die Luecken-Box
   getrennt ("bitte ueber Bearbeiten korrigieren"). Der Hinweis zum
   deaktivierten "+ Neuen SLR-Wert" ist jetzt ohne Klick sichtbar.
+- **Vorbelegung "Schueler je Stelle" + Quelle beim Typ-Wechsel** im
+  Neu-Formular: zuerst der Wert des Vorgaenger-Schuljahres fuer den Typ
+  (normalisiert, Relation > 0; Quelle mit demselben "uebernommen aus … —
+  pruefen"-Vermerk wie die Server-Uebernahme), sonst der Standardwert aus
+  `SLR_DEFAULTS_2025_2026` mit Quelle `SLR_DEFAULTS_QUELLE` (§ 8 VO zu § 93
+  Abs. 2 SchulG), sonst leer. Ein Hinweis unter dem Feld nennt die Herkunft
+  ("Vorbelegt aus 2025/2026 — bitte pruefen"), beide Felder bleiben editierbar;
+  Wechsel des Typs ueberschreibt die Vorbelegung immer. Neue reine Funktionen
+  `ermittleSlrVorschlag`, `formatiereRelationDE`, `baueUebernahmeQuelle`
+  (aus `queries.ts` verschoben) in `schuljahrZuordnung.ts`, mit Tests.
+  `baueUebernahmeQuelle` ersetzt einen bereits vorhandenen Uebernahme-Vermerk
+  statt ihn zu verketten (gilt auch fuer die Server-Uebernahme und das
+  Neuanlegen eines Schuljahres), sonst waere die Quelle nach jedem
+  Schuljahreswechsel um ein weiteres "uebernommen aus … |" gewachsen.
+- **Review-Nachzug (11.09.2026):**
+  - Formulare rufen die Server-Actions per `onSubmit` direkt auf statt ueber
+    `<form action>`: eine Form-Action laeuft in React 19 als Transition, das
+    Sperr-Flag wurde nie gerendert (Doppelklick loeste die Action zweimal aus),
+    und React setzte das Formular auch bei Fehler-Result zurueck (Dropdown
+    sprang auf "Bitte waehlen ..."). Pending-Status je Aktion — nur der
+    ausloesende Button zeigt "Speichere..."/"Uebernehme..."/"Loesche...", die
+    anderen sind gesperrt, Abbrechen bleibt frei. Erneute Wahl desselben Typs
+    ueberschreibt eine korrigierte Relation nicht mehr; die Live-Region der
+    Luecken-Box umfasst nur noch den Text, nicht den Uebernahme-Button.
+    (`SlrClient.tsx`)
+  - Zulaessige vs. benoetigte Typen: waehlbar und serverseitig gueltig sind
+    jetzt die Typen ALLER Schulstufen — auch inaktive und die inaktiver
+    Schulen, denn eine deaktivierte Stufe kann am Stichtag noch Schuelerzahlen
+    haben (vorher Sackgasse); im Dropdown unter "Weitere Schulstufen (inaktiv
+    oder inaktive Schule)". Luecken-Box, Uebernahme-Button und
+    `uebernehmeSlrAusVorjahrAction` pruefen nur noch gegen aktive Stufen aktiver
+    Schulen (vorher Fehlalarm fuer Stufen deaktivierter Schulen). Neue Queries
+    `getAlleSchulStufen`/`getBenoetigteSchulStufen`, neue Funktion
+    `ermittleZulaessigeSchulformTypen`, Badge-Tooltip "Dieser Typ gehoert zu
+    keiner Schulstufe". Die Berechnung selbst ist unveraendert.
+  - Loeschen: `slr_historie.slr_wert_id` hat kein `ON DELETE CASCADE` — ein je
+    bearbeiteter Wert war unloeschbar, der DB-Fehler (23503) kam als "Aktion
+    fehlgeschlagen" an. `deleteSlrWertAction` prueft die Historie vorab und
+    erklaert ("… hat eine Aenderungshistorie — bitte ueber Bearbeiten
+    korrigieren"), faengt 23503 mit derselben Meldung ab und schreibt
+    `schuljahrId` und `quelle` ins Audit-Log des Deletes.
 
 ### Stellensoll: Schuljahreswechsel liess die Berechnung fuer GES/GYM scheitern (09.09.2026)
 
